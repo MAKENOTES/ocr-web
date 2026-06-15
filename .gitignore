@@ -1,0 +1,26 @@
+### IntelliJ IDEA ###
+.idea
+.vscode
+.venv
+__pycache__/
+outputs/
+detection/data/
+detection/checkpoints/
+test_results/
+detection/runs/
+recognition/data/
+recognition/runs/
+recognition/checkpoints/
+recognition_quantized_model_bak/
+
+#优化的模型文件
+best_detection.onnx
+best_detection.onnx.data
+best_detection.pth
+
+best_recognition.onnx
+best_recognition.onnx.data
+best_recognition.pth
+
+
+
