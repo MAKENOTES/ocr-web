@@ -126,9 +126,21 @@ class AddGaussianNoise(object):
 def remove_red_seal(image: Image.Image,
                     sensitivity: float = 0.7,
                     min_saturation: int = 50,
-                    min_value: int = 80) -> Image.Image:
+                    min_value: int = 80,
+                    keep_ratio_thresh: float = 0.5) -> Image.Image:
     """
-    从RGB图像中去除红色印章区域，用白色替换。
+    从RGB图像中去除红色印章区域，用白色替换（带"内容护栏"）。
+
+    适用场景：黑字上盖了红章 —— 去掉红色，保留黑字。
+
+    护栏 (keep_ratio_thresh)：
+        本数据集里存在大量"红色本身就是内容"的样本 ——
+        例如红色文字(删除/导入说明)、红底白字按钮、红色角标数字(49/27/61)。
+        对这些图无脑抹红会把内容整片涂白，造成不可恢复的信息丢失。
+        因此抹白前先估算"去红后还剩多少深色内容"：
+          - 若剩余内容 < keep_ratio_thresh，判定红色=内容 → 原样返回，不去红。
+          - 否则才执行抹白（真正的"黑字+红章"场景）。
+        关掉护栏可设 keep_ratio_thresh=0.0。
 
     Args:
         image: PIL RGB图像
@@ -138,9 +150,10 @@ def remove_red_seal(image: Image.Image,
                      0.9 = 激进 (可能误伤部分棕色/橙色文字)
         min_saturation: 最小饱和度阈值 (0-255)，低于此值不认为是红色
         min_value: 最小亮度阈值 (0-255)，低于此值不认为是红色
+        keep_ratio_thresh: 去红后深色内容的最低留存比例，低于此值则放弃去红
 
     Returns:
-        去除红章后的PIL RGB图像
+        去除红章后的PIL RGB图像（若触发护栏则返回原图）
     """
     if image.mode != 'RGB':
         image = image.convert('RGB')
@@ -180,12 +193,34 @@ def remove_red_seal(image: Image.Image,
             (v >= min_value)  # 亮度够高（排除深黑色）
     )
 
+    # 没有检测到红色，直接返回，省去后续计算
+    if not red_mask.any():
+        return image
+
+    # ========== 内容护栏：判断"红色是否就是内容" ==========
+    # 用灰度下的深色像素近似"内容/墨迹"。比较去红前后的深色内容量：
+    # 若去红后深色内容留存比例过低，说明红色承载了主要内容，放弃去红。
+    # 注意：必须用真实亮度 L（红色 L≈76 属于"深色"），不能用 HSV 的 V 通道
+    #       （红色 V=255 会被误判为亮色，导致护栏失效）。
+    gray = np.array(image.convert('L'))
+    dark_mask = gray < 150
+    ink_before = int(dark_mask.sum())
+    if ink_before > 0:
+        # 红色文字/红底/红角标本身就是"深色内容"，抹白会让信息坍塌；
+        # 这里同时考虑：红色像素占比过大时也视为"红色即内容"。
+        ink_after = int((dark_mask & ~red_mask).sum())
+        keep_ratio = ink_after / ink_before
+        red_frac = float(red_mask.mean())
+        if keep_ratio < keep_ratio_thresh or red_frac > 0.18:
+            return image  # 红色=内容，保留原图
+
     # ========== 形态学优化 (可选但推荐) ==========
-    # 轻微膨胀，填补印章内部的小空洞，让去除更干净
+    # 轻微膨胀，填补印章内部的小空洞，让去除更干净。
+    # iterations 由 2 降为 1：减少对红章邻近黑色笔画的啃噬。
     try:
         from scipy import ndimage
-        # 膨胀2个像素，连接碎片
-        red_mask = ndimage.binary_dilation(red_mask, iterations=2)
+        # 膨胀1个像素，连接碎片
+        red_mask = ndimage.binary_dilation(red_mask, iterations=1)
         # 闭运算，填充小洞
         red_mask = ndimage.binary_closing(red_mask, iterations=1)
     except ImportError:
