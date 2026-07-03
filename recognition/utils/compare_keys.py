@@ -62,7 +62,7 @@ def compare_keys(annotation_files, keys_file="recognition/keys.txt",
 
         # 额外提示：keys 里有、但标注中未出现的字符
         unused_in_keys = keys - annotation_chars
-        print(f"（参考）keys 里有、但标注中未出现的字符：{len(unused_in_keys)} 个。")
+        print(f"（参考）keys 里有、但标注中未出现的字符：{len(unused_in_keys)} 个。{unused_in_keys}")
 
     except FileNotFoundError as e:
         print(f"错误：找不到文件 '{e.filename}'，请检查文件名。")
