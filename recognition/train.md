@@ -102,3 +102,137 @@ TODO
     字典有问题 ，recognition/utils/compare_keys.py   可以优化 majorbio-ocr 项目
 
 
+20260706
+    • 我会给你一份可执行的长期方案，按优先级拆成阶段；这次不继续改代码，方便你下次按方案逐项执行。
+
+    • 长期方案建议按这个顺序做，不要一上来只调裁剪或只加数据。
+
+      ## 阶段 1：先修推理一致性
+
+      目标：同一张图片，batch_size=1 和 batch_size>1 必须输出一致。
+
+      要做：
+
+      1. 修复 CRNN.forward() 里的 BiGRU padding 处理。
+         当前只是把 CNN padding 区域置零，但反向 GRU 仍会从 padding 区域传播状态，所以 batch 不同会影响结果。
+
+      2. 加 batch invariance 测试：
+          - 单图推理一次；
+          - 把同一张图和不同宽度图片一起 batch 推理；
+          - 比较同一张图输出是否一致。
+
+      3. 修复 ONNX/OpenVINO 输出 layout 判断。
+         不要用 shape[0] < shape[1] 这种启发式判断，要根据 batch size、类别数明确判断。
+
+      短期上线可以继续 batch_size=1，但长期必须修这个，否则任何前处理都不稳定。
+
+      ## 阶段 2：重建数据划分，去掉虚高指标
+
+      目标：得到真实验证集，不再用“见过的数据”评估模型。
+
+      要做：
+
+      1. 扫描 train/val/test 的 exact duplicate。
+      2. 删除或合并重复图片。
+      3. 找出相同图片不同 label 的冲突样本。
+      4. 按业务场景重新划分：
+          - 普通文本；
+          - 菜单按钮；
+          - 有色背景白字；
+          - 小文字大背景；
+          - 含箭头/图标；
+          - 长文本。
+
+      5. train.py 里不要再用训练集当验证集。
+
+      最终指标要分组统计，比如：
+
+      overall acc
+      unseen acc
+      menu-white-text acc
+      small-text acc
+      long-text CER
+      seen/unseen gap
+
+      ## 阶段 3：把裁剪策略正式训练进去
+
+      目标：训练和推理分布一致。
+
+      要做：
+
+      1. 保留现在的推理裁剪逻辑，但把它抽到独立模块，比如：
+
+      recognition/components/preprocess.py
+
+      2. 训练时也使用同样的裁剪/增强策略。
+      3. 对“白字有色背景”做专门增强：
+          - 随机背景色；
+          - 白字/浅色字；
+          - 随机上下左右 padding；
+          - 模拟菜单按钮高度；
+          - 模拟小文字占比；
+          - 模拟右侧箭头/图标。
+
+      重点：不是单纯 crop，而是让模型见过“文字只占图像一小部分”的分布。
+
+      ## 阶段 4：补充真实 hard case 数据
+
+      目标：解决模型没见过的问题。
+
+      建议最少准备：
+
+      菜单按钮白字：1000+
+      小文字大背景：1000+
+      含箭头/下拉符号：500+
+      当前失败类型：全部加入 hard set
+
+      每个样本标注必须和业务输出一致，比如：
+
+      首页274
+      样品74
+      未提交
+      样品存储▼
+
+      不要让同一类图片有的标箭头、有的不标箭头，否则模型会混乱。
+
+      ## 阶段 5：调整模型输入和结构
+
+      当前 IMG_HEIGHT=32 对小文字场景偏吃紧。长期建议测试两条线：
+
+      1. 保守线：
+          - IMG_HEIGHT=48
+          - 宽度动态 padding
+          - 保留当前 CRNN 框架
+
+      2. 稳定线：
+          - 使用更强的识别 backbone；
+          - 减少早期纵向下采样；
+          - 或引入现成中文 OCR recognition 预训练模型微调。
+
+      如果你的业务主要是 UI 菜单/按钮文本，我更建议先试 IMG_HEIGHT=48，成本低，收益通常明显。
+
+      ## 阶段 6：建立固定评测集和准入标准
+
+      长期必须有固定评测集，否则每次训练都是靠感觉。
+
+      建议准入标准：
+
+      batch=1 和 batch=32 输出一致率：100%
+      menu-white-text accuracy：>= 98%
+      small-text accuracy：>= 95%
+      overall unseen accuracy：>= 97%
+      冲突 label：0
+      exact duplicate leakage：0
+
+      ## 下次执行建议顺序
+
+      下次我建议先做这 4 件：
+
+      1. 修 batch/padding 一致性问题。
+      2. 写 batch invariance 测试。
+      3. 抽出统一 preprocess 模块，把裁剪逻辑从 recognition_inference.py 迁出去。
+      4. 写数据审计脚本，输出重复、冲突、seen/unseen、字符频次、场景分布。
+
+      这四件做完后，再进入重新训练。否则直接训练，指标还是不可信。
+
+

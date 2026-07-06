@@ -23,6 +23,7 @@ if project_root not in sys.path:
 # 强制复用核心模块，保证逻辑一致
 from recognition.components.converter import LabelConverter
 from recognition.components.dataset import InferenceDataset, dynamic_padding_collate_fn
+from recognition.utils.white_text_crop import WhiteTextCropInferenceDataset
 
 # ============================================================
 # 参数配置
@@ -174,9 +175,14 @@ def main():
     parser.add_argument("--output_file", type=str,
                         default=None)
     parser.add_argument("--backend",     type=str, choices=["auto", "onnx", "openvino", "pytorch"],
-                        default="openvino")
+                        default="onnx")
     parser.add_argument("--batch_size",  type=int,
-                        default=32, help="批量大小")
+                        default=1, help="批量大小")
+    parser.add_argument("--auto_crop_white_text", action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help="启用白色文字/有色背景自动裁剪前处理，默认启用；可用 --no-auto_crop_white_text 关闭")
+    parser.add_argument("--save_crops_dir", type=str, default="recognition/data/crops",
+                        help="保存自动裁剪后的图片目录；设为空字符串可关闭保存")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -203,11 +209,20 @@ def main():
     backend = load_backend(args.model_path, args.backend, args.keys_path)
 
     # 3. 复用原始 InferenceDataset
-    dataset = InferenceDataset(
-        image_paths=image_paths,
-        img_height=IMG_HEIGHT,
-        num_channels=NUM_CHANNELS
-    )
+    if args.auto_crop_white_text:
+        print("  ✓ 启用白字/有色背景自动裁剪")
+        dataset = WhiteTextCropInferenceDataset(
+            image_paths=image_paths,
+            img_height=IMG_HEIGHT,
+            num_channels=NUM_CHANNELS,
+            save_crops_dir=args.save_crops_dir or None,
+        )
+    else:
+        dataset = InferenceDataset(
+            image_paths=image_paths,
+            img_height=IMG_HEIGHT,
+            num_channels=NUM_CHANNELS
+        )
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
