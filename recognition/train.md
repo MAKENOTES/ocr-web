@@ -94,5 +94,11 @@ TODO
     平均字符错误率 : 0.187%
     错误样本数     : 472
 
+20260623 调整数据处理 黑字红章样本处理  可以优化原来的 majorbio-ocr 项目
+    效果不错 具体调整看git调整记录。
+
+
+20260702
+    字典有问题 ，recognition/utils/compare_keys.py   可以优化 majorbio-ocr 项目
 
 
