@@ -18,14 +18,16 @@ from recognition.components.converter import LabelConverter
 from recognition.models.model import CRNN
 # dataset: 复用其中的推理数据集类和动态Padding整理函数
 # 注意：前提是你已经按照上一步修改了 dataset.py
-from recognition.components.dataset import InferenceDataset, dynamic_padding_collate_fn
+from recognition.components.dataset import dynamic_padding_collate_fn
+from recognition.utils.white_text_crop import WhiteTextCropInferenceDataset
 
 # ================= 配置区域 (常量) =================
 # 1. 核心路径
-MODEL_PATH = os.path.join(project_root, "recognition/checkpoints/1782165144best_cer_0.0027_epoch_623.pth")  # 训练好的模型路径
+MODEL_PATH = os.path.join(project_root, "recognition/checkpoints/1783804842best_cer_0.0030_epoch_652.pth")  # 训练好的模型路径
 KEYS_PATH = os.path.join(project_root, "recognition/keys.txt")  # 字典路径 (必须与训练一致)
-INPUT_PATH = os.path.join(project_root, "recognition/data/test_images")  # 待推理的图片文件夹 (或单张图片路径)
+INPUT_PATH = os.path.join(project_root, "recognition/data/test_images1")  # 待推理的图片文件夹 (或单张图片路径)
 OUTPUT_FILE = None  # 结果保存路径 (设为 None 则只打印)
+CROP_DEBUG_DIR = os.path.join(project_root, "recognition/data/crops")  # 保存自动裁剪结果，便于人工核查
 
 # 2. 模型参数 (需与训练保持一致)
 IMG_HEIGHT = 32  # 固定高度
@@ -96,13 +98,14 @@ def main():
     model, converter = load_network()
 
     # 3. 构建 DataLoader
-    # 直接使用 dataset.py 中封装好的 InferenceDataset
-    # 它会自动处理读取、灰度转换、Resize(保持比例)、Normalize
-    dataset = InferenceDataset(
+    # 推理默认使用与训练/验证一致的确定性白字裁剪，并保存裁剪图便于核查。
+    dataset = WhiteTextCropInferenceDataset(
         image_paths=image_paths,
         img_height=IMG_HEIGHT,
-        num_channels=NUM_CHANNELS
+        num_channels=NUM_CHANNELS,
+        save_crops_dir=CROP_DEBUG_DIR,
     )
+    print(f"已启用白字/有色背景自动裁剪，裁剪图保存至: {CROP_DEBUG_DIR}")
 
     # 使用 dynamic_padding_collate_fn 实现 Batch 内动态宽度的对齐
     loader = DataLoader(

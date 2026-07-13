@@ -38,6 +38,7 @@ BATCH_SIZE = 64     # 适当调整
 EPOCHS = 680
 LEARNING_RATE = 3e-4
 NUM_WORKERS = 4
+USE_AUTO_CROP = True  # 训练集和验证集启用确定性白字/有色背景裁剪
 
 # 4. 保存与验证策略
 SAVE_INTERVAL = 5        # 每隔多少轮强制保存一次
@@ -164,7 +165,8 @@ def train():
         num_channels=NUM_CHANNELS,
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
-        is_train=True
+        is_train=True,
+        use_auto_crop=USE_AUTO_CROP
     )
 
     valid_loader = None
@@ -177,7 +179,8 @@ def train():
             num_channels=NUM_CHANNELS,
             batch_size=BATCH_SIZE,
             num_workers=NUM_WORKERS,
-            is_train=False
+            is_train=False,
+            use_auto_crop=USE_AUTO_CROP
         )
     else:
         print("⚠️ 警告: 未找到验证集标注文件，将无法评估 Accuracy 和进行最佳模型保存。")

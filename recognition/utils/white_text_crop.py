@@ -3,10 +3,49 @@
 from pathlib import Path
 
 import numpy as np
-import torch
 from PIL import Image
 
-from recognition.components.dataset import InferenceDataset, remove_red_seal
+from recognition.components.dataset import InferenceDataset
+
+
+def find_white_text_bbox(
+    image: Image.Image,
+    *,
+    min_fg_ratio: float = 0.001,
+    max_fg_ratio: float = 0.45,
+    white_value_thresh: int = 185,
+    white_saturation_max: int = 90,
+) -> tuple[int, int, int, int] | None:
+    """
+    检测“有色背景 + 白色文字”图中的白色像素 bbox。
+
+    返回:
+        (left, top, right, bottom)，其中 right/bottom 为 PIL crop 风格的开区间；
+        如果白色像素占比不可信或没有检测到白字，则返回 None。
+    """
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+
+    w, h = image.size
+    if w <= 1 or h <= 1:
+        return None
+
+    hsv = np.array(image.convert("HSV"))
+    saturation = hsv[:, :, 1]
+    value = hsv[:, :, 2]
+
+    white_mask = (value >= white_value_thresh) & (saturation <= white_saturation_max)
+    fg_ratio = float(white_mask.mean())
+
+    # 太少：不像文字；太多：可能是白底图或大面积高亮背景。
+    if fg_ratio < min_fg_ratio or fg_ratio > max_fg_ratio:
+        return None
+
+    ys, xs = np.where(white_mask)
+    if xs.size == 0 or ys.size == 0:
+        return None
+
+    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
 
 def auto_crop_white_text_image(
     image: Image.Image,
@@ -28,6 +67,26 @@ def auto_crop_white_text_image(
       1. 用 HSV 找高亮、低饱和像素，近似白色文字；
       2. 根据白色像素 bbox 裁剪；
       3. bbox 置信不足或疑似整图白底时，返回原图，避免误裁。
+
+    参数：
+        image: 输入图片。建议传 RGB 图片；如果不是 RGB，会在函数内部转换为 RGB。
+        margin_ratio: 兼容参数。当 margin_x_ratio 或 margin_y_ratio 为 None 时，
+            使用该比例作为对应方向的 bbox 外扩比例。
+        margin_x_ratio: 横向外扩比例。基于检测到的白字 bbox 宽度计算，
+            默认 0.05，适合菜单项这类左右背景不宜保留太多的场景。
+        margin_y_ratio: 纵向外扩比例。基于检测到的白字 bbox 高度计算，
+            默认 0.3，用于保留适量上下背景，避免文字被裁得过紧。
+        min_margin: 最小外扩像素数，防止 bbox 太小时外扩为 0。
+        min_fg_ratio: 白色像素最小占比。低于该值认为白字区域不可靠，不裁剪。
+        max_fg_ratio: 白色像素最大占比。高于该值通常是白底图、大面积高亮背景
+            或非目标场景，不裁剪。
+        max_text_height_ratio: 白字 bbox 高度占整图高度的最大比例。超过该值说明
+            图片基本已经是目标区域，避免二次紧裁。
+        white_value_thresh: HSV 中 V 通道阈值，越高越只接受更亮的白色像素。
+        white_saturation_max: HSV 中 S 通道最大值，越低越只接受低饱和的白/灰像素。
+
+    返回：
+        裁剪后的 PIL Image；如果不满足裁剪条件，则返回原图对象或 RGB 转换后的图片。
     """
     if image.mode != "RGB":
         image = image.convert("RGB")
@@ -36,23 +95,17 @@ def auto_crop_white_text_image(
     if w <= 1 or h <= 1:
         return image
 
-    hsv = np.array(image.convert("HSV"))
-    saturation = hsv[:, :, 1]
-    value = hsv[:, :, 2]
-
-    white_mask = (value >= white_value_thresh) & (saturation <= white_saturation_max)
-    fg_ratio = float(white_mask.mean())
-
-    # 太少：不像文字；太多：可能是白底图或大面积高亮背景。
-    if fg_ratio < min_fg_ratio or fg_ratio > max_fg_ratio:
+    bbox = find_white_text_bbox(
+        image,
+        min_fg_ratio=min_fg_ratio,
+        max_fg_ratio=max_fg_ratio,
+        white_value_thresh=white_value_thresh,
+        white_saturation_max=white_saturation_max,
+    )
+    if bbox is None:
         return image
 
-    ys, xs = np.where(white_mask)
-    if xs.size == 0 or ys.size == 0:
-        return image
-
-    left, right = int(xs.min()), int(xs.max()) + 1
-    top, bottom = int(ys.min()), int(ys.max()) + 1
+    left, top, right, bottom = bbox
     box_w = right - left
     box_h = bottom - top
 
@@ -97,7 +150,7 @@ def save_crop_debug_image(image: Image.Image, source_path: str, output_dir: str)
 
 class WhiteTextCropInferenceDataset(InferenceDataset):
     """
-    推理专用 Dataset：读取 RGB 图后先做白字裁剪，再复用原 resize/normalize 规则。
+    推理专用 Dataset：使用与训练/验证一致的白字裁剪预处理。
     """
 
     def __init__(
@@ -108,46 +161,11 @@ class WhiteTextCropInferenceDataset(InferenceDataset):
         crop_kwargs: dict | None = None,
         save_crops_dir: str | None = None,
     ):
-        super().__init__(image_paths=image_paths, img_height=img_height, num_channels=num_channels)
-        self.crop_kwargs = crop_kwargs or {}
-        self.save_crops_dir = save_crops_dir
-
-    def _load_and_process_image(self, index: int) -> torch.Tensor:
-        image_path = self.image_paths[index]
-        try:
-            image = Image.open(image_path).convert("RGB")
-            image = auto_crop_white_text_image(image, **self.crop_kwargs)
-            if self.save_crops_dir:
-                save_crop_debug_image(image, image_path, self.save_crops_dir)
-            image = remove_red_seal(image)
-
-            if self.num_channels == 1:
-                image = image.convert("L")
-
-            w, h = image.size
-            target_h = self.img_height
-            scale = target_h / h
-            new_w = int(w * scale)
-
-            min_w_from_aspect = int(w * 0.5)
-            if new_w < min_w_from_aspect:
-                new_w = min(min_w_from_aspect, 800)
-
-            image = image.resize((new_w, target_h), Image.Resampling.LANCZOS)
-
-            min_width = 48
-            if new_w < min_width:
-                if self.num_channels == 1:
-                    canvas = Image.new("L", (min_width, target_h), 255)
-                else:
-                    canvas = Image.new("RGB", (min_width, target_h), (255, 255, 255))
-                offset_x = (min_width - new_w) // 2
-                canvas.paste(image, (offset_x, 0))
-                image = canvas
-
-            return self.transform(image)
-
-        except Exception as e:
-            print(f"Error loading image {image_path}: {e}")
-            return torch.ones((self.num_channels, self.img_height, 8))
-
+        super().__init__(
+            image_paths=image_paths,
+            img_height=img_height,
+            num_channels=num_channels,
+            use_auto_crop=True,
+            crop_kwargs=crop_kwargs,
+            save_crops_dir=save_crops_dir,
+        )

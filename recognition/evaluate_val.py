@@ -12,18 +12,20 @@ if project_root not in sys.path:
 
 from recognition.components.converter import LabelConverter
 from recognition.models.model import CRNN
-from recognition.components.dataset import InferenceDataset, dynamic_padding_collate_fn
+from recognition.components.dataset import dynamic_padding_collate_fn
+from recognition.utils.white_text_crop import WhiteTextCropInferenceDataset
 
 # ================= 配置区域 =================
-MODEL_PATH = "recognition/checkpoints/1783032769best_cer_0.0033_epoch_638.pth"  # 修改为你的最佳模型路径
+MODEL_PATH = "recognition/checkpoints/1783804842best_cer_0.0030_epoch_652.pth"  # 修改为你的最佳模型路径
 KEYS_PATH = "recognition/keys.txt"
 VAL_ANNOTATION = "recognition/data/train_annotation.txt"  # 验证集标注文件
 
 ERROR_OUTPUT_FILE = "recognition/error_cases.txt"  # 错误案例保存文件（可设为 None）
+CROP_DEBUG_DIR = os.path.join(project_root, "recognition/data/crops/evaluate_val")
 
 IMG_HEIGHT = 32
 NUM_CHANNELS = 1
-BATCH_SIZE = 64
+BATCH_SIZE = 1
 NUM_WORKERS = 4
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -60,6 +62,16 @@ def load_network():
     return model, converter
 
 
+def create_evaluation_dataset(image_paths, save_crops_dir=CROP_DEBUG_DIR):
+    """创建与训练、推理使用相同白字自动裁剪逻辑的评估数据集。"""
+    return WhiteTextCropInferenceDataset(
+        image_paths=image_paths,
+        img_height=IMG_HEIGHT,
+        num_channels=NUM_CHANNELS,
+        save_crops_dir=save_crops_dir,
+    )
+
+
 def main():
     # 读取标注文件，建立 filename -> label 的映射
     filename_to_label = {}
@@ -82,7 +94,8 @@ def main():
 
     model, converter = load_network()
 
-    dataset = InferenceDataset(image_paths=image_paths, img_height=IMG_HEIGHT, num_channels=NUM_CHANNELS)
+    dataset = create_evaluation_dataset(image_paths)
+    print(f"已启用白字/有色背景自动裁剪，裁剪图保存至: {CROP_DEBUG_DIR}")
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False,
                         num_workers=NUM_WORKERS, collate_fn=dynamic_padding_collate_fn)
 

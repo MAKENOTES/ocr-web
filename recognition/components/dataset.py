@@ -239,14 +239,25 @@ class BaseTextDataset(Dataset):
     封装了核心的图片加载、预处理、增强逻辑。
     """
 
-    def __init__(self, img_height, num_channels, is_train=False):
+    def __init__(
+        self,
+        img_height,
+        num_channels,
+        is_train=False,
+        use_auto_crop=False,
+        crop_kwargs=None,
+        save_crops_dir=None,
+    ):
         self.img_height = img_height
         self.num_channels = num_channels
         self.image_paths = []  # 子类填充此列表
+        self.use_auto_crop = use_auto_crop
+        self.crop_kwargs = crop_kwargs or {}
+        self.save_crops_dir = save_crops_dir
 
         # 定义 Transform
         if is_train:
-            self.transform = transforms.Compose([
+            train_transforms = [
                 # 训练集：
                 # 1️⃣ 轻微旋转（保持文本可读）
                 transforms.RandomRotation(
@@ -257,7 +268,8 @@ class BaseTextDataset(Dataset):
                 # 2️⃣ 轻微透视扰动
                 transforms.RandomPerspective(
                     distortion_scale=0.1,
-                    p=0.3
+                    p=0.3,
+                    fill=255
                 ),
 
                 # 3️⃣ 颜色扰动
@@ -295,7 +307,8 @@ class BaseTextDataset(Dataset):
                     mean=[0.5],
                     std=[0.5]
                 )
-            ])
+            ]
+            self.transform = transforms.Compose(train_transforms)
         else:
             self.transform = transforms.Compose([
                 # 验证/推理集：仅归一化
@@ -314,6 +327,13 @@ class BaseTextDataset(Dataset):
         try:
             # 1. 统一转为 RGB 读取
             image = Image.open(image_path).convert('RGB')
+            if self.use_auto_crop:
+                from recognition.utils.white_text_crop import auto_crop_white_text_image, save_crop_debug_image
+
+                image = auto_crop_white_text_image(image, **self.crop_kwargs)
+                if self.save_crops_dir:
+                    save_crop_debug_image(image, image_path, self.save_crops_dir)
+
             image = remove_red_seal(image)  # 在RGB阶段去红章
             # 2. 通道处理 (保留红章逻辑)
             if self.num_channels == 1:
@@ -367,9 +387,26 @@ class TextRecognitionDataset(BaseTextDataset):
     [训练用] 读取标注文件，返回 (Image, Label)
     """
 
-    def __init__(self, annotation_path: str, img_height: int, img_width: int, num_channels: int, is_train=True):
+    def __init__(
+        self,
+        annotation_path: str,
+        img_height: int,
+        img_width: int,
+        num_channels: int,
+        is_train=True,
+        use_auto_crop=False,
+        crop_kwargs=None,
+        save_crops_dir=None,
+    ):
         # 初始化基类
-        super().__init__(img_height, num_channels, is_train)
+        super().__init__(
+            img_height,
+            num_channels,
+            is_train=is_train,
+            use_auto_crop=use_auto_crop,
+            crop_kwargs=crop_kwargs,
+            save_crops_dir=save_crops_dir,
+        )
 
         # img_width 参数仅作为兼容保留，实际由 dynamic_padding 控制
         self.labels = []
@@ -401,9 +438,24 @@ class InferenceDataset(BaseTextDataset):
     [推理用] 直接读取图片列表，返回 (Image, ImagePath)
     """
 
-    def __init__(self, image_paths: list, img_height: int, num_channels: int):
+    def __init__(
+        self,
+        image_paths: list,
+        img_height: int,
+        num_channels: int,
+        use_auto_crop=False,
+        crop_kwargs=None,
+        save_crops_dir=None,
+    ):
         # 推理模式 is_train=False
-        super().__init__(img_height, num_channels, is_train=False)
+        super().__init__(
+            img_height,
+            num_channels,
+            is_train=False,
+            use_auto_crop=use_auto_crop,
+            crop_kwargs=crop_kwargs,
+            save_crops_dir=save_crops_dir,
+        )
         self.image_paths = image_paths
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, str]:
@@ -419,7 +471,8 @@ class InferenceDataset(BaseTextDataset):
 # ==========================================
 
 def create_dataloader(annotation_path: str, img_height: int, img_width: int, num_channels: int, batch_size: int,
-                      num_workers: int, is_train=True) -> DataLoader:
+                      num_workers: int, is_train=True, use_auto_crop=False, crop_kwargs=None,
+                      save_crops_dir=None) -> DataLoader:
     """
     创建训练/验证用的 DataLoader
     """
@@ -428,7 +481,10 @@ def create_dataloader(annotation_path: str, img_height: int, img_width: int, num
         img_height=img_height,
         img_width=img_width,
         num_channels=num_channels,
-        is_train=is_train
+        is_train=is_train,
+        use_auto_crop=use_auto_crop,
+        crop_kwargs=crop_kwargs,
+        save_crops_dir=save_crops_dir,
     )
 
     if is_train:
