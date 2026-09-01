@@ -29,8 +29,8 @@ VAL_LABEL_DIR = "detection/data/val_labels"
 MAX_KEEP_CHECKPOINTS = 5         # 常规检查点：保留最近的 N 个 (用于断点续训)
 CHECKPOINT_INTERVAL = 5          # 新数据量较大，每 5 个 epoch 保存一次常规检查点
 BEST_MODELS_TO_KEEP = 3        # 最佳检查点：保留验证集 Loss 最低的 Top 3
-VAL_INTERVAL = 2               # 前期：每 2 个 epoch 验证一次
-START_DENSE_VAL_EPOCH = 10     # 从第 10 epoch 开始每个 epoch 都验证
+VAL_INTERVAL = 10               # 前期：每 2 个 epoch 验证一次
+START_DENSE_VAL_EPOCH = 80     # 从第 10 epoch 开始每个 epoch 都验证
 GRADIENT_LOG_INTERVAL = 1000   # 避免大数据集下 TensorBoard 直方图写入过密
 
 # --- 早停参数 ---

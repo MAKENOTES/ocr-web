@@ -1,7 +1,9 @@
 """
-inference_v2.py — 改进版推理脚本 v3
-=======================================
+inference_v3resnet18_640.py — 改进版推理脚本 v3
+================================================
 核心改动：用「连通域聚类 + 边界统计」替代「逐像素独立出框 + NMS」
+
+当前模型使用 256×768（高×宽）的矩形输入，与 train_resnet.py 保持一致。
 
 v3 修复说明（相对原始版本的改动）：
   1. MIN_AREA 从 5 降到 2，修复 √ 等小符号漏检
@@ -24,31 +26,51 @@ from models.east_model import EASTModel
 from components.transforms import ResizeAndPad
 
 # --- 配置参数 ---
-MODEL_PATH = "detection/checkpoints/best_detection_epoch_97_loss_0.01528.pth"
-IMAGE_PATH = "detection/data/test/0901"
-OUTPUT_DIR = "detection/data/test_results/resnet18/0901"
+MODEL_PATH = "detection/checkpoints/best_detection_epoch_99_loss_0.01542.pth"
+IMAGE_PATH = "detection/data/test/2"
+OUTPUT_DIR = "detection/data/test_results/resnet18/2"
 
-SAVE_CROPS = True
-CROP_DIR_NAME = "detection/data/crops/resnet18/0901"
+SAVE_CROPS = False
+CROP_DIR_NAME = "detection/data/crops/resnet18/2"
 
-SAVE_LABELS = False
+SAVE_LABELS = True
 LABEL_DIR = "detection/data/test_results/resnet18/complement"
 
 EXPAND_BOX = False
 EXPAND_RATIO_W = 0.10   # 左右扩充 = 字高 * 0.3
 EXPAND_RATIO_H = 0.10   # 上下扩充 = 字高 * 0.1
 
-INPUT_SIZE = 640
+INPUT_SIZE = (256, 768)  # (高, 宽)，必须与训练配置一致
 SCORE_THRESHOLD       = 0.7   # 文本行阈值
 MIN_AREA              = 2     # 最小连通域面积（score map 像素数），从 5 降到 2
-SMALL_REGION_AREA     = round(15 * (INPUT_SIZE / 1024) ** 2)    # 面积 < 此值视为小符号，走不同出框策略
 # 注意：宽高比过滤只用于小连通域噪点过滤，大连通域不受限制
 SMALL_MAX_ASPECT      = 5   # 小连通域宽高比超过此值才过滤（正方形符号宽高比应接近1）
 
 
+def normalize_input_size(input_size):
+    """统一返回 (高, 宽)，同时兼容旧的正方形 int 配置。"""
+    if isinstance(input_size, int):
+        return input_size, input_size
+    if isinstance(input_size, (tuple, list)) and len(input_size) == 2:
+        input_h, input_w = int(input_size[0]), int(input_size[1])
+        if input_h > 0 and input_w > 0:
+            return input_h, input_w
+    raise ValueError(f"input_size 必须是正整数或 (高, 宽)，实际为: {input_size!r}")
+
+
+def scaled_small_region_area(input_size):
+    """按输入总像素面积缩放小连通域阈值，1024×1024 时基准为 15。"""
+    input_h, input_w = normalize_input_size(input_size)
+    scaled_area = round(15 * (input_h * input_w) / (1024 * 1024))
+    return max(MIN_AREA + 1, scaled_area)
+
+
+SMALL_REGION_AREA = scaled_small_region_area(INPUT_SIZE)
+
+
 def load_model(model_path, device):
     model = EASTModel(pretrained=False)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     model.to(device)
     model.eval()
     return model
@@ -99,13 +121,13 @@ def box_from_small_region(ys, xs, geo_map_np, stride):
 
 
 def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
-                                     min_area):
+                                     min_area, small_region_area):
     """
     单轮连通域检测：
 
-      - 大连通域（面积 >= SMALL_REGION_AREA）：边缘像素采样，精度高
+      - 大连通域（面积 >= small_region_area）：边缘像素采样，精度高
         ★ 不做宽高比过滤，正文长文本行天然是扁长条
-      - 小连通域（面积 < SMALL_REGION_AREA） ：全像素中位数出框
+      - 小连通域（面积 < small_region_area） ：全像素中位数出框
         ★ 对小连通域做宽高比过滤，去除细线噪点
     """
     stride = 4.0
@@ -124,7 +146,7 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
         ys, xs = np.where(labels == label_id)
 
         # ── 小连通域（单符号）──────────────────────────────
-        if area < SMALL_REGION_AREA:
+        if area < small_region_area:
             # 小连通域才做宽高比过滤（去除细线噪点）
             # √ 等符号宽高比接近 1，细线噪点宽高比极大
             w_cc = stats[label_id, cv2.CC_STAT_WIDTH]
@@ -166,14 +188,16 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
     return np.array(boxes) if boxes else np.array([])
 
 
-def detect(model, image_path, output_dir, input_size=640, score_threshold=0.7,
+def detect(model, image_path, output_dir, input_size=INPUT_SIZE, score_threshold=0.7,
            save_crops=False, expand_box=False, ratio_w=0.0, ratio_h=0.0,
            save_labels=False):
     device = next(model.parameters()).device
 
-    img_tensor, resized_image, (orig_w, orig_h) = preprocess_image(image_path, input_size)
+    img_tensor, resized_image, original_size = preprocess_image(image_path, input_size)
     if img_tensor is None:
         return
+    orig_w, orig_h = original_size
+    input_h, input_w = normalize_input_size(input_size)
 
     img_tensor = img_tensor.to(device)
 
@@ -191,6 +215,7 @@ def detect(model, image_path, output_dir, input_size=640, score_threshold=0.7,
         score_map_np, geo_map_np,
         score_threshold=score_threshold,
         min_area=MIN_AREA,
+        small_region_area=scaled_small_region_area(input_size),
     )
 
     # 准备图像
@@ -205,14 +230,14 @@ def detect(model, image_path, output_dir, input_size=640, score_threshold=0.7,
     filename_no_ext = os.path.splitext(filename_full)[0]
 
     # 坐标映射参数（输入图 → 原图）
-    scale             = input_size / max(orig_h, orig_w)
+    scale             = min(input_w / orig_w, input_h / orig_h)
     current_content_w = int(orig_w * scale)
     current_content_h = int(orig_h * scale)
-    pad_x             = (input_size - current_content_w) // 2
-    pad_y             = (input_size - current_content_h) // 2
+    pad_x             = (input_w - current_content_w) // 2
+    pad_y             = (input_h - current_content_h) // 2
 
     if len(final_boxes) > 0:
-        sorted_indices = np.argsort(final_boxes[:, 1])
+        sorted_indices = np.lexsort((final_boxes[:, 0], final_boxes[:, 1]))
         sorted_boxes   = final_boxes[sorted_indices]
 
         if save_crops and not os.path.exists(CROP_DIR_NAME):
@@ -241,14 +266,14 @@ def detect(model, image_path, output_dir, input_size=640, score_threshold=0.7,
 
             if save_crops:
                 crop_img       = img_original[real_y_min:real_y_max, real_x_min:real_x_max]
-                crop_filename  = f"{filename_no_ext}-{i + 1:06d}.jpg"
+                crop_filename  = f"{filename_no_ext}-{i + 1:06d}.png"
                 crop_save_path = os.path.join(CROP_DIR_NAME, crop_filename)
                 cv2.imwrite(crop_save_path, crop_img)
 
             draw_x_min = max(0,          int(x_min))
             draw_y_min = max(0,          int(y_min))
-            draw_x_max = min(input_size, int(x_max))
-            draw_y_max = min(input_size, int(y_max))
+            draw_x_max = min(input_w, int(x_max))
+            draw_y_max = min(input_h, int(y_max))
             cv2.rectangle(img_vis,
                           (draw_x_min, draw_y_min),
                           (draw_x_max, draw_y_max),
@@ -262,7 +287,7 @@ def detect(model, image_path, output_dir, input_size=640, score_threshold=0.7,
         if not os.path.exists(LABEL_DIR):
             os.makedirs(LABEL_DIR)
 
-        sorted_indices = np.argsort(final_boxes[:, 1])
+        sorted_indices = np.lexsort((final_boxes[:, 0], final_boxes[:, 1]))
         sorted_boxes   = final_boxes[sorted_indices]
 
         label_lines = []
@@ -304,6 +329,7 @@ def main():
     print("-" * 30)
     print(f"模型路径:       {MODEL_PATH}")
     print(f"推理模式:       连通域检测 (v3)")
+    print(f"模型输入:       {INPUT_SIZE[1]}×{INPUT_SIZE[0]} (宽×高)")
     print(f"阈值:           {SCORE_THRESHOLD}")
     print(f"最小面积:       {MIN_AREA} px")
     print(f"小符号面积上限: {SMALL_REGION_AREA} px")
