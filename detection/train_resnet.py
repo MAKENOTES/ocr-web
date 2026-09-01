@@ -13,26 +13,29 @@ from components.loss import EASTLoss
 from torch.optim.lr_scheduler import OneCycleLR
 
 # --- 超参数 ---
-LEARNING_RATE =  1e-4  #1e-5 1e-4 3e-5
-BATCH_SIZE = 4 # 根据你的 GPU 显存调整
-EPOCHS = 620
-INPUT_SIZE = 640
+LEARNING_RATE = 1e-4
+# 新数据 99.5% 为横向 UI 小图；256x768 更接近其中位长宽比 2.7，
+# batch 8 的总输入像素量与原 640x640、batch 4 基本相同。
+BATCH_SIZE = 8
+EPOCHS = 100
+INPUT_SIZE = (256, 768)  # (height, width)，两边均为 32 的倍数
+IMAGE_EXTENSIONS = (".png",)  # 明确只训练新 PNG，不混入目录中的旧 JPG
 TRAIN_IMAGE_DIR = "detection/data/train_images"
 TRAIN_LABEL_DIR = "detection/data/train_labels"
 VAL_IMAGE_DIR = "detection/data/val_images"
 VAL_LABEL_DIR = "detection/data/val_labels"
 
 # --- 模型保存策略优化 ---
-MAX_KEEP_CHECKPOINTS = 100       # 常规检查点：保留最近的 N 个 (用于断点续训)
+MAX_KEEP_CHECKPOINTS = 5         # 常规检查点：保留最近的 N 个 (用于断点续训)
+CHECKPOINT_INTERVAL = 5          # 新数据量较大，每 5 个 epoch 保存一次常规检查点
 BEST_MODELS_TO_KEEP = 3        # 最佳检查点：保留验证集 Loss 最低的 Top 3
-VAL_INTERVAL = 10              # 前期：每 10 个 epoch 验证一次
-START_DENSE_VAL_EPOCH = 50     # 策略切换点：从第 50 epoch 开始每个 epoch 都验证
+VAL_INTERVAL = 2               # 前期：每 2 个 epoch 验证一次
+START_DENSE_VAL_EPOCH = 10     # 从第 10 epoch 开始每个 epoch 都验证
+GRADIENT_LOG_INTERVAL = 1000   # 避免大数据集下 TensorBoard 直方图写入过密
 
 # --- 早停参数 ---
-EARLY_STOP_PATIENCE = 100       # 连续 40 次验证没有改善就停止
-                               # 前 50 epoch 每 10 epoch 验证一次，之后每 epoch 验证
-                               # 所以实际容忍约 40 个 epoch 不改善
-EARLY_STOP_MIN_DELTA = 1e-5    # 改善幅度小于此值不算改善
+EARLY_STOP_PATIENCE = 15        # 连续 15 次验证没有改善就停止
+EARLY_STOP_MIN_DELTA = 1e-4     # 改善幅度小于此值不算改善
 
 
 class EarlyStopping:
@@ -200,14 +203,32 @@ def main():
 
     # --- 数据加载 ---
     train_transform = get_transforms(is_train=True, input_size=INPUT_SIZE)
-    train_dataset = OCRDataset(image_dir=TRAIN_IMAGE_DIR, label_dir=TRAIN_LABEL_DIR, transform=train_transform)
+    train_dataset = OCRDataset(
+        image_dir=TRAIN_IMAGE_DIR,
+        label_dir=TRAIN_LABEL_DIR,
+        transform=train_transform,
+        image_extensions=IMAGE_EXTENSIONS,
+        require_labels=True,
+    )
+    if len(train_dataset) == 0:
+        raise RuntimeError(
+            f"训练目录 {TRAIN_IMAGE_DIR} 中没有 PNG 图片。"
+            "请先放入新的训练图片和对应标签。"
+        )
+    print(f"训练集加载完成，共 {len(train_dataset)} 张 PNG 图片，输入尺寸: {INPUT_SIZE}。")
     train_loader = DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
 
     val_loader = None
     if os.path.exists(VAL_IMAGE_DIR) and os.path.exists(VAL_LABEL_DIR):
         print("发现验证集，正在加载...")
         val_transform = get_transforms(is_train=False, input_size=INPUT_SIZE)
-        val_dataset = OCRDataset(image_dir=VAL_IMAGE_DIR, label_dir=VAL_LABEL_DIR, transform=val_transform)
+        val_dataset = OCRDataset(
+            image_dir=VAL_IMAGE_DIR,
+            label_dir=VAL_LABEL_DIR,
+            transform=val_transform,
+            image_extensions=IMAGE_EXTENSIONS,
+            require_labels=True,
+        )
         if len(val_dataset) > 0:
             val_loader = DataLoader(dataset=val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
             print(f"验证集加载完成，共 {len(val_dataset)} 张图片。")
@@ -250,8 +271,8 @@ def main():
             loss, score_loss, geo_loss = criterion(true_score_maps, pred_score_maps, true_geo_maps, pred_geo_maps)
             loss.backward()
 
-            # --- 记录梯度信息 (每 100 个 batch 记录一次，避免日志过大) ---
-            if batch_idx % 100 == 0:
+            # --- 低频记录梯度信息，避免大数据集下日志和 I/O 过重 ---
+            if batch_idx % GRADIENT_LOG_INTERVAL == 0:
                 for name, param in model.named_parameters():
                     if param.grad is not None:
                         writer.add_histogram(f'Gradients/{name}', param.grad, epoch * len(train_loader) + batch_idx)
@@ -317,15 +338,16 @@ def main():
             writer.add_scalars('epoch/loss_train', {'train': avg_loss}, epoch)
 
         # --- 常规检查点保存 ---
-        checkpoint_dir = "detection/checkpoints/"
-        if not os.path.exists(checkpoint_dir): os.makedirs(checkpoint_dir)
-        checkpoint_filename = os.path.join(checkpoint_dir, f"detection_epoch_{epoch}.pth")
-        torch.save(model.state_dict(), checkpoint_filename)
-        regular_checkpoints.append(checkpoint_filename)
-        if len(regular_checkpoints) > MAX_KEEP_CHECKPOINTS:
-            oldest = regular_checkpoints.pop(0)
-            if os.path.exists(oldest):
-                os.remove(oldest)
+        if epoch % CHECKPOINT_INTERVAL == 0 or epoch == EPOCHS:
+            checkpoint_dir = "detection/checkpoints/"
+            if not os.path.exists(checkpoint_dir): os.makedirs(checkpoint_dir)
+            checkpoint_filename = os.path.join(checkpoint_dir, f"detection_epoch_{epoch}.pth")
+            torch.save(model.state_dict(), checkpoint_filename)
+            regular_checkpoints.append(checkpoint_filename)
+            if len(regular_checkpoints) > MAX_KEEP_CHECKPOINTS:
+                oldest = regular_checkpoints.pop(0)
+                if os.path.exists(oldest):
+                    os.remove(oldest)
 
     # --- 训练结束总结 ---
     print("\n" + "="*60)
@@ -333,7 +355,10 @@ def main():
         print(f"训练因早停在 Epoch {epoch} 结束")
     else:
         print(f"训练完成，共 {EPOCHS} 个 Epoch")
-    print(f"最佳模型: Epoch {early_stopping.best_epoch}, Val Loss: {early_stopping.best_loss:.5f}")
+    if early_stopping.best_loss is not None:
+        print(f"最佳模型: Epoch {early_stopping.best_epoch}, Val Loss: {early_stopping.best_loss:.5f}")
+    else:
+        print("未运行验证：没有可用的 PNG 验证集。")
     if best_checkpoints:
         print(f"Top-{BEST_MODELS_TO_KEEP} 模型:")
         for i, (loss, path) in enumerate(best_checkpoints):

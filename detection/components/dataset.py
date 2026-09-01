@@ -1,9 +1,12 @@
 import os
-import glob
 import torch
 import numpy as np
+from pathlib import Path
 from PIL import Image
 from torch.utils.data import Dataset
+
+
+DEFAULT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 
 class OCRDataset(Dataset):
     """
@@ -12,7 +15,9 @@ class OCRDataset(Dataset):
     1、把label 的两个点转成四个点
     2、调用 transform 得到 张量
     """
-    def __init__(self, image_dir, label_dir, transform=None):
+    def __init__(self, image_dir, label_dir, transform=None,
+                 image_extensions=DEFAULT_IMAGE_EXTENSIONS,
+                 require_labels=False):
         """
         初始化数据集。
         :param image_dir: string, 存放所有图像的目录。
@@ -23,18 +28,42 @@ class OCRDataset(Dataset):
         self.label_dir = label_dir
         self.transform = transform
 
-        # 查找 .jpg 和 .png 格式的图像
-        self.image_paths = sorted(glob.glob(os.path.join(image_dir, "*.jpg")))
-        if not self.image_paths:
-            self.image_paths = sorted(glob.glob(os.path.join(image_dir, "*.png")))
+        # 同时支持多种扩展名，也允许训练入口显式限定为 PNG，避免旧 JPG
+        # 留在目录中时被意外混入新数据。
+        extensions = {
+            ext.lower() if ext.startswith(".") else f".{ext.lower()}"
+            for ext in image_extensions
+        }
+        image_root = Path(image_dir)
+        self.image_paths = sorted(
+            str(path)
+            for path in image_root.iterdir()
+            if path.is_file() and path.suffix.lower() in extensions
+        ) if image_root.exists() else []
 
         # 创建对应的标签文件路径
         self.label_paths = []
         for p in self.image_paths:
             basename = os.path.basename(p)
             name, _ = os.path.splitext(basename)
-            label_name = "gt_" + name + ".txt"
-            self.label_paths.append(os.path.join(self.label_dir, label_name))
+            gt_label_path = os.path.join(self.label_dir, f"gt_{name}.txt")
+            plain_label_path = os.path.join(self.label_dir, f"{name}.txt")
+            self.label_paths.append(
+                gt_label_path if os.path.exists(gt_label_path) else plain_label_path
+            )
+
+        if require_labels:
+            missing_labels = [
+                label_path
+                for label_path in self.label_paths
+                if not os.path.exists(label_path)
+            ]
+            if missing_labels:
+                examples = "\n  ".join(missing_labels[:5])
+                raise FileNotFoundError(
+                    f"{len(missing_labels)} 张图片缺少对应标签。示例:\n  {examples}\n"
+                    "标签名应为 gt_<图片名>.txt 或 <图片名>.txt。"
+                )
 
     def __len__(self):
         """
@@ -70,29 +99,46 @@ class OCRDataset(Dataset):
                 if not line:
                     continue
                 
-                # 修正后的逻辑：处理以空格分隔的值
-                parts = line.split() # 使用 split() 来按空格分割
+                # 同时兼容空格分隔 bbox4 和逗号/空格分隔的 ICDAR 四点格式。
+                parts = line.replace(',', ' ').split()
                 
                 try:
-                    if len(parts) < 4:
+                    numeric_values = []
+                    for part in parts:
+                        try:
+                            numeric_values.append(float(part))
+                        except ValueError:
+                            break
+
+                    if len(numeric_values) < 4:
                         print(f"警告: 跳过格式错误的行于 {label_path}: {line}")
                         continue
-                    
-                    # 假设格式为: x_min y_min x_max y_max
-                    points = [int(float(p)) for p in parts[:4]]
-                    x_min, y_min, x_max, y_max = points
-                    
-                    # 将矩形转换为 4x2 的四边形数组
-                    quad = np.array([
-                        [x_min, y_min],
-                        [x_max, y_min],
-                        [x_max, y_max],
-                        [x_min, y_max]
-                    ], dtype=np.float32)
+
+                    if len(numeric_values) >= 8:
+                        # ICDAR: x1 y1 x2 y2 x3 y3 x4 y4 [transcription]
+                        quad = np.asarray(numeric_values[:8], dtype=np.float32).reshape(4, 2)
+                        transcription_start = 8
+                    else:
+                        # bbox4: x_min y_min x_max y_max [transcription]
+                        x_min, y_min, x_max, y_max = numeric_values[:4]
+                        quad = np.array([
+                            [x_min, y_min],
+                            [x_max, y_min],
+                            [x_max, y_max],
+                            [x_min, y_max]
+                        ], dtype=np.float32)
+                        transcription_start = 4
+
+                    # 小图中 1px 误差占比很大，因此保留浮点坐标，不再强制取整。
+                    cv_width = float(quad[:, 0].max() - quad[:, 0].min())
+                    cv_height = float(quad[:, 1].max() - quad[:, 1].min())
+                    if cv_width <= 0 or cv_height <= 0:
+                        print(f"警告: 跳过退化框于 {label_path}: {line}")
+                        continue
                     quads.append(quad)
-                    
+
                     # 处理可选的文本内容
-                    transcription = parts[4] if len(parts) > 4 else ""
+                    transcription = " ".join(parts[transcription_start:])
                     if transcription != "###": # 忽略 "don't care" 区域
                         transcriptions.append(transcription)
 

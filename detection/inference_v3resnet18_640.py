@@ -24,14 +24,12 @@ from models.east_model import EASTModel
 from components.transforms import ResizeAndPad
 
 # --- 配置参数 ---
-MODEL_PATH = "detection/checkpoints/detection_epoch_618.pth"
-IMAGE_PATH = "detection/data/test/1"
-# IMAGE_PATH = "detection/data/val_images"
-OUTPUT_DIR = "detection/data/test_results/resnet18/1"
-# OUTPUT_DIR = "detection/data/test_results/resnet18/val_images"
+MODEL_PATH = "detection/checkpoints/best_detection_epoch_97_loss_0.01528.pth"
+IMAGE_PATH = "detection/data/test/0901"
+OUTPUT_DIR = "detection/data/test_results/resnet18/0901"
 
 SAVE_CROPS = True
-CROP_DIR_NAME = "detection/data/crops/resnet18/1"
+CROP_DIR_NAME = "detection/data/crops/resnet18/0901"
 
 SAVE_LABELS = False
 LABEL_DIR = "detection/data/test_results/resnet18/complement"

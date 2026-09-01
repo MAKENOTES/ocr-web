@@ -9,10 +9,10 @@ from torchvision.transforms import Normalize
 class ResizeAndPad:
     """
     一个自定义的transform，用于在保持宽高比的同时缩放和填充图像。
-    它会将图像缩放到一个目标尺寸内，然后用灰色像素填充剩余部分，
+    它会将图像缩放到一个目标尺寸内，然后用图像边缘背景色填充剩余部分，
     使得最终图像尺寸固定。同时，它也会相应地调整边界框的坐标。
     """
-    def __init__(self, output_size):
+    def __init__(self, output_size, padding_color="auto"):
         """
         初始化ResizeAndPad。
         :param output_size: int或tuple, 目标输出尺寸。如果是int，则宽高相同。
@@ -23,6 +23,20 @@ class ResizeAndPad:
         else:
             assert len(output_size) == 2
             self.output_size = output_size
+        self.padding_color = padding_color
+
+    def _resolve_padding_color(self, image):
+        if self.padding_color != "auto":
+            return self.padding_color
+
+        # UI 裁剪通常是白底、灰底或彩色按钮。使用边缘像素中位数填充，
+        # 避免固定灰色在小图四周制造一圈训练时并不存在的强边界。
+        pixels = np.asarray(image)
+        border = np.concatenate([
+            pixels[0, :, :], pixels[-1, :, :],
+            pixels[:, 0, :], pixels[:, -1, :]
+        ], axis=0)
+        return tuple(np.median(border, axis=0).astype(np.uint8).tolist())
 
     def __call__(self, sample):
         """
@@ -42,8 +56,8 @@ class ResizeAndPad:
         # 缩放图像
         resized_image = image.resize((resized_w, resized_h), Image.Resampling.BICUBIC)
         
-        # 创建一个带灰色背景的新图像用于填充
-        new_image = Image.new('RGB', (new_w, new_h), (128, 128, 128))
+        # 使用与原图边缘一致的背景色填充。
+        new_image = Image.new('RGB', (new_w, new_h), self._resolve_padding_color(image))
         new_image.paste(resized_image, ((new_w - resized_w) // 2, (new_h - resized_h) // 2))
         
         # 调整四边形坐标
@@ -92,8 +106,13 @@ class GenerateGT:
 
 
 class ColorJitterTransform:
-    def __init__(self):
-        self.jitter = transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1)
+    def __init__(self, brightness=0.12, contrast=0.15, saturation=0.10, hue=0.02):
+        self.jitter = transforms.ColorJitter(
+            brightness=brightness,
+            contrast=contrast,
+            saturation=saturation,
+            hue=hue
+        )
 
     def __call__(self, sample):
         # 仅对图像进行颜色抖动，不改变 quads
@@ -203,15 +222,15 @@ def get_transforms(is_train=True, input_size=512):
     if is_train:
         return transforms.Compose([
             ColorJitterTransform(),
-            RandomScale(scale_range=(0.8, 1.2)),
-            RandomHorizontalCrop(crop_ratio_range=(0.7, 1.0)),
-            ResizeAndPad(input_size),
+            # 新数据已经是紧凑 UI 裁剪。RandomHorizontalCrop 会截断文字，
+            # RandomScale 随后又被 ResizeAndPad 抵消，因此两者均不启用。
+            ResizeAndPad(input_size, padding_color="auto"),
             GenerateGT(input_size),
             ToTensor()
         ])
     else:
         return transforms.Compose([
-            ResizeAndPad(input_size),
+            ResizeAndPad(input_size, padding_color="auto"),
             GenerateGT(input_size),
             ToTensor()
         ])
