@@ -33,6 +33,25 @@ flowchart TD
 
 训练、验证、PyTorch 推理和多后端推理复用同一套不裁剪基础预处理。训练可额外使用随机增强；验证和测试禁止随机增强。
 
+### 初始训练集/验证集划分
+
+当 `train_images/` 和 `train_annotation.txt` 保存全量数据、验证集为空时，使用
+`recognition/split_dataset.py` 做确定性的 80/20 均匀系统抽样。脚本按标注顺序每隔约
+5 条抽取一条；总数不能被 5 整除时，会在 4～5 条之间均匀调整间隔，使验证集数量
+等于最接近 20% 的整数。
+
+```bash
+# 先校验数据并预览数量，不修改文件
+.venv/bin/python recognition/split_dataset.py
+
+# 确认后移动验证图片，并重写 train/val 标注
+.venv/bin/python recognition/split_dataset.py --apply
+```
+
+默认使用 `move`；如需保留 `train_images/` 中的全量图片，可传入 `--mode copy`。
+脚本不会修改 `all_annotation.txt`，并会在缺图、重复标注、未标注 PNG、非空验证集
+或目标文件冲突时拒绝执行。
+
 ## 3. 模型与张量契约
 
 ```mermaid
@@ -110,7 +129,8 @@ python recognition_inference.py \
   --batch_size 1
 ```
 
-仓库中的 `recognition/data/val_annotation.txt` 暂无完整可用的对应图片。建立无泄漏划分前，不应将训练集评估结果作为发布精度。
+初次准备数据时，`recognition/data/val_annotation.txt` 可能为空。应先使用上述脚本建立
+图片与标注一一对应的独立验证集；划分完成前，不应将训练集评估结果作为发布精度。
 
 ## 5. 评测维度
 
