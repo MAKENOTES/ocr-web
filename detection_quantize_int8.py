@@ -32,7 +32,7 @@ from pathlib import Path
 # 常量
 # ============================================================
 
-INPUT_SIZE = 640
+INPUT_SIZE = (256, 768)  # (height, width)，与 detection/train_resnet.py 一致
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -41,22 +41,47 @@ VERIFY_SEED = 42
 VERIFY_NUM_SAMPLES = 5
 
 
+def normalize_input_size(input_size):
+    """统一返回 (高, 宽)，兼容 int、二元序列和 ``256x768`` 字符串。"""
+    if isinstance(input_size, str):
+        parts = input_size.lower().replace("×", "x").split("x")
+        if len(parts) == 1:
+            input_size = int(parts[0])
+        elif len(parts) == 2:
+            input_size = tuple(int(part) for part in parts)
+        else:
+            raise ValueError(f"无效输入尺寸: {input_size!r}")
+    if isinstance(input_size, int):
+        input_size = (input_size, input_size)
+    if isinstance(input_size, (tuple, list)) and len(input_size) == 2:
+        input_h, input_w = int(input_size[0]), int(input_size[1])
+        if input_h > 0 and input_w > 0:
+            return input_h, input_w
+    raise ValueError(f"input_size 必须是正整数或 (高, 宽)，实际为: {input_size!r}")
+
+
 # ============================================================
 # 图像预处理（与 detection_inference.py 完全一致）
 # ============================================================
 
-def preprocess_image(image_path: str, input_size: int = INPUT_SIZE) -> np.ndarray:
+def preprocess_image(image_path: str, input_size=INPUT_SIZE) -> np.ndarray:
     from PIL import Image
 
     img = Image.open(image_path).convert("RGB")
     orig_w, orig_h = img.size
+    input_h, input_w = normalize_input_size(input_size)
 
-    scale = min(input_size / orig_w, input_size / orig_h)
+    scale = min(input_w / orig_w, input_h / orig_h)
     new_w, new_h = int(orig_w * scale), int(orig_h * scale)
     resized = img.resize((new_w, new_h), Image.Resampling.BICUBIC)
 
-    padded = Image.new("RGB", (input_size, input_size), (128, 128, 128))
-    padded.paste(resized, ((input_size - new_w) // 2, (input_size - new_h) // 2))
+    pixels = np.asarray(img)
+    border = np.concatenate(
+        [pixels[0], pixels[-1], pixels[:, 0], pixels[:, -1]], axis=0
+    )
+    padding_color = tuple(np.median(border, axis=0).astype(np.uint8).tolist())
+    padded = Image.new("RGB", (input_w, input_h), padding_color)
+    padded.paste(resized, ((input_w - new_w) // 2, (input_h - new_h) // 2))
 
     arr = np.array(padded).astype(np.float32) / 255.0
     arr = (arr - IMAGENET_MEAN) / IMAGENET_STD
@@ -70,9 +95,9 @@ def preprocess_image(image_path: str, input_size: int = INPUT_SIZE) -> np.ndarra
 
 class EASTCalibrationDataReader:
     def __init__(self, input_name: str, calib_dir: str = None,
-                 calib_num: int = 50, input_size: int = INPUT_SIZE):
+                 calib_num: int = 50, input_size=INPUT_SIZE):
         self.input_name = input_name
-        self.input_size = input_size
+        self.input_size = normalize_input_size(input_size)
         self.data_list = []
         self.idx = 0
 
@@ -113,8 +138,9 @@ class EASTCalibrationDataReader:
 
     def _generate_random(self, n: int):
         rng = np.random.RandomState(12345)  # 校准数据也固定种子
+        input_h, input_w = self.input_size
         for _ in range(n):
-            fake_img = rng.rand(1, 3, self.input_size, self.input_size).astype(np.float32)
+            fake_img = rng.rand(1, 3, input_h, input_w).astype(np.float32)
             for c in range(3):
                 fake_img[0, c] = (fake_img[0, c] - IMAGENET_MEAN[c]) / IMAGENET_STD[c]
             self.data_list.append(fake_img)
@@ -212,7 +238,7 @@ def quantize_int8(
     calib_num: int = 50,
     per_channel: bool = False,
     calibrate_method: str = "MinMax",
-    input_size: int = INPUT_SIZE,
+    input_size=INPUT_SIZE,
     quant_format: str = "qoperator",
     reduce_range: bool = False,
 ):
@@ -248,7 +274,8 @@ def quantize_int8(
     print(f"  Per-channel:  {per_channel}")
     print(f"  Reduce-range: {reduce_range}")
     print(f"  校准方法:     {calibrate_method}")
-    print(f"  输入尺寸:     {input_size}x{input_size}")
+    input_h, input_w = normalize_input_size(input_size)
+    print(f"  输入尺寸:     {input_w}x{input_h} (宽x高)")
     print()
 
     if not os.path.exists(input_model):
@@ -363,7 +390,7 @@ def quantize_int8(
 # 验证：FP32 vs INT8 （固定种子 + 多样本 + 双指标）
 # ============================================================
 
-def _verify_accuracy(fp32_model: str, int8_model: str, input_size: int,
+def _verify_accuracy(fp32_model: str, int8_model: str, input_size,
                      calib_dir: str = None):
     """
     验证设计原则：
@@ -382,6 +409,7 @@ def _verify_accuracy(fp32_model: str, int8_model: str, input_size: int,
     sess_int8 = ort.InferenceSession(int8_model, opts, providers=["CPUExecutionProvider"])
     name_fp32 = sess_fp32.get_inputs()[0].name
     name_int8 = sess_int8.get_inputs()[0].name
+    input_h, input_w = normalize_input_size(input_size)
 
     def _run_one(arr):
         """单张图像 FP32 vs INT8 对比，返回各项指标"""
@@ -467,7 +495,7 @@ def _verify_accuracy(fp32_model: str, int8_model: str, input_size: int,
     rand_results = []
 
     for _ in range(VERIFY_NUM_SAMPLES):
-        dummy = rng.rand(1, 3, input_size, input_size).astype(np.float32)
+        dummy = rng.rand(1, 3, input_h, input_w).astype(np.float32)
         for c in range(3):
             dummy[0, c] = (dummy[0, c] - IMAGENET_MEAN[c]) / IMAGENET_STD[c]
         rand_results.append(_run_one(dummy))
@@ -523,12 +551,13 @@ def _verify_accuracy(fp32_model: str, int8_model: str, input_size: int,
 # Benchmark
 # ============================================================
 
-def _benchmark(fp32_model: str, int8_model: str, input_size: int):
+def _benchmark(fp32_model: str, int8_model: str, input_size):
     import onnxruntime as ort
 
     # 固定种子确保 benchmark 输入一致
     rng = np.random.RandomState(VERIFY_SEED + 1)
-    dummy = rng.rand(1, 3, input_size, input_size).astype(np.float32)
+    input_h, input_w = normalize_input_size(input_size)
+    dummy = rng.rand(1, 3, input_h, input_w).astype(np.float32)
 
     def bench_model(model_path, label, warmup=5, repeat=20):
         opts = ort.SessionOptions()
@@ -603,7 +632,10 @@ if __name__ == "__main__":
                         help="7-bit 量化范围（非 VNNI CPU 可改善精度）")
     parser.add_argument("--calibrate_method", type=str, default="MinMax",
                         choices=["MinMax", "Entropy", "Percentile"])
-    parser.add_argument("--input_size", type=int, default=INPUT_SIZE)
+    parser.add_argument(
+        "--input_size", type=normalize_input_size, default=INPUT_SIZE,
+        help="模型输入尺寸：正方形可写 640，矩形按高x宽写 256x768",
+    )
 
     args = parser.parse_args()
 

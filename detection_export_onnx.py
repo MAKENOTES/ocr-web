@@ -7,7 +7,7 @@ export_onnx.py — 将训练好的 EAST PyTorch 模型导出为 ONNX 格式
     python export_onnx.py \
         --model_path detection/checkpoints/best_model.pth \
         --output_path detection/checkpoints/east_model.onnx \
-        --input_size 1024
+        --input_size 256x768
 
 依赖:
     pip install onnx onnxruntime onnxsim onnxscript
@@ -25,14 +25,36 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from detection.models.east_model import EASTModel
 
 
-def export_onnx(model_path: str, output_path: str, input_size: int = 1024):
+INPUT_SIZE = (256, 768)  # (height, width)，与 detection/train_resnet.py 一致
+
+
+def normalize_input_size(input_size):
+    """统一返回 (高, 宽)，兼容 int、二元序列和 ``256x768`` 字符串。"""
+    if isinstance(input_size, str):
+        parts = input_size.lower().replace("×", "x").split("x")
+        if len(parts) == 1:
+            input_size = int(parts[0])
+        elif len(parts) == 2:
+            input_size = tuple(int(part) for part in parts)
+        else:
+            raise ValueError(f"无效输入尺寸: {input_size!r}")
+    if isinstance(input_size, int):
+        input_size = (input_size, input_size)
+    if isinstance(input_size, (tuple, list)) and len(input_size) == 2:
+        input_h, input_w = int(input_size[0]), int(input_size[1])
+        if input_h > 0 and input_w > 0:
+            return input_h, input_w
+    raise ValueError(f"input_size 必须是正整数或 (高, 宽)，实际为: {input_size!r}")
+
+
+def export_onnx(model_path: str, output_path: str, input_size=INPUT_SIZE):
     """
     将 PyTorch EAST 模型导出为 ONNX 格式，并可选地使用 onnx-simplifier 优化。
 
     Args:
         model_path:  .pth 权重文件路径
         output_path: 输出的 .onnx 文件路径
-        input_size:  推理时的输入图像尺寸（正方形边长）
+        input_size:  推理输入尺寸，int 表示正方形，tuple 表示 (高, 宽)
     """
     print("=" * 60)
     print("EAST 模型 → ONNX 导出工具")
@@ -42,13 +64,16 @@ def export_onnx(model_path: str, output_path: str, input_size: int = 1024):
     print(f"\n[1/4] 加载 PyTorch 模型: {model_path}")
     device = torch.device("cpu")
     model = EASTModel(pretrained=False)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(
+        torch.load(model_path, map_location=device, weights_only=True)
+    )
     model.eval()
     model.to(device)
 
     # 2. 准备虚拟输入
-    print(f"[2/4] 准备虚拟输入 (1, 3, {input_size}, {input_size})")
-    dummy_input = torch.randn(1, 3, input_size, input_size, device=device)
+    input_h, input_w = normalize_input_size(input_size)
+    print(f"[2/4] 准备虚拟输入 (1, 3, {input_h}, {input_w})")
+    dummy_input = torch.randn(1, 3, input_h, input_w, device=device)
 
     # 3. 导出 ONNX
     print(f"[3/4] 导出 ONNX 到: {output_path}")
@@ -197,8 +222,14 @@ def export_onnx(model_path: str, output_path: str, input_size: int = 1024):
 
 
 if __name__ == "__main__":
-    model_path = "best_detection.pth"
-    output_path = "best_detection.onnx"
-    input_size = 640
-
-    export_onnx(model_path, output_path, input_size)
+    parser = argparse.ArgumentParser(description="将 EAST PyTorch 模型导出为 ONNX")
+    parser.add_argument("--model_path", default="detection/checkpoints/detection_epoch_180.pth")
+    parser.add_argument("--output_path", default="best_detection.onnx")
+    parser.add_argument(
+        "--input_size",
+        type=normalize_input_size,
+        default=INPUT_SIZE,
+        help="模型输入尺寸：正方形可写 640，矩形按高x宽写 256x768",
+    )
+    args = parser.parse_args()
+    export_onnx(args.model_path, args.output_path, args.input_size)

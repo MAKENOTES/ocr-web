@@ -45,22 +45,50 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 参数配置
 # ============================================================
 
-DEFAULT_MODEL_PATH  = "best_detection_int8_static.onnx"
+DEFAULT_MODEL_PATH  = "best_detection.onnx"
 DEFAULT_IMAGE_PATH  = "detection/data/test/1"
 DEFAULT_OUTPUT_DIR  = "detection/data/test_results/optimized/1"
 DEFAULT_CROP_DIR    = "detection/data/crops/optimized/1"
 
-INPUT_SIZE          = 640
+INPUT_SIZE          = (256, 768)  # (height, width)，与训练配置一致
 SCORE_THRESHOLD     = 0.7
 MIN_AREA            = 2
 
 SAVE_CROPS          = False
-EXPAND_BOX          = True
+EXPAND_BOX          = False
 EXPAND_RATIO_W      = 0.10
 EXPAND_RATIO_H      = 0.10
-SMALL_REGION_AREA     = 6    # 面积 < 此值视为小符号，走不同出框策略
 # 注意：宽高比过滤只用于小连通域噪点过滤，大连通域不受限制
 SMALL_MAX_ASPECT      = 5.0   # 小连通域宽高比超过此值才过滤（正方形符号宽高比应接近1）
+
+
+def normalize_input_size(input_size):
+    """统一返回 (高, 宽)，兼容 int、二元序列和 ``256x768`` 字符串。"""
+    if isinstance(input_size, str):
+        parts = input_size.lower().replace("×", "x").split("x")
+        if len(parts) == 1:
+            input_size = int(parts[0])
+        elif len(parts) == 2:
+            input_size = tuple(int(part) for part in parts)
+        else:
+            raise ValueError(f"无效输入尺寸: {input_size!r}")
+    if isinstance(input_size, int):
+        input_size = (input_size, input_size)
+    if isinstance(input_size, (tuple, list)) and len(input_size) == 2:
+        input_h, input_w = int(input_size[0]), int(input_size[1])
+        if input_h > 0 and input_w > 0:
+            return input_h, input_w
+    raise ValueError(f"input_size 必须是正整数或 (高, 宽)，实际为: {input_size!r}")
+
+
+def scaled_small_region_area(input_size):
+    """按输入总像素面积缩放小连通域阈值，1024×1024 时基准为 15。"""
+    input_h, input_w = normalize_input_size(input_size)
+    scaled_area = round(15 * (input_h * input_w) / (1024 * 1024))
+    return max(MIN_AREA + 1, scaled_area)
+
+
+SMALL_REGION_AREA = scaled_small_region_area(INPUT_SIZE)
 
 
 # ============================================================
@@ -70,7 +98,7 @@ SMALL_MAX_ASPECT      = 5.0   # 小连通域宽高比超过此值才过滤（正
 class ONNXBackend:
     """ONNX Runtime 后端（支持 FP32 和 INT8 模型）"""
 
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, input_size=INPUT_SIZE):
         import onnxruntime as ort
 
         opts = ort.SessionOptions()
@@ -88,12 +116,14 @@ class ONNXBackend:
             providers=["CPUExecutionProvider"]
         )
         self.input_name = self.session.get_inputs()[0].name
+        self.input_size = normalize_input_size(input_size)
         self._warmup()
         print(f"  ✓ ONNX Runtime 后端加载完成")
         print(f"    线程数: {os.cpu_count()} / 推理线程: {opts.intra_op_num_threads}")
 
     def _warmup(self, n: int = 3):
-        dummy = np.random.randn(1, 3, INPUT_SIZE, INPUT_SIZE).astype(np.float32)
+        input_h, input_w = self.input_size
+        dummy = np.random.randn(1, 3, input_h, input_w).astype(np.float32)
         for _ in range(n):
             self.session.run(None, {self.input_name: dummy})
 
@@ -112,7 +142,7 @@ class OpenVINOBackend:
     支持直接从 .onnx 文件加载，无需额外转换。
     """
 
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, input_size=INPUT_SIZE):
         try:
             # from openvino.runtime import Core
             from openvino import Core
@@ -132,11 +162,13 @@ class OpenVINOBackend:
         }
         self.compiled_model = ie.compile_model(model=model, device_name="CPU", config=config)
         self.infer_request = self.compiled_model.create_infer_request()
+        self.input_size = normalize_input_size(input_size)
         self._warmup()
         print(f"  ✓ OpenVINO 后端加载完成（Intel CPU 优化）")
 
     def _warmup(self, n: int = 3):
-        dummy = np.random.randn(1, 3, INPUT_SIZE, INPUT_SIZE).astype(np.float32)
+        input_h, input_w = self.input_size
+        dummy = np.random.randn(1, 3, input_h, input_w).astype(np.float32)
         for _ in range(n):
             self.infer_request.infer({"input": dummy})
 
@@ -151,12 +183,14 @@ class OpenVINOBackend:
 class PyTorchBackend:
     """原始 PyTorch 后端（fallback，无优化）"""
 
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, input_size=INPUT_SIZE):
         import torch
         from detection.models.east_model import EASTModel
 
         self.model = EASTModel(pretrained=False)
-        self.model.load_state_dict(torch.load(model_path, map_location="cpu"))
+        self.model.load_state_dict(
+            torch.load(model_path, map_location="cpu", weights_only=True)
+        )
         self.model.eval()
         print(f"  ✓ PyTorch 后端加载完成（无优化）")
 
@@ -168,7 +202,7 @@ class PyTorchBackend:
         return score.numpy(), geo.numpy()
 
 
-def load_backend(model_path: str, backend: str):
+def load_backend(model_path: str, backend: str, input_size=INPUT_SIZE):
     """
     根据指定后端或文件扩展名自动选择最优后端。
     自动选择逻辑：
@@ -189,11 +223,11 @@ def load_backend(model_path: str, backend: str):
     print(f"\n[后端] 使用: {backend.upper()}")
 
     if backend == "onnx":
-        return ONNXBackend(model_path)
+        return ONNXBackend(model_path, input_size)
     elif backend == "openvino":
-        return OpenVINOBackend(model_path)
+        return OpenVINOBackend(model_path, input_size)
     elif backend == "pytorch":
-        return PyTorchBackend(model_path)
+        return PyTorchBackend(model_path, input_size)
     else:
         raise ValueError(f"未知后端: {backend}")
 
@@ -202,7 +236,7 @@ def load_backend(model_path: str, backend: str):
 # 图像预处理（与训练保持完全一致）
 # ============================================================
 
-def preprocess(image_path: str, input_size: int):
+def preprocess(image_path: str, input_size=INPUT_SIZE):
     """
     加载 & 预处理图像。
     返回: (img_tensor_np, resized_pil_img, (orig_w, orig_h))
@@ -215,13 +249,20 @@ def preprocess(image_path: str, input_size: int):
 
     orig_w, orig_h = image.size
 
-    # ResizeAndPad：保持宽高比
-    scale = min(input_size / orig_w, input_size / orig_h)
+    input_h, input_w = normalize_input_size(input_size)
+
+    # ResizeAndPad：保持宽高比，并使用与训练相同的边缘中位数填充
+    scale = min(input_w / orig_w, input_h / orig_h)
     new_w, new_h = int(orig_w * scale), int(orig_h * scale)
     resized = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
 
-    padded = Image.new("RGB", (input_size, input_size), (128, 128, 128))
-    padded.paste(resized, ((input_size - new_w) // 2, (input_size - new_h) // 2))
+    pixels = np.asarray(image)
+    border = np.concatenate(
+        [pixels[0], pixels[-1], pixels[:, 0], pixels[:, -1]], axis=0
+    )
+    padding_color = tuple(np.median(border, axis=0).astype(np.uint8).tolist())
+    padded = Image.new("RGB", (input_w, input_h), padding_color)
+    padded.paste(resized, ((input_w - new_w) // 2, (input_h - new_h) // 2))
 
     # HWC→CHW, float32, ImageNet normalize
     arr = np.array(padded).astype(np.float32) / 255.0
@@ -257,13 +298,13 @@ def box_from_small_region(ys, xs, geo_map_np, stride):
 
 
 def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
-                                     min_area):
+                                     min_area, small_region_area):
     """
     单轮连通域检测：
 
-      - 大连通域（面积 >= SMALL_REGION_AREA）：边缘像素采样，精度高
+      - 大连通域（面积 >= small_region_area）：边缘像素采样，精度高
         ★ 不做宽高比过滤，正文长文本行天然是扁长条
-      - 小连通域（面积 < SMALL_REGION_AREA） ：全像素中位数出框
+      - 小连通域（面积 < small_region_area） ：全像素中位数出框
         ★ 对小连通域做宽高比过滤，去除细线噪点
     """
     stride = 4.0
@@ -282,7 +323,7 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
         ys, xs = np.where(labels == label_id)
 
         # ── 小连通域（单符号）──────────────────────────────
-        if area < SMALL_REGION_AREA:
+        if area < small_region_area:
             # 小连通域才做宽高比过滤（去除细线噪点）
             # √ 等符号宽高比接近 1，细线噪点宽高比极大
             w_cc = stats[label_id, cv2.CC_STAT_WIDTH]
@@ -328,7 +369,7 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
 # ============================================================
 
 def detect_one(backend, image_path: str, output_dir: str,
-               input_size: int = INPUT_SIZE,
+               input_size=INPUT_SIZE,
                score_threshold: float = SCORE_THRESHOLD,
                save_crops: bool = SAVE_CROPS,
                expand_box: bool = EXPAND_BOX,
@@ -338,9 +379,11 @@ def detect_one(backend, image_path: str, output_dir: str,
     """
     对单张图像执行检测，保存可视化结果和（可选）裁剪图像。
     """
-    img_np, resized_pil, (orig_w, orig_h) = preprocess(image_path, input_size)
-    if img_np is None:
+    preprocessed = preprocess(image_path, input_size)
+    if preprocessed[0] is None:
         return 0, 0.0
+    img_np, resized_pil, (orig_w, orig_h) = preprocessed
+    input_h, input_w = normalize_input_size(input_size)
 
     # --- 前向推理 ---
     t0 = time.perf_counter()
@@ -358,14 +401,15 @@ def detect_one(backend, image_path: str, output_dir: str,
         score_map_np, geo_map_np,
         score_threshold=score_threshold,
         min_area=MIN_AREA,
+        small_region_area=scaled_small_region_area(input_size),
     )
 
     # --- 坐标映射参数 ---
-    scale = input_size / max(orig_h, orig_w)
+    scale = min(input_w / orig_w, input_h / orig_h)
     content_w = int(orig_w * scale)
     content_h = int(orig_h * scale)
-    pad_x = (input_size - content_w) // 2
-    pad_y = (input_size - content_h) // 2
+    pad_x = (input_w - content_w) // 2
+    pad_y = (input_h - content_h) // 2
 
     # --- 绘图 & 保存 ---
     img_vis = cv2.cvtColor(np.array(resized_pil), cv2.COLOR_RGB2BGR)
@@ -379,7 +423,7 @@ def detect_one(backend, image_path: str, output_dir: str,
     fname_noext = os.path.splitext(fname)[0]
 
     if len(final_boxes) > 0:
-        sorted_boxes = final_boxes[np.argsort(final_boxes[:, 1])]
+        sorted_boxes = final_boxes[np.lexsort((final_boxes[:, 0], final_boxes[:, 1]))]
 
         if save_crops:
             os.makedirs(DEFAULT_CROP_DIR, exist_ok=True)
@@ -404,14 +448,14 @@ def detect_one(backend, image_path: str, output_dir: str,
             if save_crops:
                 crop = img_orig[ry1:ry2, rx1:rx2]
                 cv2.imwrite(
-                    os.path.join(DEFAULT_CROP_DIR, f"{fname_noext}-{i+1:06d}.jpg"),
+                    os.path.join(DEFAULT_CROP_DIR, f"{fname_noext}-{i+1:06d}.png"),
                     crop
                 )
 
             cv2.rectangle(
                 img_vis,
                 (max(0, int(x1)), max(0, int(y1))),
-                (min(input_size, int(x2)), min(input_size, int(y2))),
+                (min(input_w, int(x2)), min(input_h, int(y2))),
                 (0, 255, 0), 1
             )
 
@@ -441,8 +485,10 @@ def main():
     parser.add_argument("--backend",     type=str, choices=["auto", "onnx", "openvino", "pytorch"],
                         default="openvino",
                         help="推理后端（auto=自动选择）")
-    parser.add_argument("--input_size",  type=int,
-                        default=INPUT_SIZE)
+    parser.add_argument(
+        "--input_size", type=normalize_input_size, default=INPUT_SIZE,
+        help="模型输入尺寸：正方形可写 640，矩形按高x宽写 256x768",
+    )
     parser.add_argument("--score_thr",   type=float,
                         default=SCORE_THRESHOLD)
     parser.add_argument("--save_crops",  action="store_true",
@@ -460,6 +506,7 @@ def main():
     print(f"  输入:    {args.image_path}")
     print(f"  输出:    {args.output_dir}")
     print(f"  后端:    {args.backend}")
+    print(f"  尺寸:    {args.input_size[1]}×{args.input_size[0]} (宽×高)")
     print(f"  CPU核心: {os.cpu_count()}")
     print()
 
@@ -468,7 +515,7 @@ def main():
         return
 
     # 加载后端
-    backend = load_backend(args.model_path, args.backend)
+    backend = load_backend(args.model_path, args.backend, args.input_size)
 
     # 收集图像文件
     if os.path.isdir(args.image_path):
