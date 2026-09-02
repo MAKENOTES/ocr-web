@@ -31,6 +31,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from recognition.models.model import CRNN
 from recognition.components.converter import LabelConverter
+from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 
 class OnnxExportWrapper(torch.nn.Module):
@@ -142,15 +143,15 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
     converter = LabelConverter(keys_path)
     num_classes = converter.num_classes
 
-    model = CRNN(img_height=img_height, nc=1, n_class=num_classes)
     checkpoint = torch.load(model_path, map_location=device)
-    if 'state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['state_dict'])
-    else:
-        model.load_state_dict(checkpoint)
+    state_dict = extract_state_dict(checkpoint)
+    num_channels = infer_num_channels(state_dict)
+    model = CRNN(img_height=img_height, nc=num_channels, n_class=num_classes)
+    model.load_state_dict(state_dict)
     model.eval()
     model.to(device)
     print(f"    类别数: {num_classes}")
+    print(f"    输入通道: {num_channels} ({'RGB' if num_channels == 3 else '灰度'})")
 
     # 2. 包装模型
     print(f"[2/5] 包装模型 (OnnxExportWrapper)")
@@ -160,8 +161,8 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
 
     # 3. 准备虚拟输入（使用 batch_size=2 以确保动态 batch 正确导出）
     export_batch = 2
-    print(f"[3/5] 准备虚拟输入 ({export_batch}, 1, {img_height}, {img_width})")
-    dummy_input = torch.randn(export_batch, 1, img_height, img_width, device=device)
+    print(f"[3/5] 准备虚拟输入 ({export_batch}, {num_channels}, {img_height}, {img_width})")
+    dummy_input = torch.randn(export_batch, num_channels, img_height, img_width, device=device)
     dummy_widths = torch.full((export_batch,), img_width, dtype=torch.long, device=device)
 
     # 4. 导出 ONNX
@@ -218,7 +219,7 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
                                            providers=["CPUExecutionProvider"])
 
         for test_batch in [1, 4]:
-            test_input = torch.randn(test_batch, 1, img_height, img_width, device=device)
+            test_input = torch.randn(test_batch, num_channels, img_height, img_width, device=device)
             test_widths = torch.full((test_batch,), img_width, dtype=torch.long)
 
             # PyTorch (原始模型，带 img_widths)
@@ -251,7 +252,7 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
         ort_session = ort.InferenceSession(output_path, sess_options=sess_options,
                                            providers=["CPUExecutionProvider"])
 
-        bench_input = torch.randn(1, 1, img_height, img_width, device=device)
+        bench_input = torch.randn(1, num_channels, img_height, img_width, device=device)
         bench_widths = torch.full((1,), img_width, dtype=torch.long)
         ort_inputs = {
             "input": bench_input.numpy(),

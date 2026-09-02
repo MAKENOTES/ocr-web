@@ -2,7 +2,7 @@
 
 ## 1. 职责
 
-Recognition 接收单个网页文字元素裁剪图，输出 Unicode 文本。当前它是项目的实际主链路，已经加入白字有色背景、小文字、大背景、红章和动态宽度处理。
+Recognition 接收 detection 输出的单个文字框，输出 Unicode 文本。当前它是项目的实际主链路，支持彩色/深浅背景、PNG 和动态宽度处理。
 
 当前基线为 MobileNet 风格 CNN + 单层双向 GRU + CTC head，输入高度固定为 32，宽度按比例缩放并在 batch 内动态 padding。
 
@@ -12,16 +12,12 @@ Recognition 接收单个网页文字元素裁剪图，输出 Unicode 文本。�
 flowchart TD
     A[annotation: relative_path,label] --> DS[TextRecognitionDataset]
     I[元素图片] --> DS
-    DS --> RGB[读取 RGB]
-    RGB --> WC{启用白字裁剪?}
-    WC -->|是| BBOX[HSV 白字 bbox + 置信护栏]
-    WC -->|否| SEAL[红章处理]
-    BBOX --> SEAL
-    SEAL --> GRAY[灰度/RGB 通道转换]
-    GRAY --> RESIZE[固定高度32 + 等比宽度]
-    RESIZE --> MINW[最小宽度48画布]
+    DS --> PNG[解析原路径/同名 PNG]
+    PNG --> RGB[读取 RGB + 透明通道合成]
+    RGB --> RESIZE[完整 detection 框固定高度32 + 等比宽度]
+    RESIZE --> MINW[窄图按边缘背景色补到宽48]
     MINW --> AUG{训练集?}
-    AUG -->|是| TA[轻旋转/透视/颜色/模糊/噪声/擦除]
+    AUG -->|是| TA[颜色/极性/模糊/轻噪声]
     AUG -->|否| NORM[仅 Normalize]
     TA --> BUCKET[按宽高比桶采样]
     NORM --> PAD[batch 动态 padding 到8倍数]
@@ -31,12 +27,11 @@ flowchart TD
 
 相关实现：
 
-- `recognition/components/dataset.py`：标注解析、红章处理、缩放、增强、桶采样和动态 padding；
-- `recognition/utils/white_text_crop.py`：确定性白字区域检测与裁剪；
-- `recognition/runtime.py`：图片发现、checkpoint 解包、多后端输出布局契约；
+- `recognition/components/dataset.py`：PNG 路径解析、透明通道处理、缩放、增强、桶采样和动态 padding；
+- `recognition/utils/checkpoint.py`：checkpoint 解包以及旧灰度/新 RGB 模型通道识别；
 - `recognition/components/converter.py`：字典编码和显式 TBC/BTC 的 CTC greedy decode。
 
-训练、验证、PyTorch 推理和多后端推理应复用同一确定性基础预处理。训练可额外使用随机增强；验证和测试禁止随机增强。保存裁剪图只用于抽样核查，生产默认应关闭或设置留存策略。
+训练、验证、PyTorch 推理和多后端推理复用同一套不裁剪基础预处理。训练可额外使用随机增强；验证和测试禁止随机增强。
 
 ## 3. 模型与张量契约
 
@@ -112,11 +107,10 @@ python recognition_inference.py \
   --backend auto \
   --keys_path recognition/keys.txt \
   --image_path recognition/data/test_images1 \
-  --batch_size 1 \
-  --save_crops_dir ""
+  --batch_size 1
 ```
 
-仓库当前没有 `recognition/data/val_annotation.txt`。这是一个明确阻塞项：在建立无泄漏划分前，不得使用 `train_annotation.txt` 代替验证集，也不得将历史训练集评估结果作为发布精度。
+仓库中的 `recognition/data/val_annotation.txt` 暂无完整可用的对应图片。建立无泄漏划分前，不应将训练集评估结果作为发布精度。
 
 ## 5. 评测维度
 
@@ -135,8 +129,8 @@ python recognition_inference.py \
 ## 6. 已知问题与演进边界
 
 - `train.py` 仍以脚本常量为主，需迁移为可序列化配置与 run manifest。
-- 当前读取失败返回 dummy tensor，评测应改为失败并输出坏样本清单。
-- 白字 HSV 裁剪是场景启发式，必须用误裁率、漏裁率和最终识别收益共同评估。
+- 图片读取或标注路径解析失败会直接报错，避免 dummy tensor 静默污染训练。
+- recognition 不再做二次裁剪；detection 框质量需要在 detection 环节单独评估。
 - 输入高度目前固定 32；48 高度只能作为同数据、同训练预算的消融实验，不能直接替换现有权重。
 - `recognition_quantize_static.py` 当前不进入发布路径。FP32 ONNX/OpenVINO 是默认优化方向。
 - `model_resnet50.py` 和历史说明文档属于实验资产，未通过同一门禁前不替代当前基线。

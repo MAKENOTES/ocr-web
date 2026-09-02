@@ -17,13 +17,13 @@ LEARNING_RATE = 1e-4
 # 新数据 99.5% 为横向 UI 小图；256x768 更接近其中位长宽比 2.7，
 # batch 8 的总输入像素量与原 640x640、batch 4 基本相同。
 BATCH_SIZE = 8
-EPOCHS = 100
+EPOCHS = 200
 INPUT_SIZE = (256, 768)  # (height, width)，两边均为 32 的倍数
 IMAGE_EXTENSIONS = (".png",)  # 明确只训练新 PNG，不混入目录中的旧 JPG
 TRAIN_IMAGE_DIR = "detection/data/train_images"
 TRAIN_LABEL_DIR = "detection/data/train_labels"
-VAL_IMAGE_DIR = "detection/data/val_images"
-VAL_LABEL_DIR = "detection/data/val_labels"
+VAL_IMAGE_DIR = "detection/data/train_images"
+VAL_LABEL_DIR = "detection/data/train_labels"
 
 # --- 模型保存策略优化 ---
 MAX_KEEP_CHECKPOINTS = 5         # 常规检查点：保留最近的 N 个 (用于断点续训)

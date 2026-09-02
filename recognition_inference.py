@@ -23,7 +23,7 @@ if project_root not in sys.path:
 # 强制复用核心模块，保证逻辑一致
 from recognition.components.converter import LabelConverter
 from recognition.components.dataset import InferenceDataset, dynamic_padding_collate_fn
-from recognition.utils.white_text_crop import WhiteTextCropInferenceDataset
+from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 # ============================================================
 # 参数配置
@@ -36,7 +36,7 @@ DEFAULT_IMAGE_PATH  = "recognition/data/test_images1"
 DEFAULT_KEYS_PATH   = "recognition/keys.txt"
 
 IMG_HEIGHT          = 32
-NUM_CHANNELS        = 1
+DEFAULT_NUM_CHANNELS = 3
 
 # ============================================================
 # 后端加载器
@@ -54,6 +54,9 @@ class ONNXBackend:
         # 检测模型是否包含 img_widths 输入
         self.input_names = [inp.name for inp in self.session.get_inputs()]
         self.has_img_widths = "img_widths" in self.input_names
+        image_input = next(inp for inp in self.session.get_inputs() if inp.name == "input")
+        channel_dim = image_input.shape[1]
+        self.num_channels = channel_dim if isinstance(channel_dim, int) else DEFAULT_NUM_CHANNELS
         if self.has_img_widths:
             print(f"  ✓ ONNX 模型包含 img_widths 输入 (padding mask 已启用)")
         else:
@@ -63,7 +66,7 @@ class ONNXBackend:
         print(f"  ✓ ONNX Runtime 后端加载完成")
 
     def _warmup(self, n: int = 3):
-        dummy = np.random.randn(1, 1, IMG_HEIGHT, 256).astype(np.float32)
+        dummy = np.random.randn(1, self.num_channels, IMG_HEIGHT, 256).astype(np.float32)
         dummy_widths = np.array([256], dtype=np.int64)
         for _ in range(n):
             feeds = {"input": dummy}
@@ -92,6 +95,11 @@ class OpenVINOBackend:
         # 检测模型输入
         self.input_names = [inp.any_name for inp in self.compiled_model.inputs]
         self.has_img_widths = "img_widths" in self.input_names
+        image_input = next(inp for inp in self.compiled_model.inputs if inp.any_name == "input")
+        try:
+            self.num_channels = image_input.partial_shape[1].get_length()
+        except Exception:
+            self.num_channels = DEFAULT_NUM_CHANNELS
         if self.has_img_widths:
             print(f"  ✓ OpenVINO 模型包含 img_widths 输入 (padding mask 已启用)")
         else:
@@ -101,7 +109,7 @@ class OpenVINOBackend:
         print(f"  ✓ OpenVINO 后端加载完成")
 
     def _warmup(self, n: int = 3):
-        dummy = np.random.randn(1, 1, IMG_HEIGHT, 256).astype(np.float32)
+        dummy = np.random.randn(1, self.num_channels, IMG_HEIGHT, 256).astype(np.float32)
         dummy_widths = np.array([256], dtype=np.int64)
         for _ in range(n):
             feeds = {"input": dummy}
@@ -129,12 +137,15 @@ class PyTorchBackend:
     def __init__(self, model_path: str, keys_path: str):
         from recognition.models.model import CRNN
         converter = LabelConverter(keys_path)
-        self.model = CRNN(img_height=IMG_HEIGHT, nc=NUM_CHANNELS, n_class=converter.num_classes)
         checkpoint = torch.load(model_path, map_location="cpu")
-        if 'state_dict' in checkpoint:
-            self.model.load_state_dict(checkpoint['state_dict'])
-        else:
-            self.model.load_state_dict(checkpoint)
+        state_dict = extract_state_dict(checkpoint)
+        self.num_channels = infer_num_channels(state_dict, default=DEFAULT_NUM_CHANNELS)
+        self.model = CRNN(
+            img_height=IMG_HEIGHT,
+            nc=self.num_channels,
+            n_class=converter.num_classes,
+        )
+        self.model.load_state_dict(state_dict)
         self.model.eval()
         print(f"  ✓ PyTorch 后端加载完成")
 
@@ -178,11 +189,6 @@ def main():
                         default="onnx")
     parser.add_argument("--batch_size",  type=int,
                         default=1, help="批量大小")
-    parser.add_argument("--auto_crop_white_text", action=argparse.BooleanOptionalAction,
-                        default=True,
-                        help="启用白色文字/有色背景自动裁剪前处理，默认启用；可用 --no-auto_crop_white_text 关闭")
-    parser.add_argument("--save_crops_dir", type=str, default="recognition/data/crops",
-                        help="保存自动裁剪后的图片目录；设为空字符串可关闭保存")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -192,7 +198,7 @@ def main():
     # 1. 收集图片
     image_paths = []
     if os.path.isdir(args.image_path):
-        for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.tif"]:
+        for ext in ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff", "*.webp"]:
             image_paths.extend(glob.glob(os.path.join(args.image_path, ext)))
             image_paths.extend(glob.glob(os.path.join(args.image_path, ext.upper())))
     elif os.path.isfile(args.image_path):
@@ -202,27 +208,19 @@ def main():
         print("✗ 未找到图像文件")
         return
 
+    image_paths = sorted(set(image_paths))
     print(f"发现 {len(image_paths)} 张待处理图片")
 
     # 2. 初始化核心组件
     converter = LabelConverter(args.keys_path)
     backend = load_backend(args.model_path, args.backend, args.keys_path)
 
-    # 3. 复用原始 InferenceDataset
-    if args.auto_crop_white_text:
-        print("  ✓ 启用白字/有色背景自动裁剪")
-        dataset = WhiteTextCropInferenceDataset(
-            image_paths=image_paths,
-            img_height=IMG_HEIGHT,
-            num_channels=NUM_CHANNELS,
-            save_crops_dir=args.save_crops_dir or None,
-        )
-    else:
-        dataset = InferenceDataset(
-            image_paths=image_paths,
-            img_height=IMG_HEIGHT,
-            num_channels=NUM_CHANNELS
-        )
+    # detection 输出已经是文字框，直接识别，不做二次裁剪或按颜色删除像素。
+    dataset = InferenceDataset(
+        image_paths=image_paths,
+        img_height=IMG_HEIGHT,
+        num_channels=backend.num_channels,
+    )
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,

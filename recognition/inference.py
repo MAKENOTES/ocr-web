@@ -16,10 +16,9 @@ if project_root not in sys.path:
 from recognition.components.converter import LabelConverter
 # model: 定义网络结构
 from recognition.models.model import CRNN
-# dataset: 复用其中的推理数据集类和动态Padding整理函数
-# 注意：前提是你已经按照上一步修改了 dataset.py
-from recognition.components.dataset import dynamic_padding_collate_fn
-from recognition.utils.white_text_crop import WhiteTextCropInferenceDataset
+# dataset: 复用训练侧的 PNG/RGB 预处理与动态 Padding
+from recognition.components.dataset import InferenceDataset, dynamic_padding_collate_fn
+from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 # ================= 配置区域 (常量) =================
 # 1. 核心路径
@@ -27,11 +26,10 @@ MODEL_PATH = os.path.join(project_root, "recognition/checkpoints/1783804842best_
 KEYS_PATH = os.path.join(project_root, "recognition/keys.txt")  # 字典路径 (必须与训练一致)
 INPUT_PATH = os.path.join(project_root, "recognition/data/test_images1")  # 待推理的图片文件夹 (或单张图片路径)
 OUTPUT_FILE = None  # 结果保存路径 (设为 None 则只打印)
-CROP_DEBUG_DIR = os.path.join(project_root, "recognition/data/crops")  # 保存自动裁剪结果，便于人工核查
 
-# 2. 模型参数 (需与训练保持一致)
+# 2. 模型参数
 IMG_HEIGHT = 32  # 固定高度
-NUM_CHANNELS = 1  # 1=灰度, 3=RGB
+DEFAULT_NUM_CHANNELS = 3  # 新训练使用 RGB；旧 checkpoint 会自动识别为 1 通道
 
 # 3. 推理参数
 BATCH_SIZE = 64  # 批量大小 (显存允许可调大，例如 64, 128)
@@ -55,25 +53,24 @@ def load_network():
     # 1. 加载字典 (获取类别数)
     converter = LabelConverter(KEYS_PATH)
 
-    # 2. 初始化模型结构
+    # 2. 先读取权重，并从第一层卷积自动判断灰度/RGB。
+    print(f"加载权重: {MODEL_PATH}")
+    checkpoint = torch.load(MODEL_PATH, map_location=DEVICE)
+    state_dict = extract_state_dict(checkpoint)
+    num_channels = infer_num_channels(state_dict, default=DEFAULT_NUM_CHANNELS)
+
+    # 3. 初始化模型结构
     model = CRNN(
         img_height=IMG_HEIGHT,
-        nc=NUM_CHANNELS,
+        nc=num_channels,
         n_class=converter.num_classes
     ).to(DEVICE)
 
-    # 3. 加载权重
-    print(f"加载权重: {MODEL_PATH}")
-    checkpoint = torch.load(MODEL_PATH, map_location=DEVICE)
-
-    # 兼容处理 state_dict (有的代码保存整个 checkpoint dict，有的只保存 state_dict)
-    if 'state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['state_dict'])
-    else:
-        model.load_state_dict(checkpoint)
+    model.load_state_dict(state_dict)
 
     model.eval()
-    return model, converter
+    print(f"输入通道: {num_channels} ({'RGB' if num_channels == 3 else '灰度'})")
+    return model, converter, num_channels
 
 
 def main():
@@ -81,7 +78,7 @@ def main():
     image_paths = []
     if os.path.isdir(INPUT_PATH):
         # 支持常见图片格式
-        types = ('*.jpg', '*.jpeg', '*.png', '*.bmp', '*.tif')
+        types = ('*.png', '*.jpg', '*.jpeg', '*.bmp', '*.tif', '*.tiff', '*.webp')
         for t in types:
             image_paths.extend(glob.glob(os.path.join(INPUT_PATH, t)))
             image_paths.extend(glob.glob(os.path.join(INPUT_PATH, t.upper())))
@@ -92,20 +89,19 @@ def main():
         print(f"错误: 在 {INPUT_PATH} 未找到任何图片。")
         return
 
+    image_paths = sorted(set(image_paths))
     print(f"发现 {len(image_paths)} 张待处理图片。")
 
     # 2. 加载模型与转换器
-    model, converter = load_network()
+    model, converter, num_channels = load_network()
 
     # 3. 构建 DataLoader
-    # 推理默认使用与训练/验证一致的确定性白字裁剪，并保存裁剪图便于核查。
-    dataset = WhiteTextCropInferenceDataset(
+    # 输入已经是 detection 文字框，直接等比缩放，不做二次裁剪或按颜色删像素。
+    dataset = InferenceDataset(
         image_paths=image_paths,
         img_height=IMG_HEIGHT,
-        num_channels=NUM_CHANNELS,
-        save_crops_dir=CROP_DEBUG_DIR,
+        num_channels=num_channels,
     )
-    print(f"已启用白字/有色背景自动裁剪，裁剪图保存至: {CROP_DEBUG_DIR}")
 
     # 使用 dynamic_padding_collate_fn 实现 Batch 内动态宽度的对齐
     loader = DataLoader(

@@ -7,15 +7,123 @@
 4. InferenceDataset: 纯图片数据集 (推理用)
 """
 import os
-import math
+from pathlib import Path
+
 import torch
 import numpy as np
-from PIL import Image, ImageFile
+from PIL import Image, ImageFile, ImageOps, ImageStat
 from torch.utils.data import Dataset, DataLoader, Sampler
 from torchvision import transforms
 
 # 防止截断报错 (针对超大图)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+MIN_IMAGE_WIDTH = 48
+
+
+def resolve_image_path(image_path: str | os.PathLike) -> str:
+    """解析标注图片路径，并兼容 detection 产物统一保存为 PNG 的情况。"""
+    path = Path(image_path)
+    if path.is_file():
+        return str(path)
+
+    # 新 detection 数据的标注曾沿用 .jpg，但落盘文件实际为同名 .png。
+    # 只做可验证的同目录、同 stem 回退，避免错误匹配到其他样本。
+    for suffix in (".png", ".PNG"):
+        png_path = path.with_suffix(suffix)
+        if png_path.is_file():
+            return str(png_path)
+
+    raise FileNotFoundError(
+        f"图片不存在: {path}（也未找到同名 PNG detection 产物）"
+    )
+
+
+def load_rgb_image(image_path: str | os.PathLike) -> Image.Image:
+    """
+    安全读取图片为 RGB。
+
+    PNG 可能带透明通道；直接 ``convert('RGB')`` 会把透明区域变成黑色。
+    这里根据可见内容亮度选择黑/白底进行合成，确保黑字和白字都不会消失。
+    """
+    with Image.open(image_path) as source:
+        image = ImageOps.exif_transpose(source)
+        has_transparency = "A" in image.getbands() or "transparency" in source.info
+
+        if not has_transparency:
+            return image.convert("RGB").copy()
+
+        rgba = image.convert("RGBA")
+        alpha = rgba.getchannel("A")
+        alpha_min, alpha_max = alpha.getextrema()
+        if alpha_min == 255:
+            return rgba.convert("RGB")
+
+        if alpha_max == 0:
+            background_value = 255
+        else:
+            visible_luminance = ImageStat.Stat(rgba.convert("L"), mask=alpha).mean[0]
+            background_value = 0 if visible_luminance >= 128 else 255
+
+        background = Image.new(
+            "RGBA",
+            rgba.size,
+            (background_value, background_value, background_value, 255),
+        )
+        return Image.alpha_composite(background, rgba).convert("RGB")
+
+
+def _border_fill_color(image: Image.Image):
+    """估计 detection 框的背景色，用于给窄图补边。"""
+    pixels = np.asarray(image)
+    if pixels.ndim == 2:
+        border = np.concatenate(
+            (pixels[0, :], pixels[-1, :], pixels[:, 0], pixels[:, -1])
+        )
+        return int(np.median(border))
+
+    channels = pixels.shape[2]
+    border = np.concatenate(
+        (
+            pixels[0, :, :].reshape(-1, channels),
+            pixels[-1, :, :].reshape(-1, channels),
+            pixels[:, 0, :].reshape(-1, channels),
+            pixels[:, -1, :].reshape(-1, channels),
+        ),
+        axis=0,
+    )
+    return tuple(int(value) for value in np.median(border, axis=0))
+
+
+def resize_detection_image(
+    image: Image.Image,
+    target_height: int,
+    max_width: int | None = None,
+    min_width: int = MIN_IMAGE_WIDTH,
+) -> Image.Image:
+    """保持宽高比缩放 detection 结果；不再做二次内容裁剪。"""
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        raise ValueError(f"非法图片尺寸: {image.size}")
+    if target_height <= 0:
+        raise ValueError(f"target_height 必须大于 0，当前为 {target_height}")
+
+    resized_width = max(1, int(round(width * target_height / height)))
+    if max_width is not None:
+        resized_width = min(resized_width, max_width)
+
+    image = image.resize((resized_width, target_height), Image.Resampling.LANCZOS)
+
+    # 单字/符号 detection 框可能很窄。只补背景，不拉伸字符形状。
+    if resized_width < min_width:
+        canvas_width = min_width if max_width is None else min(min_width, max_width)
+        fill = _border_fill_color(image)
+        canvas = Image.new(image.mode, (canvas_width, target_height), fill)
+        offset_x = (canvas_width - resized_width) // 2
+        canvas.paste(image, (offset_x, 0))
+        image = canvas
+
+    return image
 
 
 # ==========================================
@@ -97,12 +205,17 @@ def dynamic_padding_collate_fn(batch):
     height = images[0].shape[1]
     batch_size = len(images)
 
-    # 填充背景 (Normalize mean=0.5 -> 1.0 为白色)
-    padded_imgs = torch.full((batch_size, num_channels, height, max_width), 1.0)
+    padded_imgs = torch.empty((batch_size, num_channels, height, max_width))
 
     for i, img in enumerate(images):
         w = img.shape[2]
         padded_imgs[i, :, :, :w] = img
+        if w < max_width:
+            # detection 框既可能是白底黑字，也可能是深色/彩色底白字。
+            # 使用右侧边缘的通道中位数补齐，避免统一白边制造额外颜色边界。
+            border_width = min(4, w)
+            fill = img[:, :, w - border_width:w].reshape(num_channels, -1).median(dim=1).values
+            padded_imgs[i, :, :, w:] = fill[:, None, None]
 
     return padded_imgs, labels_or_paths, img_widths
 
@@ -117,121 +230,11 @@ class AddGaussianNoise(object):
         self.std = std
 
     def __call__(self, tensor):
-        noise = torch.randn(tensor.size()) * self.std + self.mean
-        return tensor + noise
+        noise = torch.randn_like(tensor) * self.std + self.mean
+        return (tensor + noise).clamp(0.0, 1.0)
 
     def __repr__(self):
         return f"{self.__class__.__name__}(mean={self.mean}, std={self.std})"
-
-def remove_red_seal(image: Image.Image,
-                    sensitivity: float = 0.7,
-                    min_saturation: int = 50,
-                    min_value: int = 80,
-                    keep_ratio_thresh: float = 0.5) -> Image.Image:
-    """
-    从RGB图像中去除红色印章区域，用白色替换（带"内容护栏"）。
-
-    适用场景：黑字上盖了红章 —— 去掉红色，保留黑字。
-
-    护栏 (keep_ratio_thresh)：
-        本数据集里存在大量"红色本身就是内容"的样本 ——
-        例如红色文字(删除/导入说明)、红底白字按钮、红色角标数字(49/27/61)。
-        对这些图无脑抹红会把内容整片涂白，造成不可恢复的信息丢失。
-        因此抹白前先估算"去红后还剩多少深色内容"：
-          - 若剩余内容 < keep_ratio_thresh，判定红色=内容 → 原样返回，不去红。
-          - 否则才执行抹白（真正的"黑字+红章"场景）。
-        关掉护栏可设 keep_ratio_thresh=0.0。
-
-    Args:
-        image: PIL RGB图像
-        sensitivity: 红色检测灵敏度 (0.0-1.0)，越高越激进
-                     0.5 = 保守 (只去除非常红的区域)
-                     0.7 = 推荐值
-                     0.9 = 激进 (可能误伤部分棕色/橙色文字)
-        min_saturation: 最小饱和度阈值 (0-255)，低于此值不认为是红色
-        min_value: 最小亮度阈值 (0-255)，低于此值不认为是红色
-        keep_ratio_thresh: 去红后深色内容的最低留存比例，低于此值则放弃去红
-
-    Returns:
-        去除红章后的PIL RGB图像（若触发护栏则返回原图）
-    """
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-
-    img_array = np.array(image)
-
-    # ========== 转HSV色彩空间 ==========
-    # PIL的HSV转换比较慢，这里手动用numpy实现
-    # 或者用简单的方式：用PIL转换
-    hsv_image = image.convert('HSV')
-    hsv_array = np.array(hsv_image)
-
-    h = hsv_array[:, :, 0]  # Hue: 0-255 (PIL的HSV, 0=0°, 255=360°)
-    s = hsv_array[:, :, 1]  # Saturation: 0-255
-    v = hsv_array[:, :, 2]  # Value: 0-255
-
-    # ========== 红色检测 ==========
-    # PIL的H值范围是 0-255，对应 0°-360°
-    # 红色在HSV中分两段:
-    #   H ≈ 0°-20° (对应PIL: 0-14)
-    #   H ≈ 340°-360° (对应PIL: 241-255)
-
-    # 根据sensitivity调整范围
-    # sensitivity=0.7 -> hue_range_low=0~18, hue_range_high=237~255
-    hue_expand = int(sensitivity * 6)  # 基准±扩展
-
-    low_hue_max = 12 + hue_expand  # 默认约18
-    high_hue_min = 243 - hue_expand  # 默认约237
-
-    # 调整饱和度阈值
-    sat_thresh = max(10, int(min_saturation * (1.2 - sensitivity * 0.4)))
-
-    # 红色mask: (低色相段 OR 高色相段) AND 足够饱和 AND 足够亮
-    red_mask = (
-            ((h <= low_hue_max) | (h >= high_hue_min)) &  # 色相在红色范围
-            (s >= sat_thresh) &  # 饱和度够高（排除灰白色）
-            (v >= min_value)  # 亮度够高（排除深黑色）
-    )
-
-    # 没有检测到红色，直接返回，省去后续计算
-    if not red_mask.any():
-        return image
-
-    # ========== 内容护栏：判断"红色是否就是内容" ==========
-    # 用灰度下的深色像素近似"内容/墨迹"。比较去红前后的深色内容量：
-    # 若去红后深色内容留存比例过低，说明红色承载了主要内容，放弃去红。
-    # 注意：必须用真实亮度 L（红色 L≈76 属于"深色"），不能用 HSV 的 V 通道
-    #       （红色 V=255 会被误判为亮色，导致护栏失效）。
-    gray = np.array(image.convert('L'))
-    dark_mask = gray < 150
-    ink_before = int(dark_mask.sum())
-    if ink_before > 0:
-        # 红色文字/红底/红角标本身就是"深色内容"，抹白会让信息坍塌；
-        # 这里同时考虑：红色像素占比过大时也视为"红色即内容"。
-        ink_after = int((dark_mask & ~red_mask).sum())
-        keep_ratio = ink_after / ink_before
-        red_frac = float(red_mask.mean())
-        if keep_ratio < keep_ratio_thresh or red_frac > 0.18:
-            return image  # 红色=内容，保留原图
-
-    # ========== 形态学优化 (可选但推荐) ==========
-    # 轻微膨胀，填补印章内部的小空洞，让去除更干净。
-    # iterations 由 2 降为 1：减少对红章邻近黑色笔画的啃噬。
-    try:
-        from scipy import ndimage
-        # 膨胀1个像素，连接碎片
-        red_mask = ndimage.binary_dilation(red_mask, iterations=1)
-        # 闭运算，填充小洞
-        red_mask = ndimage.binary_closing(red_mask, iterations=1)
-    except ImportError:
-        # 没有scipy也能用，只是效果稍差
-        pass
-
-    # ========== 用白色替换红色区域 ==========
-    result = img_array.copy()
-    result[red_mask] = [255, 255, 255]
-
-    return Image.fromarray(result)
 
 class BaseTextDataset(Dataset):
     """
@@ -244,76 +247,65 @@ class BaseTextDataset(Dataset):
         img_height,
         num_channels,
         is_train=False,
-        use_auto_crop=False,
-        crop_kwargs=None,
-        save_crops_dir=None,
+        max_width=None,
     ):
+        if num_channels not in (1, 3):
+            raise ValueError(f"num_channels 仅支持 1 或 3，当前为 {num_channels}")
+
         self.img_height = img_height
         self.num_channels = num_channels
+        self.max_width = max_width
         self.image_paths = []  # 子类填充此列表
-        self.use_auto_crop = use_auto_crop
-        self.crop_kwargs = crop_kwargs or {}
-        self.save_crops_dir = save_crops_dir
 
-        # 定义 Transform
+        channel_transform = (
+            [transforms.Grayscale(num_output_channels=1)]
+            if num_channels == 1
+            else []
+        )
+        normalize = transforms.Normalize(
+            mean=[0.5] * num_channels,
+            std=[0.5] * num_channels,
+        )
+
         if is_train:
+            # detection 已经给出文字区域，不再旋转、透视或二次裁剪，避免紧框文字
+            # 被切掉。增强集中在颜色、极性、清晰度与轻噪声上。
             train_transforms = [
-                # 训练集：
-                # 1️⃣ 轻微旋转（保持文本可读）
-                transforms.RandomRotation(
-                    degrees=2,
-                    fill=255  # 白底图像很重要
+                transforms.RandomApply(
+                    [transforms.ColorJitter(
+                        brightness=0.2,
+                        contrast=0.25,
+                        saturation=0.35,
+                        hue=0.03,
+                    )],
+                    p=0.7,
                 ),
-
-                # 2️⃣ 轻微透视扰动
-                transforms.RandomPerspective(
-                    distortion_scale=0.1,
-                    p=0.3,
-                    fill=255
-                ),
-
-                # 3️⃣ 颜色扰动
-                transforms.ColorJitter(
-                    brightness=0.2,
-                    contrast=0.2,
-                    saturation=0.1
-                ),
-
-                # 4️⃣ 转 tensor
+                transforms.RandomAutocontrast(p=0.2),
+                transforms.RandomInvert(p=0.08),
+                *channel_transform,
                 transforms.ToTensor(),
-
-                # 5️⃣ 高斯模糊（模拟拍照虚焦）
                 transforms.RandomApply(
-                    [transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.0))],
-                    p=0.3
+                    [transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 0.8))],
+                    p=0.15,
                 ),
-
-                # 6️⃣ 添加轻微高斯噪声
                 transforms.RandomApply(
-                    [AddGaussianNoise(0., 0.02)],
-                    p=0.3
+                    [AddGaussianNoise(0.0, 0.015)],
+                    p=0.15,
                 ),
-
-                # 7️⃣ 随机擦除（必须在 ToTensor 之后）
                 transforms.RandomErasing(
-                    p=0.18,
-                    scale=(0.02, 0.1),
+                    p=0.05,
+                    scale=(0.005, 0.03),
                     ratio=(0.3, 3.3),
-                    value='random'
+                    value="random",
                 ),
-
-                # 8️⃣ 归一化
-                transforms.Normalize(
-                    mean=[0.5],
-                    std=[0.5]
-                )
+                normalize,
             ]
             self.transform = transforms.Compose(train_transforms)
         else:
             self.transform = transforms.Compose([
-                # 验证/推理集：仅归一化
+                *channel_transform,
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5], std=[0.5])
+                normalize,
             ])
 
     def __len__(self) -> int:
@@ -321,61 +313,20 @@ class BaseTextDataset(Dataset):
 
     def _load_and_process_image(self, index: int) -> torch.Tensor:
         """
-        通用的单张图片处理逻辑：读取 -> 转通道 -> Resize -> Transform
+        通用处理：读取/透明通道合成 -> 等比缩放 -> 颜色增强/归一化。
         """
         image_path = self.image_paths[index]
         try:
-            # 1. 统一转为 RGB 读取
-            image = Image.open(image_path).convert('RGB')
-            if self.use_auto_crop:
-                from recognition.utils.white_text_crop import auto_crop_white_text_image, save_crop_debug_image
-
-                image = auto_crop_white_text_image(image, **self.crop_kwargs)
-                if self.save_crops_dir:
-                    save_crop_debug_image(image, image_path, self.save_crops_dir)
-
-            image = remove_red_seal(image)  # 在RGB阶段去红章
-            # 2. 通道处理 (保留红章逻辑)
-            if self.num_channels == 1:
-                image = image.convert('L')
-
-            # 3. Resize (固定高度，宽度按比例缩放，含两层保护)
-            w, h = image.size
-            target_h = self.img_height
-            scale = target_h / h
-            new_w = int(w * scale)
-
-            # ---- 保护 A：高图宽度保护 ----
-            # 原图很高时（如 h=93），按高度缩放会把宽度压缩得太狠，
-            # 导致 CTC 时间步不足。此处保证缩放后宽度不低于原始宽度的 50%。
-            min_w_from_aspect = int(w * 0.5)
-            if new_w < min_w_from_aspect:
-                new_w = min(min_w_from_aspect, 800)  # 上限 800 防止显存爆炸
-
-            # 先 Resize 到目标尺寸
-            image = image.resize((new_w, target_h), Image.Resampling.LANCZOS)
-
-            # ---- 保护 B：最小宽度保护 ----
-            # 小图（单字符、细线符号等）Resize 后宽度太窄，CNN 下采样后
-            # 特征几乎为零。将过窄的图片居中放置在白色画布上，不拉伸变形。
-            MIN_WIDTH = 48  # CNN 4x 下采样后至少 12 个时间步
-            if new_w < MIN_WIDTH:
-                if self.num_channels == 1:
-                    canvas = Image.new('L', (MIN_WIDTH, target_h), 255)
-                else:
-                    canvas = Image.new('RGB', (MIN_WIDTH, target_h), (255, 255, 255))
-                offset_x = (MIN_WIDTH - new_w) // 2
-                canvas.paste(image, (offset_x, 0))
-                image = canvas
-
-            # 4. Apply Transforms
-            image_tensor = self.transform(image)
-            return image_tensor
-
-        except Exception as e:
-            print(f"Error loading image {image_path}: {e}")
-            # 返回 dummy tensor
-            return torch.ones((self.num_channels, self.img_height, 8))
+            image = load_rgb_image(image_path)
+            image = resize_detection_image(
+                image,
+                target_height=self.img_height,
+                max_width=self.max_width,
+            )
+            return self.transform(image)
+        except Exception as exc:
+            # 训练时不能用空白 dummy 图配真实标签，否则会静默污染 CTC loss。
+            raise RuntimeError(f"图片预处理失败: {image_path}") from exc
 
 
 # ==========================================
@@ -394,37 +345,63 @@ class TextRecognitionDataset(BaseTextDataset):
         img_width: int,
         num_channels: int,
         is_train=True,
-        use_auto_crop=False,
-        crop_kwargs=None,
-        save_crops_dir=None,
     ):
-        # 初始化基类
         super().__init__(
             img_height,
             num_channels,
             is_train=is_train,
-            use_auto_crop=use_auto_crop,
-            crop_kwargs=crop_kwargs,
-            save_crops_dir=save_crops_dir,
+            max_width=img_width,
         )
 
-        # img_width 参数仅作为兼容保留，实际由 dynamic_padding 控制
         self.labels = []
 
         annotation_dir = os.path.dirname(annotation_path)
-        if os.path.exists(annotation_path):
-            with open(annotation_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    parts = line.strip().split(',')
-                    if len(parts) >= 2:
-                        path_part = parts[0].strip()
-                        label_part = ','.join(parts[1:]).strip().replace('"', '')
+        if not os.path.exists(annotation_path):
+            raise FileNotFoundError(f"标注文件不存在: {annotation_path}")
 
-                        full_path = os.path.join(annotation_dir, path_part)
-                        self.image_paths.append(full_path)
-                        self.labels.append(label_part)
-        else:
-            print(f"Warning: Annotation file not found at {annotation_path}")
+        png_fallback_count = 0
+        empty_label_count = 0
+        malformed_lines = []
+        missing_images = []
+
+        with open(annotation_path, "r", encoding="utf-8") as annotation_file:
+            for line_number, line in enumerate(annotation_file, start=1):
+                parts = line.rstrip("\r\n").split(",", 1)
+                if len(parts) != 2:
+                    malformed_lines.append(line_number)
+                    continue
+
+                path_part = parts[0].strip()
+                label = parts[1].strip().replace('"', "")
+                if not label:
+                    empty_label_count += 1
+                    continue
+
+                annotated_path = os.path.join(annotation_dir, path_part)
+                try:
+                    resolved_path = resolve_image_path(annotated_path)
+                except FileNotFoundError:
+                    missing_images.append((line_number, annotated_path))
+                    continue
+
+                if Path(resolved_path).suffix.lower() == ".png" and Path(annotated_path).suffix.lower() != ".png":
+                    png_fallback_count += 1
+
+                self.image_paths.append(resolved_path)
+                self.labels.append(label)
+
+        if malformed_lines or missing_images:
+            details = []
+            if malformed_lines:
+                details.append(f"格式错误行: {malformed_lines[:5]}")
+            if missing_images:
+                details.append(f"缺失图片: {missing_images[:5]}")
+            raise ValueError(f"标注数据校验失败 ({annotation_path}): {'; '.join(details)}")
+
+        if png_fallback_count:
+            print(f"已将 {png_fallback_count} 条 .jpg 标注匹配到同名 .png detection 产物")
+        if empty_label_count:
+            print(f"已跳过 {empty_label_count} 条空标签样本")
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, str]:
         # 调用基类方法处理图片
@@ -443,20 +420,15 @@ class InferenceDataset(BaseTextDataset):
         image_paths: list,
         img_height: int,
         num_channels: int,
-        use_auto_crop=False,
-        crop_kwargs=None,
-        save_crops_dir=None,
+        img_width: int | None = None,
     ):
-        # 推理模式 is_train=False
         super().__init__(
             img_height,
             num_channels,
             is_train=False,
-            use_auto_crop=use_auto_crop,
-            crop_kwargs=crop_kwargs,
-            save_crops_dir=save_crops_dir,
+            max_width=img_width,
         )
-        self.image_paths = image_paths
+        self.image_paths = [resolve_image_path(path) for path in image_paths]
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, str]:
         # 调用基类方法处理图片
@@ -467,12 +439,11 @@ class InferenceDataset(BaseTextDataset):
 
 
 # ==========================================
-# 4. DataLoader 创建工厂 (保持不变，仅适配新类)
+# 4. DataLoader 创建工厂
 # ==========================================
 
 def create_dataloader(annotation_path: str, img_height: int, img_width: int, num_channels: int, batch_size: int,
-                      num_workers: int, is_train=True, use_auto_crop=False, crop_kwargs=None,
-                      save_crops_dir=None) -> DataLoader:
+                      num_workers: int, is_train=True) -> DataLoader:
     """
     创建训练/验证用的 DataLoader
     """
@@ -482,9 +453,6 @@ def create_dataloader(annotation_path: str, img_height: int, img_width: int, num
         img_width=img_width,
         num_channels=num_channels,
         is_train=is_train,
-        use_auto_crop=use_auto_crop,
-        crop_kwargs=crop_kwargs,
-        save_crops_dir=save_crops_dir,
     )
 
     if is_train:

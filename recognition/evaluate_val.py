@@ -12,8 +12,12 @@ if project_root not in sys.path:
 
 from recognition.components.converter import LabelConverter
 from recognition.models.model import CRNN
-from recognition.components.dataset import dynamic_padding_collate_fn
-from recognition.utils.white_text_crop import WhiteTextCropInferenceDataset
+from recognition.components.dataset import (
+    InferenceDataset,
+    dynamic_padding_collate_fn,
+    resolve_image_path,
+)
+from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 # ================= 配置区域 =================
 MODEL_PATH = "recognition/checkpoints/1783804842best_cer_0.0030_epoch_652.pth"  # 修改为你的最佳模型路径
@@ -21,10 +25,9 @@ KEYS_PATH = "recognition/keys.txt"
 VAL_ANNOTATION = "recognition/data/train_annotation.txt"  # 验证集标注文件
 
 ERROR_OUTPUT_FILE = "recognition/error_cases.txt"  # 错误案例保存文件（可设为 None）
-CROP_DEBUG_DIR = os.path.join(project_root, "recognition/data/crops/evaluate_val")
 
 IMG_HEIGHT = 32
-NUM_CHANNELS = 1
+DEFAULT_NUM_CHANNELS = 3
 BATCH_SIZE = 1
 NUM_WORKERS = 4
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -50,52 +53,55 @@ def levenshtein_distance(s1: str, s2: str) -> int:
 
 def load_network():
     converter = LabelConverter(KEYS_PATH)
-    model = CRNN(img_height=IMG_HEIGHT, nc=NUM_CHANNELS, n_class=converter.num_classes).to(DEVICE)
-
     checkpoint = torch.load(MODEL_PATH, map_location=DEVICE)
-    if 'state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['state_dict'])
-    else:
-        model.load_state_dict(checkpoint)
+    state_dict = extract_state_dict(checkpoint)
+    num_channels = infer_num_channels(state_dict, default=DEFAULT_NUM_CHANNELS)
+    model = CRNN(img_height=IMG_HEIGHT, nc=num_channels, n_class=converter.num_classes).to(DEVICE)
+    model.load_state_dict(state_dict)
 
     model.eval()
-    return model, converter
+    return model, converter, num_channels
 
 
-def create_evaluation_dataset(image_paths, save_crops_dir=CROP_DEBUG_DIR):
-    """创建与训练、推理使用相同白字自动裁剪逻辑的评估数据集。"""
-    return WhiteTextCropInferenceDataset(
+def create_evaluation_dataset(image_paths, num_channels=DEFAULT_NUM_CHANNELS):
+    """创建与训练、推理一致的无裁剪 detection 图片数据集。"""
+    return InferenceDataset(
         image_paths=image_paths,
         img_height=IMG_HEIGHT,
-        num_channels=NUM_CHANNELS,
-        save_crops_dir=save_crops_dir,
+        num_channels=num_channels,
     )
 
 
 def main():
-    # 读取标注文件，建立 filename -> label 的映射
+    # 读取标注文件，解析同名 PNG，并建立 stem -> label 映射。
     filename_to_label = {}
+    image_paths = []
+    skipped_empty_labels = 0
     with open(VAL_ANNOTATION, 'r', encoding='utf-8') as f:
         for line in f:
             if ',' in line:
                 path_part, label_part = line.strip().split(',', 1)
-                filename = os.path.basename(path_part.strip())
-                filename_to_label[filename] = label_part.strip().replace('"', '')
+                label = label_part.strip().replace('"', '')
+                if not label:
+                    skipped_empty_labels += 1
+                    continue
+
+                annotated_path = os.path.join(
+                    os.path.dirname(VAL_ANNOTATION),
+                    path_part.strip(),
+                )
+                resolved_path = resolve_image_path(annotated_path)
+                image_id = os.path.splitext(os.path.basename(resolved_path))[0]
+                filename_to_label[image_id] = label
+                image_paths.append(resolved_path)
 
     print(f"加载了 {len(filename_to_label)} 条标注记录")
+    if skipped_empty_labels:
+        print(f"已跳过 {skipped_empty_labels} 条空标签样本")
 
-    # 收集图片路径（从标注文件里取，确保顺序一致）
-    image_paths = []
-    with open(VAL_ANNOTATION, 'r', encoding='utf-8') as f:
-        for line in f:
-            if ',' in line:
-                path_part = line.strip().split(',', 1)[0].strip()
-                image_paths.append(os.path.join(os.path.dirname(VAL_ANNOTATION), path_part))
+    model, converter, num_channels = load_network()
 
-    model, converter = load_network()
-
-    dataset = create_evaluation_dataset(image_paths)
-    print(f"已启用白字/有色背景自动裁剪，裁剪图保存至: {CROP_DEBUG_DIR}")
+    dataset = create_evaluation_dataset(image_paths, num_channels=num_channels)
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False,
                         num_workers=NUM_WORKERS, collate_fn=dynamic_padding_collate_fn)
 
@@ -115,7 +121,8 @@ def main():
 
             for path, pred in zip(paths, pred_texts):
                 filename = os.path.basename(path)
-                gt = filename_to_label.get(filename, "")
+                image_id = os.path.splitext(filename)[0]
+                gt = filename_to_label.get(image_id, "")
 
                 pred = pred.strip()
                 gt = gt.strip()

@@ -1,11 +1,7 @@
-1、图片样本红色背景白色字体，需优化。
+## Detection 产物预处理契约（2026-09）
 
-## UI 白字/小文字预处理契约
+Recognition 的输入已经是 detection 输出的文字框，训练、验证和推理都直接使用完整 detection 图片，不再做白字检测或二次裁剪。
 
-当前采用“统一前处理 crop -> 再训练 -> 推理同样 crop”的方案。
+当前训练图片全部为 RGB PNG。新增数据的部分标注仍使用 `.jpg` 后缀，数据集会在原路径不存在时严格匹配同目录、同名 `.png`。PNG 透明通道会先合成到能保留前景对比度的黑色或白色背景。
 
-训练集、验证集、推理阶段都使用 `recognition/utils/white_text_crop.py` 中的确定性白字裁剪逻辑，主要处理“有色背景 + 白色文字”的菜单、按钮和小文字截图。
-
-`recognition/components/dataset.py` 通过 `use_auto_crop=True` 接入同一套 crop。训练阶段不再使用随机 UI padding 增强，避免训练分布和推理分布继续不一致。
-
-推理阶段 `recognition/inference.py` 使用 `WhiteTextCropInferenceDataset`，并将裁剪后的核查图保存到 `recognition/data/crops`。
+模型新训练默认使用 3 通道 RGB，保留白色、红色、黑色及其他彩色文字与背景的色彩差异。预处理不再删除红色区域；训练增强只调整颜色、极性、清晰度和轻噪声，不使用可能裁掉紧框文字的旋转或透视增强。

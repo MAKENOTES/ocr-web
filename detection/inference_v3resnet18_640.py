@@ -27,11 +27,14 @@ from components.transforms import ResizeAndPad
 
 # --- 配置参数 ---
 MODEL_PATH = "detection/checkpoints/best_detection_epoch_99_loss_0.01542.pth"
-IMAGE_PATH = "detection/data/test/2"
-OUTPUT_DIR = "detection/data/test_results/resnet18/2"
+
+# IMAGE_PATH = "detection/data/train_images"
+# OUTPUT_DIR = "detection/data/test_results/resnet18/train_images"
+IMAGE_PATH = "detection/data/test/3"
+OUTPUT_DIR = "detection/data/test_results/resnet18/3"
 
 SAVE_CROPS = False
-CROP_DIR_NAME = "detection/data/crops/resnet18/2"
+CROP_DIR_NAME = "detection/data/crops/resnet18/train_images"
 
 SAVE_LABELS = True
 LABEL_DIR = "detection/data/test_results/resnet18/complement"

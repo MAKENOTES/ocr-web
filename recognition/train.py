@@ -23,22 +23,21 @@ import Levenshtein
 # ================= 配置区域 =================
 # 1. 路径配置
 TRAIN_ANNOTATION = "recognition/data/train_annotation.txt"
-# VALID_ANNOTATION = "recognition/data/val_annotation.txt" # 这个里面是从train_annotation取出来的
-VALID_ANNOTATION = "recognition/data/train_annotation.txt" #没有验证数据
+# 当前 val_images 为空，不能再用训练集冒充验证集；准备好独立 PNG 验证集后再填写。
+VALID_ANNOTATION = None
 KEYS_PATH = "recognition/keys.txt"
 CHECKPOINT_DIR = "recognition/checkpoints/"
 
 # 2. 数据与模型参数
 IMG_HEIGHT = 32
-IMG_WIDTH = 1800     # 根据实际显存调整，如果显存够大可设为 1000+
-NUM_CHANNELS = 1    # 1=灰度, 3=RGB
+IMG_WIDTH = 1800     # 当前数据等比缩放后的最大宽度约 1733，留少量余量
+NUM_CHANNELS = 3     # 保留白/红/黑及彩色 UI 文本的色彩对比
 
 # 3. 训练超参数
 BATCH_SIZE = 64     # 适当调整
 EPOCHS = 680
 LEARNING_RATE = 3e-4
 NUM_WORKERS = 4
-USE_AUTO_CROP = True  # 训练集和验证集启用确定性白字/有色背景裁剪
 
 # 4. 保存与验证策略
 SAVE_INTERVAL = 5        # 每隔多少轮强制保存一次
@@ -76,7 +75,8 @@ def evaluate(model, dataloader, converter, criterion):
             length = length.to(DEVICE)
 
             # 用每张图片的真实宽度计算各自的时间步数（而非统一用最大值）
-            preds_size = (img_widths // 4).clamp(min=1).int()
+            # stem + pool 对宽度的精确下采样结果为 (W + 1) // 4。
+            preds_size = ((img_widths + 1) // 4).clamp(min=1).int()
 
             loss = criterion(preds, text, preds_size, length)
             # 处理 NaN 或 Inf
@@ -124,6 +124,7 @@ def log_gradient_norms(model, writer, global_step):
 
 def train():
     print(f"当前使用的计算设备: {DEVICE}")
+    print(f"输入预处理: 完整 detection 框 / {'RGB' if NUM_CHANNELS == 3 else '灰度'} / 不裁剪")
 
     if not os.path.exists(CHECKPOINT_DIR):
         os.makedirs(CHECKPOINT_DIR)
@@ -166,7 +167,6 @@ def train():
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
         is_train=True,
-        use_auto_crop=USE_AUTO_CROP
     )
 
     valid_loader = None
@@ -180,7 +180,6 @@ def train():
             batch_size=BATCH_SIZE,
             num_workers=NUM_WORKERS,
             is_train=False,
-            use_auto_crop=USE_AUTO_CROP
         )
     else:
         print("⚠️ 警告: 未找到验证集标注文件，将无法评估 Accuracy 和进行最佳模型保存。")
@@ -214,7 +213,7 @@ def train():
             length = length.to(DEVICE)
 
             # 用每张图片的真实宽度计算各自的时间步数
-            preds_size = (img_widths // 4).clamp(min=1).int()
+            preds_size = ((img_widths + 1) // 4).clamp(min=1).int()
 
             # 3. Compute Loss
             loss = criterion(preds, text, preds_size, length)
