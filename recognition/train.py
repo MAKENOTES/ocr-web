@@ -23,8 +23,7 @@ import Levenshtein
 # ================= 配置区域 =================
 # 1. 路径配置
 TRAIN_ANNOTATION = "recognition/data/train_annotation.txt"
-# 当前 val_images 为空，不能再用训练集冒充验证集；准备好独立 PNG 验证集后再填写。
-VALID_ANNOTATION = None
+VALID_ANNOTATION = "recognition/data/val_annotation.txt"
 KEYS_PATH = "recognition/keys.txt"
 CHECKPOINT_DIR = "recognition/checkpoints/"
 
@@ -42,7 +41,7 @@ NUM_WORKERS = 4
 # 4. 保存与验证策略
 SAVE_INTERVAL = 5        # 每隔多少轮强制保存一次
 START_VALID_EPOCH = 1    # 【建议】从第1轮就开始验证，以便 Scheduler 正常工作
-START_SAVE_EPOCH = 50    # 从第50轮才开始保存模型 (跳过前期不稳定阶段)
+START_SAVE_EPOCH = 100    # 从第100轮才开始保存模型 (跳过前期不稳定阶段)
 KEEP_TOP_K = 3           # 只保留 Loss 最小的 3 个最佳模型
 
 # 5. 硬件

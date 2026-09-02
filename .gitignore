@@ -4,11 +4,20 @@
 .venv
 __pycache__/
 outputs/
-detection/data/
+# 默认忽略检测数据，仅提交训练集和验证集标签
+detection/data/*
+!detection/data/train_labels/
+!detection/data/train_labels/**
+!detection/data/val_labels/
+!detection/data/val_labels/**
 detection/checkpoints/
 test_results/
 detection/runs/
-recognition/data/
+# 默认忽略识别数据，仅提交数据集标注文件
+recognition/data/*
+!recognition/data/all_annotation.txt
+!recognition/data/train_annotation.txt
+!recognition/data/val_annotation.txt
 recognition/runs/
 recognition/checkpoints/
 recognition_quantized_model_bak/
@@ -21,6 +30,5 @@ best_detection.pth
 best_recognition.onnx
 best_recognition.onnx.data
 best_recognition.pth
-
 
 
