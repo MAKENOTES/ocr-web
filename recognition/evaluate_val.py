@@ -73,7 +73,7 @@ def create_evaluation_dataset(image_paths, num_channels=DEFAULT_NUM_CHANNELS):
 
 
 def main():
-    # 读取标注文件，解析同名 PNG，并建立 stem -> label 映射。
+    # 严格按标注路径读取图片，并建立 stem -> label 映射。
     filename_to_label = {}
     image_paths = []
     skipped_empty_labels = 0

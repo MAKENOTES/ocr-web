@@ -12,7 +12,7 @@ Recognition 接收 detection 输出的单个文字框，输出 Unicode 文本。
 flowchart TD
     A[annotation: relative_path,label] --> DS[TextRecognitionDataset]
     I[元素图片] --> DS
-    DS --> PNG[解析原路径/同名 PNG]
+    DS --> PNG[严格读取标注中的 PNG 路径]
     PNG --> RGB[读取 RGB + 透明通道合成]
     RGB --> RESIZE[完整 detection 框固定高度32 + 等比宽度]
     RESIZE --> MINW[窄图按边缘背景色补到宽48]
@@ -27,7 +27,7 @@ flowchart TD
 
 相关实现：
 
-- `recognition/components/dataset.py`：PNG 路径解析、透明通道处理、缩放、增强、桶采样和动态 padding；
+- `recognition/components/dataset.py`：图片路径校验、PNG 透明通道处理、缩放、增强、桶采样和动态 padding；
 - `recognition/utils/checkpoint.py`：checkpoint 解包以及旧灰度/新 RGB 模型通道识别；
 - `recognition/components/converter.py`：字典编码和显式 TBC/BTC 的 CTC greedy decode。
 
@@ -129,7 +129,7 @@ python recognition_inference.py \
 ## 6. 已知问题与演进边界
 
 - `train.py` 仍以脚本常量为主，需迁移为可序列化配置与 run manifest。
-- 图片读取或标注路径解析失败会直接报错，避免 dummy tensor 静默污染训练。
+- 训练数据与标注统一使用 `.png`；路径或扩展名不一致会直接报错，避免自动回退掩盖数据问题或以 dummy tensor 静默污染训练。
 - recognition 不再做二次裁剪；detection 框质量需要在 detection 环节单独评估。
 - 输入高度目前固定 32；48 高度只能作为同数据、同训练预算的消融实验，不能直接替换现有权重。
 - `recognition_quantize_static.py` 当前不进入发布路径。FP32 ONNX/OpenVINO 是默认优化方向。

@@ -22,21 +22,12 @@ MIN_IMAGE_WIDTH = 48
 
 
 def resolve_image_path(image_path: str | os.PathLike) -> str:
-    """解析标注图片路径，并兼容 detection 产物统一保存为 PNG 的情况。"""
+    """返回实际存在的图片路径；标注中的文件名和扩展名必须准确。"""
     path = Path(image_path)
     if path.is_file():
         return str(path)
 
-    # 新 detection 数据的标注曾沿用 .jpg，但落盘文件实际为同名 .png。
-    # 只做可验证的同目录、同 stem 回退，避免错误匹配到其他样本。
-    for suffix in (".png", ".PNG"):
-        png_path = path.with_suffix(suffix)
-        if png_path.is_file():
-            return str(png_path)
-
-    raise FileNotFoundError(
-        f"图片不存在: {path}（也未找到同名 PNG detection 产物）"
-    )
+    raise FileNotFoundError(f"图片不存在: {path}")
 
 
 def load_rgb_image(image_path: str | os.PathLike) -> Image.Image:
@@ -359,7 +350,6 @@ class TextRecognitionDataset(BaseTextDataset):
         if not os.path.exists(annotation_path):
             raise FileNotFoundError(f"标注文件不存在: {annotation_path}")
 
-        png_fallback_count = 0
         empty_label_count = 0
         malformed_lines = []
         missing_images = []
@@ -384,9 +374,6 @@ class TextRecognitionDataset(BaseTextDataset):
                     missing_images.append((line_number, annotated_path))
                     continue
 
-                if Path(resolved_path).suffix.lower() == ".png" and Path(annotated_path).suffix.lower() != ".png":
-                    png_fallback_count += 1
-
                 self.image_paths.append(resolved_path)
                 self.labels.append(label)
 
@@ -398,8 +385,6 @@ class TextRecognitionDataset(BaseTextDataset):
                 details.append(f"缺失图片: {missing_images[:5]}")
             raise ValueError(f"标注数据校验失败 ({annotation_path}): {'; '.join(details)}")
 
-        if png_fallback_count:
-            print(f"已将 {png_fallback_count} 条 .jpg 标注匹配到同名 .png detection 产物")
         if empty_label_count:
             print(f"已跳过 {empty_label_count} 条空标签样本")
 

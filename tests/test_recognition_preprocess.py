@@ -23,15 +23,14 @@ def _write_detection_case(tmp_path: Path) -> tuple[Path, Path]:
     draw.rectangle((60, 24, 119, 55), fill=(255, 255, 255))
     image.save(image_path)
 
-    # 模拟现有新增数据：标注仍写 .jpg，实际 detection 产物是同名 .png。
     annotation_path.write_text(
-        'menu-item-current_000.jpg, "首页274"\n',
+        'menu-item-current_000.png, "首页274"\n',
         encoding="utf-8",
     )
     return image_path, annotation_path
 
 
-def test_training_dataset_resolves_png_and_keeps_the_full_detection_box(tmp_path):
+def test_training_dataset_reads_png_and_keeps_the_full_detection_box(tmp_path):
     image_path, annotation_path = _write_detection_case(tmp_path)
 
     dataset = TextRecognitionDataset(
@@ -117,12 +116,14 @@ def test_checkpoint_channel_detection_supports_old_grayscale_and_new_rgb_weights
     assert infer_num_channels({"cnn.stem.0.weight": torch.empty(32, 3, 3, 3)}) == 3
 
 
-def test_resolve_image_path_reports_missing_png(tmp_path):
-    missing_jpg = tmp_path / "missing.jpg"
+def test_resolve_image_path_requires_the_exact_annotated_extension(tmp_path):
+    png_path = tmp_path / "sample.png"
+    Image.new("RGB", (10, 10), "white").save(png_path)
+    missing_jpg = png_path.with_suffix(".jpg")
 
     try:
         resolve_image_path(missing_jpg)
     except FileNotFoundError as exc:
-        assert "同名 PNG" in str(exc)
+        assert str(missing_jpg) in str(exc)
     else:
-        raise AssertionError("missing image should fail fast")
+        raise AssertionError("图片扩展名不一致时应立即失败")
