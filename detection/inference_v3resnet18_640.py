@@ -26,22 +26,22 @@ from models.east_model import EASTModel
 from components.transforms import ResizeAndPad
 
 # --- 配置参数 ---
-MODEL_PATH = "detection/checkpoints/best_detection_epoch_99_loss_0.01542.pth"
+MODEL_PATH = "detection/checkpoints/detection_epoch_180.pth"
 
-# IMAGE_PATH = "detection/data/train_images"
-# OUTPUT_DIR = "detection/data/test_results/resnet18/train_images"
-IMAGE_PATH = "detection/data/test/3"
-OUTPUT_DIR = "detection/data/test_results/resnet18/3"
+IMAGE_PATH = "detection/data/train_images"
+OUTPUT_DIR = "detection/data/test_results/resnet18/train_images"
+# IMAGE_PATH = "detection/data/test/0"
+# OUTPUT_DIR = "detection/data/test_results/resnet18/0"
 
-SAVE_CROPS = False
+SAVE_CROPS = True
 CROP_DIR_NAME = "detection/data/crops/resnet18/train_images"
 
-SAVE_LABELS = True
+SAVE_LABELS = False
 LABEL_DIR = "detection/data/test_results/resnet18/complement"
 
-EXPAND_BOX = False
-EXPAND_RATIO_W = 0.10   # 左右扩充 = 字高 * 0.3
-EXPAND_RATIO_H = 0.10   # 上下扩充 = 字高 * 0.1
+EXPAND_BOX = True
+EXPAND_RATIO_W = 0.05   # 左右扩充 = 字高 * 0.3
+EXPAND_RATIO_H = 0.05   # 上下扩充 = 字高 * 0.1
 
 INPUT_SIZE = (256, 768)  # (高, 宽)，必须与训练配置一致
 SCORE_THRESHOLD       = 0.7   # 文本行阈值
