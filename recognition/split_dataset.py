@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""将 Recognition 全量训练数据按标注顺序均匀划分为训练集和验证集。
+"""从 Recognition 全量数据确定性地生成 80/20 训练集和验证集。
 
 脚本默认只预演，不修改任何文件。确认输出无误后，传入 ``--apply`` 才会：
 
-1. 从 ``train_annotation.txt`` 中均匀抽取最接近指定比例的样本；
-2. 将对应图片从 ``train_images`` 移动（或复制）到 ``val_images``；
-3. 重写 ``train_annotation.txt``，并生成 ``val_annotation.txt``。
+1. 读取 ``all_annotation.txt`` 和 ``all_images`` 中的全量数据；
+2. 按标注顺序均匀选择最接近 20% 的样本作为验证集，其余作为训练集；
+3. 将图片复制到 ``train_images`` / ``val_images``；
+4. 生成 ``train_annotation.txt`` / ``val_annotation.txt``。
 
-``all_annotation.txt`` 不会被修改，可继续作为全量数据清单。
+全量图片和 ``all_annotation.txt`` 始终保持不变。为避免覆盖手工调整的数据，训练集或
+验证集输出只要不是空的，脚本就会停止。
 """
 
 from __future__ import annotations
@@ -32,24 +34,40 @@ class AnnotationEntry:
     label_field: str
 
 
+CopyJob = tuple[AnnotationEntry, Path]
+
+
 def parse_args() -> argparse.Namespace:
     data_dir = Path(__file__).resolve().parent / "data"
     parser = argparse.ArgumentParser(
         description=(
-            "按标注顺序均匀抽取验证集。默认仅预演；添加 --apply 后才修改数据。"
+            "从 all 全量数据按标注顺序均匀生成训练集和验证集。"
+            "默认仅预演；添加 --apply 后才复制图片并写入标注。"
         )
+    )
+    parser.add_argument(
+        "--all-images",
+        type=Path,
+        default=data_dir / "all_images",
+        help="包含全部图片的源目录。",
+    )
+    parser.add_argument(
+        "--all-annotation",
+        type=Path,
+        default=data_dir / "all_annotation.txt",
+        help="包含全部标注的源文件。",
     )
     parser.add_argument(
         "--train-images",
         type=Path,
         default=data_dir / "train_images",
-        help="当前包含全部图片的目录。",
+        help="训练集图片输出目录。",
     )
     parser.add_argument(
         "--train-annotation",
         type=Path,
         default=data_dir / "train_annotation.txt",
-        help="当前包含全部标注的文件；应用划分后只保留训练集标注。",
+        help="训练集标注输出文件。",
     )
     parser.add_argument(
         "--val-images",
@@ -67,12 +85,6 @@ def parse_args() -> argparse.Namespace:
         "--val-ratio",
         default="0.20",
         help="验证集比例，使用 0 到 1 之间的小数（默认：0.20）。",
-    )
-    parser.add_argument(
-        "--mode",
-        choices=("move", "copy"),
-        default="move",
-        help="应用划分时移动或复制验证图片（默认：move）。",
     )
     parser.add_argument(
         "--apply",
@@ -96,7 +108,7 @@ def parse_ratio(raw_ratio: str) -> Decimal:
 def validation_sample_count(total_count: int, ratio: Decimal) -> int:
     """返回最接近目标比例的整数样本数，0.5 时向上取整。"""
     if total_count <= 0:
-        raise ValueError("训练标注为空，无法划分数据集")
+        raise ValueError("全量标注为空，无法划分数据集")
 
     count = int(
         (Decimal(total_count) * ratio).quantize(
@@ -144,15 +156,15 @@ def _normalized_label(label_field: str) -> str:
 
 def load_annotations(
     annotation_path: Path,
-    train_images: Path,
+    all_images: Path,
 ) -> list[AnnotationEntry]:
     if not annotation_path.is_file():
-        raise FileNotFoundError(f"训练标注文件不存在: {annotation_path}")
-    if not train_images.is_dir():
-        raise FileNotFoundError(f"训练图片目录不存在: {train_images}")
+        raise FileNotFoundError(f"全量标注文件不存在: {annotation_path}")
+    if not all_images.is_dir():
+        raise FileNotFoundError(f"全量图片目录不存在: {all_images}")
 
     annotation_dir = annotation_path.parent.resolve()
-    train_root = train_images.resolve()
+    all_root = all_images.resolve()
     entries: list[AnnotationEntry] = []
     seen_paths: dict[Path, int] = {}
 
@@ -194,10 +206,10 @@ def load_annotations(
 
             image_path = (annotation_dir / Path(*posix_path.parts)).resolve()
             try:
-                relative_image_path = image_path.relative_to(train_root)
+                relative_image_path = image_path.relative_to(all_root)
             except ValueError as exc:
                 raise ValueError(
-                    f"标注图片不在训练图片目录中: {annotation_path}:{line_number}: "
+                    f"标注图片不在全量图片目录中: {annotation_path}:{line_number}: "
                     f"{image_path}"
                 ) from exc
 
@@ -223,65 +235,98 @@ def load_annotations(
             )
 
     if not entries:
-        raise ValueError(f"训练标注为空: {annotation_path}")
+        raise ValueError(f"全量标注为空: {annotation_path}")
 
     annotated_paths = set(seen_paths)
     disk_paths = {
         path.resolve()
-        for path in train_root.rglob("*")
+        for path in all_root.rglob("*")
         if path.is_file() and path.suffix.lower() == ".png"
     }
     unannotated_paths = sorted(disk_paths - annotated_paths)
     if unannotated_paths:
         examples = ", ".join(str(path) for path in unannotated_paths[:5])
         raise ValueError(
-            f"训练图片目录中有 {len(unannotated_paths)} 个 PNG 未出现在标注文件中；"
+            f"全量图片目录中有 {len(unannotated_paths)} 个 PNG 未出现在标注文件中；"
             f"示例: {examples}"
         )
 
     return entries
 
 
-def validate_empty_outputs(val_images: Path, val_annotation: Path) -> None:
-    if val_annotation.exists():
-        if not val_annotation.is_file():
-            raise ValueError(f"验证标注路径不是文件: {val_annotation}")
-        if val_annotation.read_text(encoding="utf-8-sig").strip():
+def _validate_empty_output(
+    image_dir: Path,
+    annotation_path: Path,
+    split_name: str,
+) -> None:
+    if annotation_path.exists():
+        if not annotation_path.is_file():
+            raise ValueError(f"{split_name}标注路径不是文件: {annotation_path}")
+        if annotation_path.read_text(encoding="utf-8-sig").strip():
             raise ValueError(
-                f"验证标注文件不是空文件，为防止重复划分已停止: {val_annotation}"
+                f"{split_name}标注文件不是空文件，为防止覆盖手工数据已停止: "
+                f"{annotation_path}"
             )
 
-    if val_images.exists():
-        if not val_images.is_dir():
-            raise ValueError(f"验证图片路径不是目录: {val_images}")
+    if image_dir.exists():
+        if not image_dir.is_dir():
+            raise ValueError(f"{split_name}图片路径不是目录: {image_dir}")
         existing_file = next(
-            (path for path in val_images.rglob("*") if path.is_file()), None
+            (path for path in image_dir.rglob("*") if path.is_file()), None
         )
         if existing_file is not None:
             raise ValueError(
-                f"验证图片目录不是空目录，为防止覆盖已停止: {existing_file}"
+                f"{split_name}图片目录不是空目录，为防止覆盖手工数据已停止: "
+                f"{existing_file}"
             )
 
 
+def validate_empty_outputs(
+    train_images: Path,
+    train_annotation: Path,
+    val_images: Path,
+    val_annotation: Path,
+) -> None:
+    _validate_empty_output(train_images, train_annotation, "训练集")
+    _validate_empty_output(val_images, val_annotation, "验证集")
+
+
+def _paths_overlap(left: Path, right: Path) -> bool:
+    return left == right or left in right.parents or right in left.parents
+
+
 def validate_paths(
+    all_images: Path,
     train_images: Path,
     val_images: Path,
+    all_annotation: Path,
     train_annotation: Path,
     val_annotation: Path,
 ) -> None:
-    train_root = train_images.resolve()
-    val_root = val_images.resolve()
-    if (
-        train_root == val_root
-        or train_root in val_root.parents
-        or val_root in train_root.parents
-    ):
-        raise ValueError(
-            f"训练图片目录与验证图片目录不能相同或互相嵌套: "
-            f"{train_root}, {val_root}"
+    image_roots = {
+        "全量": all_images.resolve(),
+        "训练集": train_images.resolve(),
+        "验证集": val_images.resolve(),
+    }
+    image_items = list(image_roots.items())
+    for index, (left_name, left_path) in enumerate(image_items):
+        for right_name, right_path in image_items[index + 1 :]:
+            if _paths_overlap(left_path, right_path):
+                raise ValueError(
+                    f"{left_name}图片目录与{right_name}图片目录不能相同或互相嵌套: "
+                    f"{left_path}, {right_path}"
+                )
+
+    annotation_paths = {
+        "全量": all_annotation.resolve(),
+        "训练集": train_annotation.resolve(),
+        "验证集": val_annotation.resolve(),
+    }
+    if len(set(annotation_paths.values())) != len(annotation_paths):
+        details = ", ".join(
+            f"{name}={path}" for name, path in annotation_paths.items()
         )
-    if train_annotation.resolve() == val_annotation.resolve():
-        raise ValueError("训练标注文件与验证标注文件不能是同一个文件")
+        raise ValueError(f"全量、训练集和验证集标注文件必须互不相同: {details}")
 
 
 def annotation_line(
@@ -293,73 +338,58 @@ def annotation_line(
     return f"{Path(relative_path).as_posix()},{entry.label_field}\n"
 
 
-def build_annotation_contents(
+def build_split(
     entries: list[AnnotationEntry],
     val_indices: set[int],
     train_images: Path,
     val_images: Path,
     train_annotation: Path,
     val_annotation: Path,
-) -> tuple[str, str, list[AnnotationEntry]]:
+) -> tuple[str, str, list[CopyJob]]:
     train_lines: list[str] = []
     val_lines: list[str] = []
-    val_entries: list[AnnotationEntry] = []
+    copy_jobs: list[CopyJob] = []
 
     for index, entry in enumerate(entries):
         if index in val_indices:
-            val_entries.append(entry)
             destination = val_images / entry.relative_image_path
             val_lines.append(annotation_line(entry, destination, val_annotation))
         else:
             destination = train_images / entry.relative_image_path
             train_lines.append(annotation_line(entry, destination, train_annotation))
+        copy_jobs.append((entry, destination))
 
-    return "".join(train_lines), "".join(val_lines), val_entries
+    return "".join(train_lines), "".join(val_lines), copy_jobs
 
 
-def _rollback_transfers(
-    completed: list[tuple[Path, Path]],
-    mode: str,
-) -> list[str]:
+def _rollback_copies(destinations: list[Path]) -> list[str]:
     errors: list[str] = []
-    for source, destination in reversed(completed):
+    for destination in reversed(destinations):
         try:
-            if mode == "move":
-                if destination.exists() and not source.exists():
-                    source.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(destination), str(source))
-            elif destination.exists():
-                destination.unlink()
+            destination.unlink(missing_ok=True)
         except OSError as exc:
-            errors.append(f"无法回滚 {destination}: {exc}")
+            errors.append(f"无法删除已复制文件 {destination}: {exc}")
     return errors
 
 
-def transfer_validation_images(
-    entries: list[AnnotationEntry],
-    val_images: Path,
-    mode: str,
-) -> list[tuple[Path, Path]]:
-    destinations = [val_images / entry.relative_image_path for entry in entries]
+def copy_split_images(copy_jobs: list[CopyJob]) -> list[Path]:
+    destinations = [destination for _, destination in copy_jobs]
     collisions = [path for path in destinations if path.exists()]
     if collisions:
         examples = ", ".join(str(path) for path in collisions[:5])
-        raise FileExistsError(f"验证图片目标已存在，拒绝覆盖: {examples}")
+        raise FileExistsError(f"训练集或验证集图片目标已存在，拒绝覆盖: {examples}")
 
-    completed: list[tuple[Path, Path]] = []
+    completed: list[Path] = []
     try:
-        for entry, destination in zip(entries, destinations):
+        for entry, destination in copy_jobs:
             destination.parent.mkdir(parents=True, exist_ok=True)
-            if mode == "move":
-                shutil.move(str(entry.image_path), str(destination))
-            else:
-                shutil.copy2(entry.image_path, destination)
-            completed.append((entry.image_path, destination))
+            shutil.copy2(entry.image_path, destination)
+            completed.append(destination)
     except BaseException as exc:
-        rollback_errors = _rollback_transfers(completed, mode)
+        rollback_errors = _rollback_copies(completed)
         if rollback_errors:
             raise RuntimeError(
-                f"图片处理失败且回滚不完整: {exc}; " + "; ".join(rollback_errors)
+                f"图片复制失败且回滚不完整: {exc}; " + "; ".join(rollback_errors)
             ) from exc
         raise
     return completed
@@ -386,37 +416,39 @@ def atomic_write_bytes(path: Path, content: bytes) -> None:
             temp_path.unlink(missing_ok=True)
 
 
+def _restore_annotation(path: Path, original_content: bytes | None) -> None:
+    if original_content is None:
+        path.unlink(missing_ok=True)
+    else:
+        atomic_write_bytes(path, original_content)
+
+
 def apply_split(
-    val_entries: list[AnnotationEntry],
+    copy_jobs: list[CopyJob],
     train_content: str,
     val_content: str,
     train_annotation: Path,
     val_annotation: Path,
-    val_images: Path,
-    mode: str,
 ) -> None:
-    original_train = train_annotation.read_bytes()
-    val_existed = val_annotation.exists()
-    original_val = val_annotation.read_bytes() if val_existed else b""
+    originals = {
+        train_annotation: (
+            train_annotation.read_bytes() if train_annotation.exists() else None
+        ),
+        val_annotation: val_annotation.read_bytes() if val_annotation.exists() else None,
+    }
 
-    completed = transfer_validation_images(val_entries, val_images, mode)
+    completed = copy_split_images(copy_jobs)
     try:
         atomic_write_bytes(train_annotation, train_content.encode("utf-8"))
         atomic_write_bytes(val_annotation, val_content.encode("utf-8"))
     except BaseException as exc:
         restore_errors: list[str] = []
-        try:
-            atomic_write_bytes(train_annotation, original_train)
-        except OSError as restore_exc:
-            restore_errors.append(f"无法恢复 {train_annotation}: {restore_exc}")
-        try:
-            if val_existed:
-                atomic_write_bytes(val_annotation, original_val)
-            else:
-                val_annotation.unlink(missing_ok=True)
-        except OSError as restore_exc:
-            restore_errors.append(f"无法恢复 {val_annotation}: {restore_exc}")
-        restore_errors.extend(_rollback_transfers(completed, mode))
+        for annotation_path, original_content in originals.items():
+            try:
+                _restore_annotation(annotation_path, original_content)
+            except OSError as restore_exc:
+                restore_errors.append(f"无法恢复 {annotation_path}: {restore_exc}")
+        restore_errors.extend(_rollback_copies(completed))
         if restore_errors:
             raise RuntimeError(
                 f"写入标注失败且回滚不完整: {exc}; " + "; ".join(restore_errors)
@@ -429,7 +461,6 @@ def print_plan(
     val_count: int,
     ratio: Decimal,
     val_indices: list[int],
-    mode: str,
     apply: bool,
 ) -> None:
     train_count = total_count - val_count
@@ -440,7 +471,7 @@ def print_plan(
         for left, right in zip(selected_positions, selected_positions[1:])
     ]
 
-    print(f"数据总数: {total_count}")
+    print(f"全量数据: {total_count}")
     print(f"训练集: {train_count}")
     print(
         f"验证集: {val_count}（目标 {ratio * 100}%，"
@@ -449,7 +480,7 @@ def print_plan(
     print(f"平均抽样间隔: {Decimal(total_count) / Decimal(val_count):.6f} 条")
     if gaps:
         print(f"相邻验证样本的实际间隔: {min(gaps)}～{max(gaps)} 条")
-    print(f"图片处理方式: {'移动' if mode == 'move' else '复制'}")
+    print("图片处理方式: 从 all_images 复制到 train_images / val_images")
     print(f"运行模式: {'执行划分' if apply else '仅预演，不修改文件'}")
 
 
@@ -458,16 +489,23 @@ def main() -> int:
     try:
         ratio = parse_ratio(args.val_ratio)
         validate_paths(
+            args.all_images,
             args.train_images,
             args.val_images,
+            args.all_annotation,
             args.train_annotation,
             args.val_annotation,
         )
-        validate_empty_outputs(args.val_images, args.val_annotation)
-        entries = load_annotations(args.train_annotation, args.train_images)
+        validate_empty_outputs(
+            args.train_images,
+            args.train_annotation,
+            args.val_images,
+            args.val_annotation,
+        )
+        entries = load_annotations(args.all_annotation, args.all_images)
         val_count = validation_sample_count(len(entries), ratio)
         val_index_list = systematic_validation_indices(len(entries), val_count)
-        train_content, val_content, val_entries = build_annotation_contents(
+        train_content, val_content, copy_jobs = build_split(
             entries=entries,
             val_indices=set(val_index_list),
             train_images=args.train_images.resolve(),
@@ -481,7 +519,6 @@ def main() -> int:
             val_count=val_count,
             ratio=ratio,
             val_indices=val_index_list,
-            mode=args.mode,
             apply=args.apply,
         )
         if not args.apply:
@@ -489,17 +526,15 @@ def main() -> int:
             return 0
 
         apply_split(
-            val_entries=val_entries,
+            copy_jobs=copy_jobs,
             train_content=train_content,
             val_content=val_content,
             train_annotation=args.train_annotation.resolve(),
             val_annotation=args.val_annotation.resolve(),
-            val_images=args.val_images.resolve(),
-            mode=args.mode,
         )
-        print("划分完成。")
+        print("划分完成；all 全量数据未修改。")
         return 0
-    except (OSError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         print(f"错误: {exc}", file=sys.stderr)
         return 1
 

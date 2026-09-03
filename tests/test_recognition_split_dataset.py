@@ -13,22 +13,20 @@ SCRIPT = Path(__file__).resolve().parents[1] / "recognition" / "split_dataset.py
 
 
 def make_dataset(data_dir: Path, count: int) -> str:
-    train_images = data_dir / "train_images"
-    train_images.mkdir(parents=True)
+    all_images = data_dir / "all_images"
+    all_images.mkdir(parents=True)
     lines = []
     for index in range(count):
         image_name = f"sample_{index:03d}.png"
-        (train_images / image_name).write_bytes(f"image-{index}".encode())
-        lines.append(f'train_images/{image_name}, "标签,{index}"\n')
+        (all_images / image_name).write_bytes(f"image-{index}".encode())
+        lines.append(f'all_images/{image_name}, "标签,{index}"\n')
 
     annotation_content = "".join(lines)
-    (data_dir / "train_annotation.txt").write_text(
-        annotation_content, encoding="utf-8"
-    )
-    (data_dir / "val_annotation.txt").write_text("", encoding="utf-8")
     (data_dir / "all_annotation.txt").write_text(
         annotation_content, encoding="utf-8"
     )
+    (data_dir / "train_annotation.txt").write_text("", encoding="utf-8")
+    (data_dir / "val_annotation.txt").write_text("", encoding="utf-8")
     return annotation_content
 
 
@@ -36,6 +34,10 @@ def run_split(data_dir: Path, *, apply: bool = False) -> subprocess.CompletedPro
     command = [
         sys.executable,
         str(SCRIPT),
+        "--all-images",
+        str(data_dir / "all_images"),
+        "--all-annotation",
+        str(data_dir / "all_annotation.txt"),
         "--train-images",
         str(data_dir / "train_images"),
         "--train-annotation",
@@ -74,15 +76,23 @@ def test_default_run_only_previews_without_modifying_data(tmp_path: Path) -> Non
     result = run_split(data_dir)
 
     assert result.returncode == 0, result.stderr
+    assert "全量数据: 10" in result.stdout
+    assert "训练集: 8" in result.stdout
     assert "验证集: 2" in result.stdout
     assert "仅预演，不修改文件" in result.stdout
-    assert (data_dir / "train_annotation.txt").read_text(encoding="utf-8") == original_annotation
+    assert (
+        data_dir / "all_annotation.txt"
+    ).read_text(encoding="utf-8") == original_annotation
+    assert (data_dir / "train_annotation.txt").read_text(encoding="utf-8") == ""
     assert (data_dir / "val_annotation.txt").read_text(encoding="utf-8") == ""
-    assert len(list((data_dir / "train_images").glob("*.png"))) == 10
+    assert len(list((data_dir / "all_images").glob("*.png"))) == 10
+    assert not (data_dir / "train_images").exists()
     assert not (data_dir / "val_images").exists()
 
 
-def test_apply_moves_every_fifth_image_and_rewrites_annotations(tmp_path: Path) -> None:
+def test_apply_copies_every_fifth_image_and_writes_both_splits(
+    tmp_path: Path,
+) -> None:
     data_dir = tmp_path / "data"
     original_annotation = make_dataset(data_dir, 10)
 
@@ -101,22 +111,44 @@ def test_apply_moves_every_fifth_image_and_rewrites_annotations(tmp_path: Path) 
     assert 'val_images/sample_004.png, "标签,4"' in (
         data_dir / "val_annotation.txt"
     ).read_text(encoding="utf-8")
+    assert len(list((data_dir / "all_images").glob("*.png"))) == 10
     assert len(list((data_dir / "train_images").glob("*.png"))) == 8
     assert len(list((data_dir / "val_images").glob("*.png"))) == 2
-    assert not (data_dir / "train_images" / "sample_004.png").exists()
-    assert (data_dir / "val_images" / "sample_004.png").is_file()
-    assert (data_dir / "all_annotation.txt").read_text(encoding="utf-8") == original_annotation
+    assert (data_dir / "all_images" / "sample_004.png").is_file()
+    assert (data_dir / "val_images" / "sample_004.png").read_bytes() == b"image-4"
+    assert (
+        data_dir / "all_annotation.txt"
+    ).read_text(encoding="utf-8") == original_annotation
 
 
-def test_missing_image_stops_before_any_change(tmp_path: Path) -> None:
+def test_missing_all_image_stops_before_any_change(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     original_annotation = make_dataset(data_dir, 10)
-    (data_dir / "train_images" / "sample_003.png").unlink()
+    (data_dir / "all_images" / "sample_003.png").unlink()
 
     result = run_split(data_dir, apply=True)
 
     assert result.returncode == 1
     assert "标注对应图片不存在" in result.stderr
-    assert (data_dir / "train_annotation.txt").read_text(encoding="utf-8") == original_annotation
+    assert (
+        data_dir / "all_annotation.txt"
+    ).read_text(encoding="utf-8") == original_annotation
+    assert (data_dir / "train_annotation.txt").read_text(encoding="utf-8") == ""
     assert (data_dir / "val_annotation.txt").read_text(encoding="utf-8") == ""
+    assert not (data_dir / "train_images").exists()
+    assert not (data_dir / "val_images").exists()
+
+
+def test_nonempty_output_is_never_overwritten(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    make_dataset(data_dir, 10)
+    existing = 'train_images/manual.png, "手工标注"\n'
+    (data_dir / "train_annotation.txt").write_text(existing, encoding="utf-8")
+
+    result = run_split(data_dir, apply=True)
+
+    assert result.returncode == 1
+    assert "为防止覆盖手工数据已停止" in result.stderr
+    assert (data_dir / "train_annotation.txt").read_text(encoding="utf-8") == existing
+    assert not (data_dir / "train_images").exists()
     assert not (data_dir / "val_images").exists()

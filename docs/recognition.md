@@ -36,22 +36,35 @@ flowchart TD
 
 ### 初始训练集/验证集划分
 
-当 `train_images/` 和 `train_annotation.txt` 保存全量数据、验证集为空时，使用
+当 `all_images/` 和 `all_annotation.txt` 保存全量数据时，使用
 `recognition/split_dataset.py` 做确定性的 80/20 均匀系统抽样。脚本按标注顺序每隔约
-5 条抽取一条；总数不能被 5 整除时，会在 4～5 条之间均匀调整间隔，使验证集数量
-等于最接近 20% 的整数。
+5 条抽取一条到验证集，其余进入训练集；总数不能被 5 整除时，会在 4～5 条之间
+均匀调整间隔，使验证集数量等于最接近 20% 的整数。
 
 ```bash
 # 先校验数据并预览数量，不修改文件
 .venv/bin/python recognition/split_dataset.py
 
-# 确认后移动验证图片，并重写 train/val 标注
+# 确认后从 all_images 复制图片，并生成 train/val 标注
 .venv/bin/python recognition/split_dataset.py --apply
 ```
 
-默认使用 `move`；如需保留 `train_images/` 中的全量图片，可传入 `--mode copy`。
-脚本不会修改 `all_annotation.txt`，并会在缺图、重复标注、未标注 PNG、非空验证集
-或目标文件冲突时拒绝执行。
+脚本不会修改 `all_images/` 和 `all_annotation.txt`。为避免覆盖手工调整，
+`train_images/`、`val_images/`、`train_annotation.txt`、`val_annotation.txt` 必须为空；
+缺图、重复标注、未标注 PNG 或目标文件冲突也会让脚本在写入前停止。
+
+### 三份标注校对
+
+手工调整 train/val 后，运行下列只读脚本校对三份标注：
+
+```bash
+.venv/bin/python recognition/check_dataset_annotations.py
+```
+
+脚本仅按不含目录的图片文件名判断，例如 `du20260902-002391.png`。它要求
+`all = train + val`、train 与 val 没有同名图片，并逐项比较 all 与所属 split 中同名
+图片后面的识别文字。校对通过返回 0；缺失、多余、跨 split 重复或文字不同会列出
+具体文件名并返回 1。每类默认最多显示 20 条详情，传入 `--max-details 0` 可显示全部。
 
 ## 3. 模型与张量契约
 
@@ -131,8 +144,8 @@ python recognition_inference.py \
   --batch_size 32
 ```
 
-初次准备数据时，`recognition/data/val_annotation.txt` 可能为空。应先使用上述脚本建立
-图片与标注一一对应的独立验证集；划分完成前，不应将训练集评估结果作为发布精度。
+初次准备数据时，应先从 `all` 使用上述划分脚本建立图片与标注一一对应的独立训练集
+和验证集，并运行三份标注校对；划分完成前，不应将训练集评估结果作为发布精度。
 
 ## 5. 评测维度
 
