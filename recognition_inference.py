@@ -32,7 +32,7 @@ from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 DEFAULT_MODEL_PATH  = "best_recognition.onnx"
 # DEFAULT_MODEL_PATH  = "recognition_quantized_model/int8/crnn_int8.xml"
 
-DEFAULT_IMAGE_PATH  = "recognition/data/test_images1"
+DEFAULT_IMAGE_PATH  = "recognition/data/test_images"
 DEFAULT_KEYS_PATH   = "recognition/keys.txt"
 
 IMG_HEIGHT          = 32
