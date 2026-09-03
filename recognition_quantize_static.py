@@ -559,8 +559,8 @@ def validate_and_benchmark(fp32_model_path, int8_model_path,
             int8_out = int8_compiled({"input": img, "img_widths": widths})[0]
 
             import torch
-            fp32_text = converter.decode(torch.from_numpy(fp32_out))
-            int8_text = converter.decode(torch.from_numpy(int8_out))
+            fp32_text = converter.decode(torch.from_numpy(fp32_out), layout="TBC")
+            int8_text = converter.decode(torch.from_numpy(int8_out), layout="TBC")
 
             if fp32_text == int8_text:
                 matches += 1

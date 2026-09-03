@@ -26,9 +26,10 @@
 ```bash
 .venv/bin/python -m pytest -q
 .venv/bin/python -m pytest tests/test_recognition_preprocess.py -q
+.venv/bin/python -m pytest tests/test_recognition_batch_invariance.py -q
 .venv/bin/python -m pytest tests/test_detection_rectangular_pipeline.py -q
 .venv/bin/python -m pytest tests/test_detection_split_dataset.py -q
-.venv/bin/python -m py_compile recognition/components/dataset.py recognition/train.py recognition/evaluate_val.py
+.venv/bin/python -m py_compile recognition/components/dataset.py recognition/models/model.py recognition/train.py recognition/evaluate_val.py recognition_export_onnx.py recognition_inference.py
 ```
 
 改动哪个子系统，至少运行对应的测试文件。涉及共享预处理、张量 layout、动态 padding 或模型输入通道时，还要运行全部测试。
@@ -39,7 +40,7 @@
 - 标注路径必须与磁盘文件精确一致，不要增加扩展名猜测、同名文件回退或缺图 dummy tensor。
 - Recognition 使用完整 detection 文字框；训练、验证和推理共享等比缩放与动态 padding，不做二次文字裁剪或红色像素删除。
 - 新识别模型默认使用 3 通道 RGB。带透明通道的 PNG 必须通过共享的 `load_rgb_image` 合成背景，避免黑字或白字消失。
-- `img_widths` 表示 padding 前的真实像素宽度。修改 CNN 下采样或 padding 时，必须同步检查 CTC 序列长度和 batch 一致性。
+- `img_widths` 表示不含 CNN 右侧保护区和 batch padding 的真实像素宽度。collate 必须为每张图片保留固定的右侧背景保护区，BiGRU 必须通过 `PackedSequence` 跳过 padding；修改 CNN 下采样或 padding 时，必须同步检查 CTC 序列长度和 batch 一致性。
 - `recognition/keys.txt` 的字符内容与顺序属于模型 ABI；修改后必须重新训练、导出并验证模型。
 - Detection 图片与标签按 stem 配对，标签可以是 `gt_<stem>.txt` 或 `<stem>.txt`。数据划分以 manifest 为准，不能让同一样本同时进入 train 和 val。
 

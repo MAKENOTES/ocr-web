@@ -67,15 +67,18 @@ class LabelConverter:
 
         return torch.tensor(encoded_texts, dtype=torch.long), torch.tensor(lengths, dtype=torch.long)
 
-    def decode(self, preds: torch.Tensor) -> list[str]:
-        # preds: (SeqLen, Batch, NumClasses) -> LogSoftmax后的结果 或者 Raw Logits
-        # 注意：这里输入通常是 (Seq, Batch, C) 或者 (Batch, Seq, C)，需要确认 train.py 的输出
-
-        # 假设输入是 (SeqLen, Batch, Class) - 这是 PyTorch CTCLoss 的标准输入，但通常解码时我们已经转成了 (Batch, SeqLen, Class)
-        # 为了通用性，先检查维度
-        if preds.shape[1] != self.num_classes:
-             # 可能是 (Seq, Batch, C)
-             preds = preds.transpose(0, 1) # -> (Batch, Seq, C)
+    def decode(self, preds: torch.Tensor, *, layout: str) -> list[str]:
+        """使用显式 layout 对三维 CTC 输出执行 greedy decode。"""
+        if preds.ndim != 3:
+            raise ValueError(f"preds 必须是三维张量，当前 shape={tuple(preds.shape)}")
+        if preds.shape[2] != self.num_classes:
+            raise ValueError(
+                f"类别维不匹配: output={preds.shape[2]}, keys={self.num_classes}"
+            )
+        if layout == "TBC":
+            preds = preds.transpose(0, 1)
+        elif layout != "BTC":
+            raise ValueError(f"layout 仅支持 'TBC' 或 'BTC'，当前为 {layout!r}")
 
         # 取最大概率的索引
         tokens = preds.argmax(dim=2) # (Batch, Seq)

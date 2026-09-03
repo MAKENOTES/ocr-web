@@ -5,12 +5,13 @@ recognition_export_onnx.py — 将训练好的 CRNN PyTorch 模型导出为 ONNX
   1. GRU 的 h0 在 batch_size=1 时被 trace 为常量，导致 batch>1 推理时
      hidden state 形状不匹配，反向 GRU 输出错乱 → 字符重复（如 "乙乙方"）
   2. ONNX 不支持 img_widths 的 Python for-loop 动态计算，
-     改用纯 tensor 算术使 padding mask 可导出
+     改用纯 tensor 算术使有效长度可导出
+  3. 双向 GRU 必须接收 sequence_lens，彻底跳过每张图片的右侧 padding
 
 解决方案:
   用 OnnxExportWrapper 包装原始模型:
   - h0 改为由输入 batch 维度动态构建（expand 而非 zeros(b,...)）
-  - img_widths 作为第二个输入传入 ONNX，padding mask 全部用 tensor 运算
+  - img_widths 作为第二个输入传入 ONNX，驱动 GRU sequence_lens 和输出 mask
   - CNN 宽度下采样公式用 torch 算术替代 Python int 循环
 
 用法:
@@ -22,6 +23,7 @@ recognition_export_onnx.py — 将训练好的 CRNN PyTorch 模型导出为 ONNX
 
 import torch
 import torch.nn.functional as F
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import os
 import numpy as np
 
@@ -31,6 +33,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from recognition.models.model import CRNN
 from recognition.components.converter import LabelConverter
+from recognition.components.dataset import CNN_RIGHT_CONTEXT, MIN_IMAGE_WIDTH
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 
@@ -38,11 +41,13 @@ class OnnxExportWrapper(torch.nn.Module):
     """
     ONNX 导出专用包装器。
 
-    解决两个核心问题:
+    解决三个核心问题:
     1. h0 动态化: 用 expand 从 [num_layers*2, 1, hidden] 广播到任意 batch，
        避免 trace 时 batch 维度被烧死为常量。
     2. img_widths 支持: 将 _calc_cnn_output_width 的 Python 循环
        替换为纯 tensor 算术，使 padding mask 对 ONNX 可见。
+    3. 使用 PackedSequence 把有效长度传给双向 GRU，使反向 GRU 不再遍历
+       每张图片右侧的 batch padding。
     """
 
     def __init__(self, crnn_model: CRNN):
@@ -99,27 +104,29 @@ class OnnxExportWrapper(torch.nn.Module):
         # expand 不分配新内存，ONNX 能正确处理动态 batch 维
         h0 = self.h0_template.expand(-1, b, -1).contiguous()
 
-        # ---- Padding Mask（纯 tensor 运算，ONNX 兼容） ----
+        # ---- 每个样本的有效序列长度 ----
         real_seq_lens = self._calc_cnn_width_tensor(img_widths.long())
         real_seq_lens = real_seq_lens.clamp(min=1, max=seq_len)
 
-        # mask: [SeqLen, B]  True = padding 位置
-        time_indices = torch.arange(seq_len, device=conv.device).unsqueeze(1)  # [SeqLen, 1]
-        padding_mask = time_indices >= real_seq_lens.unsqueeze(0)               # [SeqLen, B]
-
-        # 将 padding 时间步的 CNN 特征置零（阻止反向 GRU 传播噪声）
-        conv = conv.masked_fill(padding_mask.unsqueeze(2), 0.0)
-
-        # ---- GRU ----
-        rnn_out, _ = self.rnn(conv, h0)
+        # ---- 长度感知 GRU ----
+        packed_conv = pack_padded_sequence(
+            conv,
+            real_seq_lens.detach().cpu(),
+            enforce_sorted=False,
+        )
+        packed_rnn_out, _ = self.rnn(packed_conv, h0)
+        rnn_out, _ = pad_packed_sequence(
+            packed_rnn_out,
+            total_length=seq_len,
+        )
         rnn_out = self.rnn_dropout(rnn_out)
         output = self.embedding(rnn_out)  # [SeqLen, B, n_class]
 
         # 屏蔽 padding 区域的 logits
         # 将 padding 位置所有类别设为 -1e9，blank (idx=0) 设为 0
+        time_indices = torch.arange(seq_len, device=conv.device).unsqueeze(1)
+        padding_mask = time_indices >= real_seq_lens.unsqueeze(0)
         mask_expanded = padding_mask.unsqueeze(2)  # [SeqLen, B, 1]
-        blank_score = torch.zeros_like(output)
-        blank_score[:, :, 0] = 0.0  # blank 得分 = 0
         neg_inf = torch.full_like(output, -1e9)
         neg_inf[:, :, 0] = 0.0  # blank 位保持 0
         output = torch.where(mask_expanded, neg_inf, output)
@@ -159,11 +166,22 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
     wrapper.eval()
     wrapper.to(device)
 
-    # 3. 准备虚拟输入（使用 batch_size=2 以确保动态 batch 正确导出）
+    if img_width < MIN_IMAGE_WIDTH + CNN_RIGHT_CONTEXT:
+        raise ValueError(
+            f"img_width 至少为 {MIN_IMAGE_WIDTH + CNN_RIGHT_CONTEXT}，"
+            "需要容纳最窄图片和 CNN 右侧背景保护区"
+        )
+
+    # 3. 准备混合有效宽度输入，确保 sequence_lens 进入导出图。
     export_batch = 2
     print(f"[3/5] 准备虚拟输入 ({export_batch}, {num_channels}, {img_height}, {img_width})")
     dummy_input = torch.randn(export_batch, num_channels, img_height, img_width, device=device)
-    dummy_widths = torch.full((export_batch,), img_width, dtype=torch.long, device=device)
+    max_valid_width = img_width - CNN_RIGHT_CONTEXT
+    dummy_widths = torch.tensor(
+        [max(MIN_IMAGE_WIDTH, max_valid_width // 2), max_valid_width],
+        dtype=torch.long,
+        device=device,
+    )
 
     # 4. 导出 ONNX
     print(f"[4/5] 导出 ONNX 到: {output_path}")
@@ -197,8 +215,21 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
         model_onnx = onnx.load(output_path)
         onnx.checker.check_model(model_onnx)
 
+        gru_nodes = [node for node in model_onnx.graph.node if node.op_type == "GRU"]
+        if len(gru_nodes) != 1 or len(gru_nodes[0].input) <= 4 or not gru_nodes[0].input[4]:
+            raise RuntimeError("导出的 ONNX GRU 缺少 sequence_lens 输入")
+
         model_simplified, check = simplify(model_onnx)
         if check:
+            simplified_gru_nodes = [
+                node for node in model_simplified.graph.node if node.op_type == "GRU"
+            ]
+            if (
+                len(simplified_gru_nodes) != 1
+                or len(simplified_gru_nodes[0].input) <= 4
+                or not simplified_gru_nodes[0].input[4]
+            ):
+                raise RuntimeError("简化后的 ONNX GRU 丢失 sequence_lens 输入")
             onnx.save(model_simplified, output_path)
             size_mb = os.path.getsize(output_path) / 1024 / 1024
             print(f"    ✓ 简化成功！模型大小: {size_mb:.1f} MB")
@@ -218,9 +249,18 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
         ort_session = ort.InferenceSession(output_path, sess_options=sess_options,
                                            providers=["CPUExecutionProvider"])
 
-        for test_batch in [1, 4]:
+        width_cases = {
+            1: [max_valid_width],
+            4: [
+                max(MIN_IMAGE_WIDTH, max_valid_width // 4),
+                max(MIN_IMAGE_WIDTH, max_valid_width // 2),
+                max(MIN_IMAGE_WIDTH, max_valid_width * 3 // 4),
+                max_valid_width,
+            ],
+        }
+        for test_batch, valid_widths in width_cases.items():
             test_input = torch.randn(test_batch, num_channels, img_height, img_width, device=device)
-            test_widths = torch.full((test_batch,), img_width, dtype=torch.long)
+            test_widths = torch.tensor(valid_widths, dtype=torch.long)
 
             # PyTorch (原始模型，带 img_widths)
             with torch.no_grad():
@@ -235,7 +275,14 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
 
             max_err = np.max(np.abs(pt_output - ort_output))
             status = "✓" if max_err < 1e-3 else "⚠"
-            print(f"    batch={test_batch}: 最大误差 {max_err:.2e} {status}")
+            print(
+                f"    batch={test_batch}, widths={valid_widths}: "
+                f"最大误差 {max_err:.2e} {status}"
+            )
+            if max_err >= 1e-3:
+                raise RuntimeError(
+                    f"PyTorch/ONNX 输出不一致: batch={test_batch}, max_err={max_err:.2e}"
+                )
 
     except ImportError:
         print("    ⚠ onnxruntime 未安装，跳过验证")

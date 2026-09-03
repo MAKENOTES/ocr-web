@@ -19,6 +19,9 @@ from torchvision import transforms
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 MIN_IMAGE_WIDTH = 48
+# MobileFeatureExtractor 的横向感受野为 53 px。每张图右侧至少保留 32 px
+# 背景，使有效 CNN 特征不会因 batch 中最长图片不同而看到不同的张量边界。
+CNN_RIGHT_CONTEXT = 32
 
 
 def resolve_image_path(image_path: str | os.PathLike) -> str:
@@ -175,9 +178,10 @@ def dynamic_padding_collate_fn(batch):
     支持训练模式 (img, label) 和 推理模式 (img, path)。
 
     返回:
-        padded_imgs: [B, C, H, W_max] 填充后的图像张量
+        padded_imgs: [B, C, H, W_max] 填充后的图像张量；每张图右侧至少
+                     保留 CNN_RIGHT_CONTEXT 像素的背景保护区
         labels_or_paths: 标签或路径的元组
-        img_widths: [B] 每张图片 padding 前的真实宽度（像素），
+        img_widths: [B] 每张图片未包含保护区和 batch padding 的真实宽度（像素），
                     用于计算每个样本在 CNN 下采样后的真实时间步数，
                     使 CTC Loss 和解码只关注有效区域，忽略 padding。
     """
@@ -186,8 +190,9 @@ def dynamic_padding_collate_fn(batch):
     # 记录每张图片的真实宽度
     img_widths = torch.IntTensor([img.shape[2] for img in images])
 
-    # 找到当前 Batch 中最宽的宽度
-    max_width = max(img_widths).item()
+    # 最宽图片也必须拥有固定的右侧背景保护区。否则它单独推理时 CNN 会
+    # 看到张量边界，与它和更宽图片组成 batch 时提取到的右边缘特征不同。
+    max_width = max(img_widths).item() + CNN_RIGHT_CONTEXT
 
     # 宽度补齐到 8 的倍数
     max_width = ((max_width + 7) // 8) * 8

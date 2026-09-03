@@ -1,8 +1,8 @@
 """
 recognition_inference.py — 多后端优化识别推理脚本 (修复版)
 =====================================================================
-修复: ONNX/OpenVINO 后端现在接收 img_widths 输入，与 PyTorch 后端行为一致。
-导出的 ONNX 模型包含 padding mask 逻辑，batch>1 时不再出现字符重复。
+修复: ONNX/OpenVINO 后端接收 img_widths，并统一输出为 TBC。
+导出的 ONNX GRU 使用 sequence_lens，batch>1 时不再读取其他样本造成的 padding。
 """
 
 import os
@@ -38,6 +38,20 @@ DEFAULT_KEYS_PATH   = "recognition/keys.txt"
 IMG_HEIGHT          = 32
 DEFAULT_NUM_CHANNELS = 3
 
+
+def normalize_output_to_tbc(output: np.ndarray, batch_size: int) -> np.ndarray:
+    """依据已知 batch 维把后端三维输出规范为 [T, B, C]。"""
+    if output.ndim != 3:
+        raise ValueError(f"识别后端输出必须是三维张量，当前 shape={output.shape}")
+    if output.shape[1] == batch_size:
+        return output
+    if output.shape[0] == batch_size:
+        return np.transpose(output, (1, 0, 2))
+    raise ValueError(
+        f"无法从输出 shape={output.shape} 定位 batch_size={batch_size} 维度"
+    )
+
+
 # ============================================================
 # 后端加载器
 # ============================================================
@@ -58,7 +72,7 @@ class ONNXBackend:
         channel_dim = image_input.shape[1]
         self.num_channels = channel_dim if isinstance(channel_dim, int) else DEFAULT_NUM_CHANNELS
         if self.has_img_widths:
-            print(f"  ✓ ONNX 模型包含 img_widths 输入 (padding mask 已启用)")
+            print(f"  ✓ ONNX 模型包含 img_widths 输入 (sequence_lens 已启用)")
         else:
             print(f"  ⚠ ONNX 模型不包含 img_widths 输入 (旧版导出，batch>1 可能不准)")
 
@@ -79,7 +93,8 @@ class ONNXBackend:
         if self.has_img_widths:
             feeds["img_widths"] = img_widths.numpy().astype(np.int64)
         outputs = self.session.run(None, feeds)
-        return torch.from_numpy(outputs[0])
+        output = normalize_output_to_tbc(outputs[0], batch_size=images.shape[0])
+        return torch.from_numpy(output)
 
 
 class OpenVINOBackend:
@@ -92,16 +107,31 @@ class OpenVINOBackend:
         self.compiled_model = ie.compile_model(model=model, device_name="CPU", config=config)
         self.infer_request = self.compiled_model.create_infer_request()
 
-        # 检测模型输入
-        self.input_names = [inp.any_name for inp in self.compiled_model.inputs]
-        self.has_img_widths = "img_widths" in self.input_names
-        image_input = next(inp for inp in self.compiled_model.inputs if inp.any_name == "input")
+        # OpenVINO 可能在 ONNX 转换时重命名输入，因此按 rank 识别图片和宽度，
+        # 推理时直接使用端口对象，不依赖字符串名称。
+        inputs = list(self.compiled_model.inputs)
+        self.input_names = [inp.any_name for inp in inputs]
+        self.image_input = next(
+            (inp for inp in inputs if len(inp.partial_shape) == 4),
+            None,
+        )
+        self.widths_input = next(
+            (inp for inp in inputs if len(inp.partial_shape) == 1),
+            None,
+        )
+        if self.image_input is None:
+            raise ValueError(f"OpenVINO 模型缺少四维图片输入: {self.input_names}")
+
+        self.has_img_widths = self.widths_input is not None
         try:
-            self.num_channels = image_input.partial_shape[1].get_length()
+            self.num_channels = self.image_input.partial_shape[1].get_length()
         except Exception:
             self.num_channels = DEFAULT_NUM_CHANNELS
         if self.has_img_widths:
-            print(f"  ✓ OpenVINO 模型包含 img_widths 输入 (padding mask 已启用)")
+            print(
+                "  ✓ OpenVINO 模型包含长度输入 "
+                f"({self.widths_input.any_name}, sequence_lens 已启用)"
+            )
         else:
             print(f"  ⚠ OpenVINO 模型不包含 img_widths 输入 (旧版导出)")
 
@@ -112,23 +142,21 @@ class OpenVINOBackend:
         dummy = np.random.randn(1, self.num_channels, IMG_HEIGHT, 256).astype(np.float32)
         dummy_widths = np.array([256], dtype=np.int64)
         for _ in range(n):
-            feeds = {"input": dummy}
+            feeds = {self.image_input: dummy}
             if self.has_img_widths:
-                feeds["img_widths"] = dummy_widths
+                feeds[self.widths_input] = dummy_widths
             self.infer_request.infer(feeds)
 
     def infer(self, images: torch.Tensor, img_widths: torch.Tensor):
-        feeds = {"input": images.numpy()}
+        feeds = {self.image_input: images.numpy()}
         if self.has_img_widths:
-            feeds["img_widths"] = img_widths.numpy().astype(np.int64)
+            feeds[self.widths_input] = img_widths.numpy().astype(np.int64)
 
         result = self.infer_request.infer(feeds)
         output_node = self.compiled_model.outputs[0]
         out = np.array(result[output_node])
 
-        # OpenVINO 可能改变 layout
-        if out.ndim == 3 and out.shape[0] < out.shape[1]:
-            out = np.transpose(out, (1, 0, 2))
+        out = normalize_output_to_tbc(out, batch_size=images.shape[0])
         return torch.from_numpy(out)
 
 
@@ -239,7 +267,7 @@ def main():
 
         # 统一接口: 所有后端都接收 img_widths
         preds = backend.infer(images, img_widths)
-        pred_texts = converter.decode(preds)
+        pred_texts = converter.decode(preds, layout="TBC")
 
         infer_ms = (time.perf_counter() - t0) * 1000
         total_ms += infer_ms

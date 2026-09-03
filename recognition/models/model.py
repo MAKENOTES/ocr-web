@@ -13,7 +13,7 @@
 3. 保持与原模型完全相同的接口：
    - 输入: [B, C, 32, W]，宽度下采样倍率 = 4x
    - 输出: [SeqLen, B, NumClasses]，log_softmax
-   - 支持 img_widths padding mask
+   - 支持 img_widths 驱动的长度感知 BiGRU 和 padding mask
    - 可直接替换 train.py / inference.py 中的 `from model import CRNN`
 
 参数量对比 (以 n_class=6000 为例):
@@ -24,6 +24,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
 # ==========================================
@@ -198,6 +199,14 @@ class CRNN(nn.Module):
         w = (w - 2) // 2 + 1
         return w
 
+    @staticmethod
+    def _calc_cnn_output_widths(pixel_widths: torch.Tensor) -> torch.Tensor:
+        """向量化计算每张图片经过 CNN 后的有效时间步数。"""
+        widths = pixel_widths.to(dtype=torch.long)
+        widths = (widths + 2 * 1 - 3) // 2 + 1
+        widths = (widths - 2) // 2 + 1
+        return widths
+
     def forward(self, input, img_widths=None):
         """
         Args:
@@ -217,35 +226,36 @@ class CRNN(nn.Module):
         conv = self.cnn_dropout(conv)
 
         seq_len = conv.size(0)
+        real_seq_lens = None
 
-        # ---- 关键：GRU 之前将 padding 区域的 CNN 特征置零 ----
-        # 原理：反向 GRU 从序列末尾开始处理，如果 padding 区域有非零特征，
-        # 反向隐状态会携带噪声传播到真实内容区域，导致边界字符重复。
-        # 将 padding 特征置零后，反向 GRU 在 padding 区域的输入全为 0，
-        # 配合 h0=0，隐状态保持为零直到遇到真实内容，等效于 pack_padded_sequence。
-        # 此操作是纯 tensor 运算，ONNX 完全兼容。
+        # 双向 GRU 必须真正跳过右侧 padding。仅将 padding 特征置零并不够：
+        # 训练后的 GRU bias 会让反向隐状态在零输入区继续变化，进而污染有效字符。
         if img_widths is not None:
-            real_seq_lens = torch.tensor(
-                [self._calc_cnn_output_width(int(pw)) for pw in img_widths],
-                dtype=torch.long, device=conv.device
-            ).clamp(min=1, max=seq_len)
-
-            # mask: [SeqLen, B]  True = padding 位置
-            time_indices = torch.arange(seq_len, device=conv.device).unsqueeze(1)  # [SeqLen, 1]
-            padding_mask = time_indices >= real_seq_lens.unsqueeze(0)               # [SeqLen, B]
-
-            # 扩展到特征维度 [SeqLen, B, 1] 并广播，将 padding 时间步的特征全部置零
-            conv = conv.masked_fill(padding_mask.unsqueeze(2), 0.0)
-
-        rnn_out, _ = self.rnn(conv)
+            real_seq_lens = self._calc_cnn_output_widths(img_widths)
+            real_seq_lens = real_seq_lens.clamp(min=1, max=seq_len)
+            packed_conv = pack_padded_sequence(
+                conv,
+                real_seq_lens.detach().cpu(),
+                enforce_sorted=False,
+            )
+            packed_rnn_out, _ = self.rnn(packed_conv)
+            rnn_out, _ = pad_packed_sequence(
+                packed_rnn_out,
+                total_length=seq_len,
+            )
+        else:
+            rnn_out, _ = self.rnn(conv)
 
         rnn_out = self.rnn_dropout(rnn_out)
         output = self.embedding(rnn_out)  # [SeqLen, B, n_class]
 
-        # ---- Padding Mask: 对输出 logits 同样屏蔽 ----
-        if img_widths is not None:
-            output[padding_mask] = output.new_full((output.size(2),), -1e9)
-            output[padding_mask, 0] = 0.0
+        # CTC/解码看到的 padding 时间步固定为 blank。
+        if real_seq_lens is not None:
+            time_indices = torch.arange(seq_len, device=output.device).unsqueeze(1)
+            padding_mask = time_indices >= real_seq_lens.to(output.device).unsqueeze(0)
+            padding_output = torch.full_like(output, -1e9)
+            padding_output[:, :, 0] = 0.0
+            output = torch.where(padding_mask.unsqueeze(2), padding_output, output)
 
         return F.log_softmax(output, dim=2)
 

@@ -20,8 +20,9 @@ flowchart TD
     AUG -->|是| TA[颜色/极性/模糊/轻噪声]
     AUG -->|否| NORM[仅 Normalize]
     TA --> BUCKET[按宽高比桶采样]
-    NORM --> PAD[batch 动态 padding 到8倍数]
-    BUCKET --> PAD
+    NORM --> CTX[右侧至少32px CNN背景保护区]
+    BUCKET --> CTX
+    CTX --> PAD[batch 动态 padding 到8倍数]
     PAD --> OUT[images, labels/paths, img_widths]
 ```
 
@@ -59,12 +60,13 @@ flowchart LR
     X[图像 B,C,32,W] --> CNN[MobileFeatureExtractor]
     CNN --> F[特征 B,256,1,W/4]
     F --> T[转为 T,B,256]
-    W[img_widths B] --> MASK[真实序列长度/Mask]
-    MASK --> T
-    T --> GRU[单层 BiGRU]
+    W[img_widths B] --> LEN[真实序列长度]
+    T --> PACK[PackedSequence]
+    LEN --> PACK
+    PACK --> GRU[长度感知单层 BiGRU]
     GRU --> FC[Linear classes]
     FC --> LS[LogSoftmax]
-    MASK --> LS
+    LEN --> LS
     LS --> Y[输出 T,B,C]
     Y --> CTC[CTC Loss / Greedy Decode]
 ```
@@ -72,7 +74,7 @@ flowchart LR
 稳定契约：
 
 - 输入图像：`float32 [B, C, 32, W]`，归一化到以 0.5 为 mean/std 的空间；
-- `img_widths`：`int32/int64 [B]`，表示 padding 前像素宽度；
+- `img_widths`：`int32/int64 [B]`，表示不含右侧背景保护区和 batch padding 的真实图片宽度；
 - 输出：`float32 [T, B, num_classes]`，简称 TBC；
 - 类别：0=`blank`，1=`UNK`，2 起来自 `keys.txt`；
 - `keys.txt` 的内容和顺序是模型 ABI，变更字典必须训练/导出新模型版本；
@@ -80,7 +82,7 @@ flowchart LR
 
 `LabelConverter.decode` 已要求显式 `layout="TBC"` 或 `"BTC"`。部署入口会用已知 batch size 和类别数把后端输出规范为 TBC，不再用维度大小关系猜测。
 
-当前模型在 BiGRU 前将 padding 特征置零，但严格意义上反向 GRU 仍可能受尾部长度影响。完成长度感知 RNN 和 batch=1/混合宽度 batch 的自动一致性门禁前，生产建议使用 `batch_size=1`。
+每张图片右侧固定增加 32 px 背景保护区，隔离 CNN 感受野与动态 batch 边界；BiGRU 使用 `PackedSequence`，正反向都只处理各图片的有效时间步。自动测试要求同一图片在 batch=1 和混合宽度 batch 中的有效输出一致，并验证 ONNX GRU 带有 `sequence_lens` 输入。
 
 ## 4. 训练、评测、导出与推理
 
@@ -126,7 +128,7 @@ python recognition_inference.py \
   --backend auto \
   --keys_path recognition/keys.txt \
   --image_path recognition/data/test_images1 \
-  --batch_size 1
+  --batch_size 32
 ```
 
 初次准备数据时，`recognition/data/val_annotation.txt` 可能为空。应先使用上述脚本建立

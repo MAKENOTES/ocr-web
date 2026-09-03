@@ -125,5 +125,7 @@ Python
 
 
 
-----------------------------使用原始的权重和推理脚步，问题已解决， 调整model------------------------------------
-在 GRU 之前，把 padding 区域的 CNN 特征全部置零。 配合 h0 = 0，反向 GRU 在 padding 区域的输入和隐状态都是零，隐状态保持零直到遇到真实内容的边界——效果等价于 pack_padded_sequence，但全程只用了 masked_fill、arange、比较运算，ONNX tracer 都能完整追踪。
+----------------------------2026-09 新训练前的最终修复------------------------------------
+此前“将 GRU 输入的 padding 特征置零就等价于 packed sequence”的结论不成立：训练后的 GRU bias 非零，反向隐状态仍会在零输入区变化。
+
+当前实现改为 `pack_padded_sequence` / `pad_packed_sequence`，BiGRU 正反向都只处理每张图的有效长度；collate 同时为最宽图片保留固定 32 px 右侧背景，避免 CNN 有效特征随 batch 张量边界变化。ONNX 导出后的 GRU 必须包含 `sequence_lens` 输入，并由 batch=1/混合宽度 batch 自动测试验证。

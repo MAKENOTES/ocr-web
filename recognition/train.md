@@ -2,6 +2,13 @@
 
 > 当前架构和预处理规范以 [`../docs/recognition.md`](../docs/recognition.md) 为准。以下内容保留为历史训练记录，旧方案不代表当前实现。
 
+20260902 在新一轮 RGB 训练前根治混合宽度 batch 问题：
+
+  - collate 为每张图保留固定 32 px 右侧背景，隔离 CNN 感受野与 batch 边界；
+  - BiGRU 使用真实序列长度的 `PackedSequence`，不再读取右侧 padding；
+  - PyTorch、ONNX、OpenVINO 增加 batch=1/混合宽度 batch 一致性测试；
+  - CTC 解码与部署后端使用明确的 TBC/BTC 和 batch 维，不再根据维度大小猜测。
+
 20260901 recognition 输入统一为 detection 文字框：
 
   - 训练、评估、推理取消白字自动裁剪和红色像素删除；

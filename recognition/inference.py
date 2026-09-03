@@ -22,7 +22,7 @@ from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 # ================= 配置区域 (常量) =================
 # 1. 核心路径
-MODEL_PATH = os.path.join(project_root, "recognition/checkpoints/1783804842best_cer_0.0030_epoch_652.pth")  # 训练好的模型路径
+MODEL_PATH = os.path.join(project_root, "recognition/checkpoints/1788380644best_cer_0.0194_epoch_621.pth")  # 训练好的模型路径
 KEYS_PATH = os.path.join(project_root, "recognition/keys.txt")  # 字典路径 (必须与训练一致)
 INPUT_PATH = os.path.join(project_root, "recognition/data/test_images1")  # 待推理的图片文件夹 (或单张图片路径)
 OUTPUT_FILE = None  # 结果保存路径 (设为 None 则只打印)
@@ -127,7 +127,7 @@ def main():
 
             # 解码 -> List[str]
             # converter.decode 内部处理了 Softmax/Argmax 和 CTC 的去重逻辑
-            pred_texts = converter.decode(preds.cpu())
+            pred_texts = converter.decode(preds.cpu(), layout="TBC")
 
             # 收集结果
             for path, text in zip(paths, pred_texts):

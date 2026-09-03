@@ -5,6 +5,7 @@ from PIL import Image, ImageDraw
 
 from recognition import evaluate_val
 from recognition.components.dataset import (
+    CNN_RIGHT_CONTEXT,
     InferenceDataset,
     TextRecognitionDataset,
     dynamic_padding_collate_fn,
@@ -96,7 +97,8 @@ def test_dynamic_padding_uses_each_images_own_edge_color():
 
     assert paths == ("blue", "red")
     assert widths.tolist() == [5, 9]
-    assert padded.shape == (2, 3, 32, 16)
+    expected_width = ((9 + CNN_RIGHT_CONTEXT + 7) // 8) * 8
+    assert padded.shape == (2, 3, 32, expected_width)
     assert torch.allclose(padded[0, :, :, 5:], blue[:, :, -1:])
     assert torch.allclose(padded[1, :, :, 9:], red[:, :, -1:])
 

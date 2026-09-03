@@ -73,9 +73,8 @@ def evaluate(model, dataloader, converter, criterion):
             text = text.to(DEVICE)
             length = length.to(DEVICE)
 
-            # 用每张图片的真实宽度计算各自的时间步数（而非统一用最大值）
-            # stem + pool 对宽度的精确下采样结果为 (W + 1) // 4。
-            preds_size = ((img_widths + 1) // 4).clamp(min=1).int()
+            # 用模型的统一公式计算各图片有效时间步（而非统一用 batch 最大值）。
+            preds_size = model._calc_cnn_output_widths(img_widths).clamp(min=1).int()
 
             loss = criterion(preds, text, preds_size, length)
             # 处理 NaN 或 Inf
@@ -85,7 +84,7 @@ def evaluate(model, dataloader, converter, criterion):
 
             # 3. 计算 Accuracy
             # 解码预测结果
-            decoded_preds = converter.decode(preds.cpu())
+            decoded_preds = converter.decode(preds.cpu(), layout="TBC")
 
             total_samples += len(labels)
             for pred, gt in zip(decoded_preds, labels):
@@ -124,6 +123,7 @@ def log_gradient_norms(model, writer, global_step):
 def train():
     print(f"当前使用的计算设备: {DEVICE}")
     print(f"输入预处理: 完整 detection 框 / {'RGB' if NUM_CHANNELS == 3 else '灰度'} / 不裁剪")
+    print("序列处理: CNN 右侧背景保护区 / 长度感知 BiGRU / batch padding 不参与识别")
 
     if not os.path.exists(CHECKPOINT_DIR):
         os.makedirs(CHECKPOINT_DIR)
@@ -203,7 +203,7 @@ def train():
             images = images.to(DEVICE)
             img_widths = img_widths.to(DEVICE)
 
-            # 1. Forward（传入真实宽度，mask padding 区域）
+            # 1. Forward（真实宽度控制 PackedSequence，BiGRU 不读取 batch padding）
             preds = model(images, img_widths=img_widths)  # [SeqLen, Batch, NumClasses]
 
             # 2. Encode Labels
@@ -211,8 +211,8 @@ def train():
             text = text.to(DEVICE)
             length = length.to(DEVICE)
 
-            # 用每张图片的真实宽度计算各自的时间步数
-            preds_size = ((img_widths + 1) // 4).clamp(min=1).int()
+            # 与模型 PackedSequence 使用完全相同的有效长度公式。
+            preds_size = model._calc_cnn_output_widths(img_widths).clamp(min=1).int()
 
             # 3. Compute Loss
             loss = criterion(preds, text, preds_size, length)

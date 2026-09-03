@@ -20,15 +20,15 @@ from recognition.components.dataset import (
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 # ================= 配置区域 =================
-MODEL_PATH = "recognition/checkpoints/1783804842best_cer_0.0030_epoch_652.pth"  # 修改为你的最佳模型路径
+MODEL_PATH = "recognition/checkpoints/1788380644best_cer_0.0194_epoch_621.pth"  # 修改为你的最佳模型路径
 KEYS_PATH = "recognition/keys.txt"
-VAL_ANNOTATION = "recognition/data/train_annotation.txt"  # 验证集标注文件
+VAL_ANNOTATION = "recognition/data/all_annotation.txt"  # 验证集标注文件
 
 ERROR_OUTPUT_FILE = "recognition/error_cases.txt"  # 错误案例保存文件（可设为 None）
 
 IMG_HEIGHT = 32
 DEFAULT_NUM_CHANNELS = 3
-BATCH_SIZE = 1
+BATCH_SIZE = 64
 NUM_WORKERS = 4
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -117,7 +117,7 @@ def main():
             images = images.to(DEVICE)
             img_widths = img_widths.to(DEVICE)
             preds = model(images, img_widths=img_widths)
-            pred_texts = converter.decode(preds.cpu())
+            pred_texts = converter.decode(preds.cpu(), layout="TBC")
 
             for path, pred in zip(paths, pred_texts):
                 filename = os.path.basename(path)
