@@ -337,7 +337,7 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
 
 
 if __name__ == "__main__":
-    model_path = "best_recognition.pth"
+    model_path = "recognition/checkpoints/1788380644best_cer_0.0194_epoch_621.pth"
     output_path = "best_recognition.onnx"
     keys_path = "recognition/keys.txt"
     img_height = 32
