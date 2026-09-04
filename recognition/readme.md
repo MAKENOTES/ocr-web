@@ -21,6 +21,7 @@ relative/path.png, "识别文字"
 | 3 | `utils/compare_train_val_same_text.py` | 找出 train 与 val 中完全相同的文字，辅助检查数据泄漏或高频重复标签 | 只更新报告文件 |
 | 4 | `recognition/utils/dictionary.py` | 只从 train 标注生成新模型使用的候选字符字典 | 写入 `keys-new.txt` |
 | 5 | `utils/check_val_annotation_keys.py` | 找出 val 中包含字典外字符的图片 | 只更新报告文件 |
+| 6 | `utils/extract_error_keys.py` | 从评估错误案例中提取识别错误的真实字符 | 写入 `keys-error.txt` |
 
 必须先保证数据划分正确，再生成字典。不要为了让第 5 步通过而直接把 val 独有字符追加
 到字典；应调整数据划分，使验证集中的每个字符在训练集中都有训练样本，然后重新生成
@@ -225,6 +226,20 @@ recognition/data/val_unknown_keys.txt
 这是隔离操作，不会修改 `all_annotation.txt`。因此转移后数据关系变为
 `all = train + val + val_unknown`；`utils/check_dataset_annotations.py` 会把隔离样本作为
 第三个子集参与集合、重叠及文字一致性校对，不要误删 `all` 中的原始记录。
+
+## 从错误案例提取错误字符
+
+运行 Recognition 评估并生成 `recognition/error_cases.txt` 后，可以提取其中发生识别错误的
+真实字符：
+
+```bash
+.venv/bin/python recognition/utils/extract_error_keys.py
+```
+
+脚本按字符级最小编辑距离对齐每条记录的真实文字与预测文字，提取被替换或漏识别的真实
+字符；对于同一字符被重复输出的情况，也会记录对应的真实字符。结果去重、按 Unicode
+排序后写入 `recognition/keys-error.txt`，每行一个字符。可以通过 `--input` 和 `--output`
+指定其他输入输出路径。
 
 ## 训练前最短检查清单
 
