@@ -16,6 +16,7 @@ detection/runs/
 # 默认忽略识别数据，仅提交数据集标注文件
 recognition/data/*
 !recognition/data/all_annotation.txt
+!recognition/data/append_annotation.txt
 !recognition/data/train_annotation.txt
 !recognition/data/val_annotation.txt
 !recognition/data/val_unknown.txt

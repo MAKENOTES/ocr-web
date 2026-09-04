@@ -163,6 +163,15 @@ recognition/keys-new.txt
 使用训练该模型时的原始 `keys.txt`。只有准备从头训练新模型，并完成第 5 步核对后，才能
 决定是否用 `keys-new.txt` 作为新模型字典；替换字典后必须重新训练和导出模型。
 
+如需单独查看 `keys-new.txt` 相对于当前 `keys.txt` 新增的字符，运行：
+
+```bash
+.venv/bin/python recognition/utils/compare_key_files.py
+```
+
+脚本按 `keys-new.txt` 中的顺序将新增字符写入 `recognition/keys-append.txt`，不会修改
+`keys.txt` 或 `keys-new.txt`。可通过 `--keys`、`--keys-new` 和 `--output` 指定其他路径。
+
 ## 5. 核对验证集是否包含字典外字符
 
 脚本：`utils/check_val_annotation_keys.py`

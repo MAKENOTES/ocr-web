@@ -49,6 +49,34 @@ def test_training_dataset_reads_png_and_keeps_the_full_detection_box(tmp_path):
     assert image_tensor.shape == (3, 32, 72)  # 180 / 80 * 32，无二次裁剪
 
 
+def test_training_dataset_combines_multiple_annotation_files(tmp_path):
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+
+    first_image = first_dir / "a.png"
+    second_image = second_dir / "b.png"
+    Image.new("RGB", (80, 32), "white").save(first_image)
+    Image.new("RGB", (96, 32), "black").save(second_image)
+
+    first_annotation = first_dir / "train.txt"
+    second_annotation = second_dir / "append.txt"
+    first_annotation.write_text('a.png, "甲"\n', encoding="utf-8")
+    second_annotation.write_text('b.png, "乙"\n', encoding="utf-8")
+
+    dataset = TextRecognitionDataset(
+        annotation_path=[first_annotation, second_annotation],
+        img_height=32,
+        img_width=1800,
+        num_channels=3,
+        is_train=False,
+    )
+
+    assert dataset.image_paths == [str(first_image), str(second_image)]
+    assert dataset.labels == ["甲", "乙"]
+
+
 def test_rgb_preprocess_preserves_red_and_blue_channel_information(tmp_path):
     image_path = tmp_path / "colored-text.png"
     image = Image.new("RGB", (96, 32), (10, 80, 210))

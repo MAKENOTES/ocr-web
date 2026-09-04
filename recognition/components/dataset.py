@@ -7,6 +7,7 @@
 4. InferenceDataset: 纯图片数据集 (推理用)
 """
 import os
+from collections.abc import Sequence
 from pathlib import Path
 
 import torch
@@ -336,7 +337,7 @@ class TextRecognitionDataset(BaseTextDataset):
 
     def __init__(
         self,
-        annotation_path: str,
+        annotation_path: str | os.PathLike | Sequence[str | os.PathLike],
         img_height: int,
         img_width: int,
         num_channels: int,
@@ -351,44 +352,56 @@ class TextRecognitionDataset(BaseTextDataset):
 
         self.labels = []
 
-        annotation_dir = os.path.dirname(annotation_path)
-        if not os.path.exists(annotation_path):
-            raise FileNotFoundError(f"标注文件不存在: {annotation_path}")
+        if isinstance(annotation_path, (str, os.PathLike)):
+            annotation_paths = [os.fspath(annotation_path)]
+        else:
+            annotation_paths = [os.fspath(path) for path in annotation_path]
+
+        if not annotation_paths:
+            raise ValueError("标注文件列表不能为空")
 
         empty_label_count = 0
-        malformed_lines = []
-        missing_images = []
 
-        with open(annotation_path, "r", encoding="utf-8") as annotation_file:
-            for line_number, line in enumerate(annotation_file, start=1):
-                parts = line.rstrip("\r\n").split(",", 1)
-                if len(parts) != 2:
-                    malformed_lines.append(line_number)
-                    continue
+        for current_annotation_path in annotation_paths:
+            annotation_dir = os.path.dirname(current_annotation_path)
+            if not os.path.exists(current_annotation_path):
+                raise FileNotFoundError(f"标注文件不存在: {current_annotation_path}")
 
-                path_part = parts[0].strip()
-                label = parts[1].strip().replace('"', "")
-                if not label:
-                    empty_label_count += 1
-                    continue
+            malformed_lines = []
+            missing_images = []
+            with open(current_annotation_path, "r", encoding="utf-8") as annotation_file:
+                for line_number, line in enumerate(annotation_file, start=1):
+                    parts = line.rstrip("\r\n").split(",", 1)
+                    if len(parts) != 2:
+                        malformed_lines.append(line_number)
+                        continue
 
-                annotated_path = os.path.join(annotation_dir, path_part)
-                try:
-                    resolved_path = resolve_image_path(annotated_path)
-                except FileNotFoundError:
-                    missing_images.append((line_number, annotated_path))
-                    continue
+                    path_part = parts[0].strip()
+                    label = parts[1].strip().replace('"', "")
+                    if not label:
+                        empty_label_count += 1
+                        continue
 
-                self.image_paths.append(resolved_path)
-                self.labels.append(label)
+                    annotated_path = os.path.join(annotation_dir, path_part)
+                    try:
+                        resolved_path = resolve_image_path(annotated_path)
+                    except FileNotFoundError:
+                        missing_images.append((line_number, annotated_path))
+                        continue
 
-        if malformed_lines or missing_images:
-            details = []
-            if malformed_lines:
-                details.append(f"格式错误行: {malformed_lines[:5]}")
-            if missing_images:
-                details.append(f"缺失图片: {missing_images[:5]}")
-            raise ValueError(f"标注数据校验失败 ({annotation_path}): {'; '.join(details)}")
+                    self.image_paths.append(resolved_path)
+                    self.labels.append(label)
+
+            if malformed_lines or missing_images:
+                details = []
+                if malformed_lines:
+                    details.append(f"格式错误行: {malformed_lines[:5]}")
+                if missing_images:
+                    details.append(f"缺失图片: {missing_images[:5]}")
+                raise ValueError(
+                    f"标注数据校验失败 ({current_annotation_path}): "
+                    f"{'; '.join(details)}"
+                )
 
         if empty_label_count:
             print(f"已跳过 {empty_label_count} 条空标签样本")
@@ -432,10 +445,11 @@ class InferenceDataset(BaseTextDataset):
 # 4. DataLoader 创建工厂
 # ==========================================
 
-def create_dataloader(annotation_path: str, img_height: int, img_width: int, num_channels: int, batch_size: int,
+def create_dataloader(annotation_path: str | os.PathLike | Sequence[str | os.PathLike],
+                      img_height: int, img_width: int, num_channels: int, batch_size: int,
                       num_workers: int, is_train=True) -> DataLoader:
     """
-    创建训练/验证用的 DataLoader
+    创建训练/验证用的 DataLoader，支持一个或多个标注文件。
     """
     dataset = TextRecognitionDataset(
         annotation_path=annotation_path,

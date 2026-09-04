@@ -119,6 +119,9 @@ flowchart LR
 - `recognition_export_onnx.py`：带 `img_widths`、动态 batch/width 的 ONNX；
 - `recognition_inference.py`：ONNX/OpenVINO/PyTorch 部署推理。
 
+`train.py` 的 `TRAIN_ANNOTATION` 可配置一个标注路径或多个标注路径；当前训练集按配置顺序
+合并 `train_annotation.txt` 和 `append_annotation.txt`，各文件内的图片路径分别相对于自身所在目录解析。
+
 示例：
 
 ```bash

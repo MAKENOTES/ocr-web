@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 RECOGNITION_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT = RECOGNITION_DIR / "data" / "train_annotation.txt"
+DEFAULT_INPUT = RECOGNITION_DIR / "data" / "append_annotation.txt"
 DEFAULT_OUTPUT = RECOGNITION_DIR / "keys-new.txt"
 
 
