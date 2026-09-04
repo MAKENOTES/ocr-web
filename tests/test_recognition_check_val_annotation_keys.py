@@ -109,8 +109,8 @@ def test_moves_unknown_images_and_annotations_out_of_val(
     annotation_path = data_dir / "val_annotation.txt"
     keys_path = tmp_path / "keys.txt"
     output_path = data_dir / "val_unknown_keys.txt"
-    unknown_images_dir = data_dir / "val_unknow"
-    unknown_annotation_path = data_dir / "val_unknow.txt"
+    unknown_images_dir = data_dir / "val_unknown"
+    unknown_annotation_path = data_dir / "val_unknown.txt"
     val_images_dir.mkdir(parents=True)
     annotation_path.write_text(
         'val_images/a.png, "甲乙,丙"\n'
@@ -143,8 +143,8 @@ def test_moves_unknown_images_and_annotations_out_of_val(
         'val_images/c.png, "甲乙"\n'
     )
     assert unknown_annotation_path.read_text(encoding="utf-8") == (
-        'val_unknow/a.png, "甲乙,丙"\n'
-        'val_unknow/b.png, "甲丁"\n'
+        'val_unknown/a.png, "甲乙,丙"\n'
+        'val_unknown/b.png, "甲丁"\n'
     )
     assert "已转移图片和标注: 2 条" in console.out
 
@@ -159,8 +159,8 @@ def test_move_refuses_nonempty_destination_without_changing_source(
     annotation_path = data_dir / "val_annotation.txt"
     keys_path = tmp_path / "keys.txt"
     output_path = data_dir / "val_unknown_keys.txt"
-    unknown_images_dir = data_dir / "val_unknow"
-    unknown_annotation_path = data_dir / "val_unknow.txt"
+    unknown_images_dir = data_dir / "val_unknown"
+    unknown_annotation_path = data_dir / "val_unknown.txt"
     val_images_dir.mkdir(parents=True)
     unknown_images_dir.mkdir()
     (unknown_images_dir / "existing.png").write_bytes(b"existing")
@@ -195,8 +195,8 @@ def test_move_rolls_back_images_and_annotations_on_write_failure(
     data_dir = tmp_path / "data"
     val_images_dir = data_dir / "val_images"
     annotation_path = data_dir / "val_annotation.txt"
-    unknown_images_dir = data_dir / "val_unknow"
-    unknown_annotation_path = data_dir / "val_unknow.txt"
+    unknown_images_dir = data_dir / "val_unknown"
+    unknown_annotation_path = data_dir / "val_unknown.txt"
     val_images_dir.mkdir(parents=True)
     source_image = val_images_dir / "a.png"
     source_image.write_bytes(b"source")

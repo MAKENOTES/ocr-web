@@ -17,7 +17,7 @@ relative/path.png, "识别文字"
 | 顺序 | 脚本 | 作用 | 是否修改数据 |
 | --- | --- | --- | --- |
 | 1 | `recognition/split_dataset.py` | 校验全量图片和标注，并按 80/20 生成 train/val | 默认只预演；`--apply` 后复制图片并写标注 |
-| 2 | `utils/check_dataset_annotations.py` | 校对 `all = train + val`、train/val 不重叠及同名图片文字一致 | 否 |
+| 2 | `utils/check_dataset_annotations.py` | 校对 `all = train + val + val_unknown`、三个子集两两不重叠及同名图片文字一致 | 否 |
 | 3 | `utils/compare_train_val_same_text.py` | 找出 train 与 val 中完全相同的文字，辅助检查数据泄漏或高频重复标签 | 只更新报告文件 |
 | 4 | `recognition/utils/dictionary.py` | 只从 train 标注生成新模型使用的候选字符字典 | 写入 `keys-new.txt` |
 | 5 | `utils/check_val_annotation_keys.py` | 找出 val 中包含字典外字符的图片 | 只更新报告文件 |
@@ -69,25 +69,25 @@ relative/path.png, "识别文字"
 - 如果已经完成划分，不要为了重复运行脚本而删除现有数据；除非明确需要重新划分并已
   备份、核对目标路径。
 
-## 2. 校对 all、train、val 三份标注
+## 2. 校对 all、train、val、val_unknown 四份标注
 
 脚本：`utils/check_dataset_annotations.py`
 
 ```bash
-.venv/bin/python recognition/check_dataset_annotations.py
+.venv/bin/python recognition/utils/check_dataset_annotations.py
 ```
 
 它按图片文件名核对：
 
-- `all` 是否恰好等于 `train` 与 `val` 的并集；
-- 同一图片是否同时出现在 train 和 val；
-- train/val 是否出现 all 中不存在的图片名；
+- `all` 是否恰好等于 `train`、`val` 与 `val_unknown` 的并集；
+- 同一图片是否同时出现在任意两个子集中；
+- train/val/val_unknown 是否出现 all 中不存在的图片名；
 - all 与所属 split 中同名图片的识别文字是否一致。
 
 每类问题默认最多显示 20 条。需要显示全部问题时：
 
 ```bash
-.venv/bin/python recognition/check_dataset_annotations.py --max-details 0
+.venv/bin/python recognition/utils/check_dataset_annotations.py --max-details 0
 ```
 
 校对通过返回 `0`，发现集合或文字不一致返回 `1`。本步骤失败时，应先修正标注划分，
@@ -212,28 +212,27 @@ recognition/data/val_unknown_keys.txt
 该参数会同时执行以下操作：
 
 - 把问题图片从 `recognition/data/val_images/` 移动到
-  `recognition/data/val_unknow/`；
+  `recognition/data/val_unknown/`；
 - 从 `recognition/data/val_annotation.txt` 删除对应标注；
-- 把对应标注写入 `recognition/data/val_unknow.txt`，其中图片路径同步改为
-  `val_unknow/...`；
+- 把对应标注写入 `recognition/data/val_unknown.txt`，其中图片路径同步改为
+  `val_unknown/...`；
 - 保留 `recognition/data/val_unknown_keys.txt` 核对报告。
 
-不传 `--move-unknown` 时始终只核对，不移动数据。执行转移时，`val_unknow/` 和
-`val_unknow.txt` 必须不存在或为空；任一目标非空、源图片缺失或目标冲突都会在移动前
+不传 `--move-unknown` 时始终只核对，不移动数据。执行转移时，`val_unknown/` 和
+`val_unknown.txt` 必须不存在或为空；任一目标非空、源图片缺失或目标冲突都会在移动前
 停止。中途写入失败时，脚本会恢复已移动的图片和原始验证标注。成功转移后返回 `0`。
 
 这是隔离操作，不会修改 `all_annotation.txt`。因此转移后数据关系变为
-`all = train + val + val_unknow`，原本只接受 `all = train + val` 的
-`utils/check_dataset_annotations.py` 会把隔离样本报告为未分配；应保留隔离清单，不要误删
-`all` 中的原始记录。
+`all = train + val + val_unknown`；`utils/check_dataset_annotations.py` 会把隔离样本作为
+第三个子集参与集合、重叠及文字一致性校对，不要误删 `all` 中的原始记录。
 
 ## 训练前最短检查清单
 
 已有 all/train/val 数据时，可以按以下顺序运行：
 
 ```bash
-# 1. 核对三份标注的集合和文字
-.venv/bin/python recognition/check_dataset_annotations.py
+# 1. 核对四份标注的集合和文字
+.venv/bin/python recognition/utils/check_dataset_annotations.py
 
 # 2. 检查 train/val 是否存在相同文字
 .venv/bin/python recognition/compare_train_val_same_text.py

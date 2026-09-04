@@ -18,7 +18,7 @@ recognition/data/*
 !recognition/data/all_annotation.txt
 !recognition/data/train_annotation.txt
 !recognition/data/val_annotation.txt
-!recognition/data/val_unknow.txt
+!recognition/data/val_unknown.txt
 recognition/runs/
 recognition/checkpoints/
 recognition_quantized_model_bak/

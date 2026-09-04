@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""校对 Recognition 的 all/train/val 三份标注清单。
+"""校对 Recognition 的 all/train/val/val_unknown 四份标注清单。
 
 校对以图片文件名（例如 ``du20260902-002391.png``）为唯一键：
 
-1. ``all`` 必须恰好等于 ``train`` 与 ``val`` 的并集，且 train/val 不得重叠；
+1. ``all`` 必须恰好等于 ``train``、``val`` 与 ``val_unknown`` 的并集，
+   且三个子集必须两两不重叠；
 2. 同一文件名在 all 与所属 split 中的识别文字必须一致。
 
 脚本只读取标注文件，不修改标注或图片。校对通过返回 0，发现差异返回 1。
@@ -44,12 +45,15 @@ class LabelMismatch:
 
 @dataclass(frozen=True)
 class AuditResult:
-    """三份标注清单的集合与文字校对结果。"""
+    """四份标注清单的集合与文字校对结果。"""
 
     train_val_overlap: tuple[str, ...]
+    train_val_unknown_overlap: tuple[str, ...]
+    val_val_unknown_overlap: tuple[str, ...]
     missing_from_splits: tuple[str, ...]
     extra_in_train: tuple[str, ...]
     extra_in_val: tuple[str, ...]
+    extra_in_val_unknown: tuple[str, ...]
     label_mismatches: tuple[LabelMismatch, ...]
 
     @property
@@ -57,18 +61,23 @@ class AuditResult:
         return not any(
             (
                 self.train_val_overlap,
+                self.train_val_unknown_overlap,
+                self.val_val_unknown_overlap,
                 self.missing_from_splits,
                 self.extra_in_train,
                 self.extra_in_val,
+                self.extra_in_val_unknown,
                 self.label_mismatches,
             )
         )
 
 
 def parse_args() -> argparse.Namespace:
-    data_dir = Path(__file__).resolve().parent / "data"
+    data_dir = Path(__file__).resolve().parent.parent / "data"
     parser = argparse.ArgumentParser(
-        description="按图片文件名校对 all/train/val 标注的集合与识别文字。"
+        description=(
+            "按图片文件名校对 all/train/val/val_unknown 标注的集合与识别文字。"
+        )
     )
     parser.add_argument(
         "--all-annotation",
@@ -87,6 +96,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=data_dir / "val_annotation.txt",
         help="验证集标注文件。",
+    )
+    parser.add_argument(
+        "--val-unknown-annotation",
+        type=Path,
+        default=data_dir / "val_unknown.txt",
+        help="含字典外字符的隔离验证集标注文件。",
     )
     parser.add_argument(
         "--max-details",
@@ -176,16 +191,19 @@ def audit_annotations(
     all_records: dict[str, AnnotationRecord],
     train_records: dict[str, AnnotationRecord],
     val_records: dict[str, AnnotationRecord],
+    val_unknown_records: dict[str, AnnotationRecord],
 ) -> AuditResult:
     all_names = set(all_records)
     train_names = set(train_records)
     val_names = set(val_records)
-    split_names = train_names | val_names
+    val_unknown_names = set(val_unknown_records)
+    split_names = train_names | val_names | val_unknown_names
 
     label_mismatches: list[LabelMismatch] = []
     for split_name, split_records in (
         ("train", train_records),
         ("val", val_records),
+        ("val_unknown", val_unknown_records),
     ):
         for filename in sorted(all_names & set(split_records)):
             all_record = all_records[filename]
@@ -202,9 +220,12 @@ def audit_annotations(
 
     return AuditResult(
         train_val_overlap=tuple(sorted(train_names & val_names)),
+        train_val_unknown_overlap=tuple(sorted(train_names & val_unknown_names)),
+        val_val_unknown_overlap=tuple(sorted(val_names & val_unknown_names)),
         missing_from_splits=tuple(sorted(all_names - split_names)),
         extra_in_train=tuple(sorted(train_names - all_names)),
         extra_in_val=tuple(sorted(val_names - all_names)),
+        extra_in_val_unknown=tuple(sorted(val_unknown_names - all_names)),
         label_mismatches=tuple(label_mismatches),
     )
 
@@ -233,19 +254,24 @@ def print_report(
     all_records: dict[str, AnnotationRecord],
     train_records: dict[str, AnnotationRecord],
     val_records: dict[str, AnnotationRecord],
+    val_unknown_records: dict[str, AnnotationRecord],
     result: AuditResult,
     max_details: int,
 ) -> None:
     print(f"all 标注数: {len(all_records)}")
     print(f"train 标注数: {len(train_records)}")
     print(f"val 标注数: {len(val_records)}")
+    print(f"val_unknown 标注数: {len(val_unknown_records)}")
 
     filename_sets_valid = not any(
         (
             result.train_val_overlap,
+            result.train_val_unknown_overlap,
+            result.val_val_unknown_overlap,
             result.missing_from_splits,
             result.extra_in_train,
             result.extra_in_val,
+            result.extra_in_val_unknown,
         )
     )
     _print_name_problem(
@@ -254,7 +280,17 @@ def print_report(
         max_details,
     )
     _print_name_problem(
-        "all 中的文件名未分配到 train 或 val",
+        "train 与 val_unknown 中出现相同文件名",
+        result.train_val_unknown_overlap,
+        max_details,
+    )
+    _print_name_problem(
+        "val 与 val_unknown 中出现相同文件名",
+        result.val_val_unknown_overlap,
+        max_details,
+    )
+    _print_name_problem(
+        "all 中的文件名未分配到 train、val 或 val_unknown",
         result.missing_from_splits,
         max_details,
     )
@@ -268,8 +304,16 @@ def print_report(
         result.extra_in_val,
         max_details,
     )
+    _print_name_problem(
+        "val_unknown 中的文件名不存在于 all",
+        result.extra_in_val_unknown,
+        max_details,
+    )
     if filename_sets_valid:
-        print("文件名集合一致: all = train + val，且 train 与 val 无重叠。")
+        print(
+            "文件名集合一致: all = train + val + val_unknown，"
+            "且三个集合两两无重叠。"
+        )
 
     if result.label_mismatches:
         print(f"[错误] 同名图片的识别文字不一致: {len(result.label_mismatches)}")
@@ -287,7 +331,9 @@ def print_report(
                 f"  ... 另有 {len(result.label_mismatches) - max_details} 条未显示"
             )
     else:
-        print("识别文字一致: all 与 train/val 中的同名图片文字完全相同。")
+        print(
+            "识别文字一致: all 与 train/val/val_unknown 中的同名图片文字完全相同。"
+        )
 
     if result.is_valid:
         print("校对通过。")
@@ -305,15 +351,22 @@ def main() -> int:
         all_records = load_annotation_records(args.all_annotation)
         train_records = load_annotation_records(args.train_annotation)
         val_records = load_annotation_records(args.val_annotation)
+        val_unknown_records = load_annotation_records(args.val_unknown_annotation)
     except (OSError, ValueError) as exc:
         print(f"错误: {exc}", file=sys.stderr)
         return 1
 
-    result = audit_annotations(all_records, train_records, val_records)
+    result = audit_annotations(
+        all_records,
+        train_records,
+        val_records,
+        val_unknown_records,
+    )
     print_report(
         all_records,
         train_records,
         val_records,
+        val_unknown_records,
         result,
         args.max_details,
     )

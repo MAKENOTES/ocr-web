@@ -6,6 +6,7 @@ from pathlib import Path
 SCRIPT = (
     Path(__file__).resolve().parents[1]
     / "recognition"
+    / "utils"
     / "check_dataset_annotations.py"
 )
 
@@ -26,6 +27,8 @@ def run_check(data_dir: Path) -> subprocess.CompletedProcess[str]:
             str(data_dir / "train_annotation.txt"),
             "--val-annotation",
             str(data_dir / "val_annotation.txt"),
+            "--val-unknown-annotation",
+            str(data_dir / "val_unknown.txt"),
         ],
         capture_output=True,
         text=True,
@@ -41,6 +44,7 @@ def test_check_passes_when_filename_union_and_labels_match(tmp_path: Path) -> No
             'all_images/du20260902-002391.png, "文字,一"',
             'all_images/sample_b.png, "文字二"',
             'all_images/sample_c.png, "文字三"',
+            'all_images/sample_d.png, "字典外文字"',
         ],
     )
     write_annotation(
@@ -54,11 +58,17 @@ def test_check_passes_when_filename_union_and_labels_match(tmp_path: Path) -> No
         data_dir / "val_annotation.txt",
         ['val_images/sample_b.png, "文字二"'],
     )
+    write_annotation(
+        data_dir / "val_unknown.txt",
+        ['val_unknown/sample_d.png, "字典外文字"'],
+    )
 
     result = run_check(data_dir)
 
     assert result.returncode == 0, result.stderr
-    assert "all 标注数: 3" in result.stdout
+    assert "all 标注数: 4" in result.stdout
+    assert "val_unknown 标注数: 1" in result.stdout
+    assert "all = train + val + val_unknown" in result.stdout
     assert "文件名集合一致" in result.stdout
     assert "识别文字一致" in result.stdout
     assert "校对通过" in result.stdout
@@ -71,6 +81,7 @@ def test_check_reports_missing_extra_and_train_val_overlap(tmp_path: Path) -> No
         [
             'all_images/sample_a.png, "甲"',
             'all_images/sample_b.png, "乙"',
+            'all_images/sample_c.png, "丙"',
         ],
     )
     write_annotation(
@@ -84,13 +95,17 @@ def test_check_reports_missing_extra_and_train_val_overlap(tmp_path: Path) -> No
         data_dir / "val_annotation.txt",
         ['val_images/sample_a.png, "甲"'],
     )
+    write_annotation(
+        data_dir / "val_unknown.txt",
+        ['val_unknown/sample_c.png, "丙"'],
+    )
 
     result = run_check(data_dir)
 
     assert result.returncode == 1
     assert "train 与 val 中出现相同文件名: 1" in result.stdout
     assert "sample_a.png" in result.stdout
-    assert "all 中的文件名未分配到 train 或 val: 1" in result.stdout
+    assert "all 中的文件名未分配到 train、val 或 val_unknown: 1" in result.stdout
     assert "sample_b.png" in result.stdout
     assert "train 中的文件名不存在于 all: 1" in result.stdout
     assert "extra.png" in result.stdout
@@ -104,6 +119,7 @@ def test_check_reports_different_text_for_same_filename(tmp_path: Path) -> None:
         [
             'all_images/du20260902-002391.png, "原文字"',
             'all_images/sample_b.png, "相同文字"',
+            'all_images/sample_c.png, "字典外文字"',
         ],
     )
     write_annotation(
@@ -113,6 +129,10 @@ def test_check_reports_different_text_for_same_filename(tmp_path: Path) -> None:
     write_annotation(
         data_dir / "val_annotation.txt",
         ['val_images/sample_b.png, "相同文字"'],
+    )
+    write_annotation(
+        data_dir / "val_unknown.txt",
+        ['val_unknown/sample_c.png, "字典外文字"'],
     )
 
     result = run_check(data_dir)
@@ -143,6 +163,10 @@ def test_check_rejects_duplicate_basename_even_when_directories_differ(
         data_dir / "val_annotation.txt",
         ['val_images/other.png, "乙"'],
     )
+    write_annotation(
+        data_dir / "val_unknown.txt",
+        ['val_unknown/unknown.png, "丙"'],
+    )
 
     result = run_check(data_dir)
 
@@ -150,3 +174,40 @@ def test_check_rejects_duplicate_basename_even_when_directories_differ(
     assert "图片文件名重复" in result.stderr
     assert "sample.png" in result.stderr
     assert "校对要求文件名唯一" in result.stderr
+
+
+def test_check_reports_val_unknown_overlap_extra_and_label_mismatch(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    write_annotation(
+        data_dir / "all_annotation.txt",
+        [
+            'all_images/sample_a.png, "甲"',
+            'all_images/sample_b.png, "乙"',
+        ],
+    )
+    write_annotation(
+        data_dir / "train_annotation.txt",
+        ['train_images/sample_a.png, "甲"'],
+    )
+    write_annotation(
+        data_dir / "val_annotation.txt",
+        ['val_images/sample_b.png, "乙"'],
+    )
+    write_annotation(
+        data_dir / "val_unknown.txt",
+        [
+            'val_unknown/sample_a.png, "不同文字"',
+            'val_unknown/extra.png, "额外"',
+        ],
+    )
+
+    result = run_check(data_dir)
+
+    assert result.returncode == 1
+    assert "train 与 val_unknown 中出现相同文件名: 1" in result.stdout
+    assert "val_unknown 中的文件名不存在于 all: 1" in result.stdout
+    assert "extra.png" in result.stdout
+    assert "同名图片的识别文字不一致: 1" in result.stdout
+    assert "val_unknown 第 1 行='不同文字'" in result.stdout

@@ -20,8 +20,8 @@ RECOGNITION_DIR = Path(__file__).resolve().parent
 DEFAULT_ANNOTATION = RECOGNITION_DIR / "data" / "val_annotation.txt"
 DEFAULT_KEYS = RECOGNITION_DIR / "keys.txt"
 OUTPUT_PATH = RECOGNITION_DIR / "data" / "val_unknown_keys.txt"
-UNKNOWN_IMAGES_DIR = RECOGNITION_DIR / "data" / "val_unknow"
-UNKNOWN_ANNOTATION = RECOGNITION_DIR / "data" / "val_unknow.txt"
+UNKNOWN_IMAGES_DIR = RECOGNITION_DIR / "data" / "val_unknown"
+UNKNOWN_ANNOTATION = RECOGNITION_DIR / "data" / "val_unknown.txt"
 
 
 @dataclass(frozen=True)
@@ -65,7 +65,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "把含字典外字符的图片和标注移出验证集，固定转移到 "
-            "recognition/data/val_unknow/ 和 val_unknow.txt。"
+            "recognition/data/val_unknown/ 和 val_unknown.txt。"
         ),
     )
     return parser.parse_args()

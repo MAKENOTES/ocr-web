@@ -53,18 +53,18 @@ flowchart TD
 `train_images/`、`val_images/`、`train_annotation.txt`、`val_annotation.txt` 必须为空；
 缺图、重复标注、未标注 PNG 或目标文件冲突也会让脚本在写入前停止。
 
-### 三份标注校对
+### 四份标注校对
 
-手工调整 train/val 后，运行下列只读脚本校对三份标注：
+手工调整 train/val 或隔离字典外字符样本后，运行下列只读脚本校对四份标注：
 
 ```bash
-.venv/bin/python recognition/check_dataset_annotations.py
+.venv/bin/python recognition/utils/check_dataset_annotations.py
 ```
 
 脚本仅按不含目录的图片文件名判断，例如 `du20260902-002391.png`。它要求
-`all = train + val`、train 与 val 没有同名图片，并逐项比较 all 与所属 split 中同名
-图片后面的识别文字。校对通过返回 0；缺失、多余、跨 split 重复或文字不同会列出
-具体文件名并返回 1。每类默认最多显示 20 条详情，传入 `--max-details 0` 可显示全部。
+`all = train + val + val_unknown`、三个子集两两没有同名图片，并逐项比较 all 与所属
+split 中同名图片后面的识别文字。校对通过返回 0；缺失、多余、跨 split 重复或文字不同
+会列出具体文件名并返回 1。每类默认最多显示 20 条详情，传入 `--max-details 0` 可显示全部。
 
 ## 3. 模型与张量契约
 
