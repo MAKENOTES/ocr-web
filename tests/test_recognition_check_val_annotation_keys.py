@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-import recognition.check_val_annotation_keys as check_module
+import recognition.utils.check_val_annotation_keys as check_module
 
 
 def run_check(

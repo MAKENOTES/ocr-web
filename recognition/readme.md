@@ -17,10 +17,10 @@ relative/path.png, "识别文字"
 | 顺序 | 脚本 | 作用 | 是否修改数据 |
 | --- | --- | --- | --- |
 | 1 | `recognition/split_dataset.py` | 校验全量图片和标注，并按 80/20 生成 train/val | 默认只预演；`--apply` 后复制图片并写标注 |
-| 2 | `recognition/check_dataset_annotations.py` | 校对 `all = train + val`、train/val 不重叠及同名图片文字一致 | 否 |
-| 3 | `recognition/compare_train_val_same_text.py` | 找出 train 与 val 中完全相同的文字，辅助检查数据泄漏或高频重复标签 | 只更新报告文件 |
+| 2 | `utils/check_dataset_annotations.py` | 校对 `all = train + val`、train/val 不重叠及同名图片文字一致 | 否 |
+| 3 | `utils/compare_train_val_same_text.py` | 找出 train 与 val 中完全相同的文字，辅助检查数据泄漏或高频重复标签 | 只更新报告文件 |
 | 4 | `recognition/utils/dictionary.py` | 只从 train 标注生成新模型使用的候选字符字典 | 写入 `keys-new.txt` |
-| 5 | `recognition/check_val_annotation_keys.py` | 找出 val 中包含字典外字符的图片 | 只更新报告文件 |
+| 5 | `utils/check_val_annotation_keys.py` | 找出 val 中包含字典外字符的图片 | 只更新报告文件 |
 
 必须先保证数据划分正确，再生成字典。不要为了让第 5 步通过而直接把 val 独有字符追加
 到字典；应调整数据划分，使验证集中的每个字符在训练集中都有训练样本，然后重新生成
@@ -71,7 +71,7 @@ relative/path.png, "识别文字"
 
 ## 2. 校对 all、train、val 三份标注
 
-脚本：`recognition/check_dataset_annotations.py`
+脚本：`utils/check_dataset_annotations.py`
 
 ```bash
 .venv/bin/python recognition/check_dataset_annotations.py
@@ -95,7 +95,7 @@ relative/path.png, "识别文字"
 
 ## 3. 检查 train 与 val 的相同文字
 
-脚本：`recognition/compare_train_val_same_text.py`
+脚本：`utils/compare_train_val_same_text.py`
 
 ```bash
 .venv/bin/python recognition/compare_train_val_same_text.py
@@ -164,7 +164,7 @@ recognition/keys-new.txt
 
 ## 5. 核对验证集是否包含字典外字符
 
-脚本：`recognition/check_val_annotation_keys.py`
+脚本：`utils/check_val_annotation_keys.py`
 
 核对当前正式字典：
 
@@ -224,7 +224,7 @@ recognition/data/val_unknown_keys.txt
 
 这是隔离操作，不会修改 `all_annotation.txt`。因此转移后数据关系变为
 `all = train + val + val_unknow`，原本只接受 `all = train + val` 的
-`check_dataset_annotations.py` 会把隔离样本报告为未分配；应保留隔离清单，不要误删
+`utils/check_dataset_annotations.py` 会把隔离样本报告为未分配；应保留隔离清单，不要误删
 `all` 中的原始记录。
 
 ## 训练前最短检查清单
@@ -252,7 +252,7 @@ recognition/data/val_unknown_keys.txt
 
 - `recognition/utils/compare_keys.py` 使用旧的正则解析标注，并同时读取 train 和 val；当前
   流程不再推荐使用。请用 `dictionary.py` 从 train 生成候选字典，再用
-  `check_val_annotation_keys.py` 检查 val 覆盖情况。
+  `utils/check_val_annotation_keys.py` 检查 val 覆盖情况。
 - `recognition/utils/normalization_label.py` 会生成替换英文逗号后的标注文件，它不是当前
   数据核对流程的一部分。文字中的英文逗号属于合法内容，不应为了适配解析脚本而批量
   替换。

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from recognition.compare_train_val_same_text import (
+from recognition.utils.compare_train_val_same_text import (
     find_common_texts,
     format_common_texts,
     load_annotations,

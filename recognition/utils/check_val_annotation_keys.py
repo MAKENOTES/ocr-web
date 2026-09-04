@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 if __package__:
-    from .utils.dictionary import parse_annotation_text
+    from recognition.utils.dictionary import parse_annotation_text
 else:
     from utils.dictionary import parse_annotation_text
 

@@ -20,9 +20,10 @@ from recognition.components.dataset import (
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 # ================= 配置区域 =================
-MODEL_PATH = "recognition/checkpoints/1788380644best_cer_0.0194_epoch_621.pth"  # 修改为你的最佳模型路径
+MODEL_PATH = "recognition/checkpoints/1788463840best_cer_0.0180_epoch_627.pth"  # 修改为你的最佳模型路径
 KEYS_PATH = "recognition/keys.txt"
-VAL_ANNOTATION = "recognition/data/all_annotation.txt"  # 验证集标注文件
+# VAL_ANNOTATION = "recognition/data/train_annotation.txt"
+VAL_ANNOTATION = "recognition/data/val_annotation.txt"
 
 ERROR_OUTPUT_FILE = "recognition/error_cases.txt"  # 错误案例保存文件（可设为 None）
 
