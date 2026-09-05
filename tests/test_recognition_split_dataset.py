@@ -19,7 +19,7 @@ def make_dataset(data_dir: Path, count: int) -> str:
     for index in range(count):
         image_name = f"sample_{index:03d}.png"
         (all_images / image_name).write_bytes(f"image-{index}".encode())
-        lines.append(f'all_images/{image_name}, "标签,{index}"\n')
+        lines.append(f"all_images/{image_name}\t标签,{index}\n")
 
     annotation_content = "".join(lines)
     (data_dir / "all_annotation.txt").write_text(
@@ -54,7 +54,7 @@ def run_split(data_dir: Path, *, apply: bool = False) -> subprocess.CompletedPro
 
 def annotation_paths(path: Path) -> list[str]:
     return [
-        line.partition(",")[0]
+        line.partition("\t")[0]
         for line in path.read_text(encoding="utf-8").splitlines()
     ]
 
@@ -108,7 +108,7 @@ def test_apply_copies_every_fifth_image_and_writes_both_splits(
         f"train_images/sample_{index:03d}.png"
         for index in (0, 1, 2, 3, 5, 6, 7, 8)
     ]
-    assert 'val_images/sample_004.png, "标签,4"' in (
+    assert "val_images/sample_004.png\t标签,4" in (
         data_dir / "val_annotation.txt"
     ).read_text(encoding="utf-8")
     assert len(list((data_dir / "all_images").glob("*.png"))) == 10
@@ -142,7 +142,7 @@ def test_missing_all_image_stops_before_any_change(tmp_path: Path) -> None:
 def test_nonempty_output_is_never_overwritten(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     make_dataset(data_dir, 10)
-    existing = 'train_images/manual.png, "手工标注"\n'
+    existing = "train_images/manual.png\t手工标注\n"
     (data_dir / "train_annotation.txt").write_text(existing, encoding="utf-8")
 
     result = run_split(data_dir, apply=True)

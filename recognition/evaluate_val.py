@@ -18,6 +18,7 @@ from recognition.components.dataset import (
     resolve_image_path,
 )
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
+from recognition.utils.annotation import split_annotation_fields
 
 # ================= 配置区域 =================
 MODEL_PATH = "recognition/checkpoints/1788561997best_cer_0.0152_epoch_610.pth"  # 修改为你的最佳模型路径
@@ -80,22 +81,23 @@ def main():
     image_paths = []
     skipped_empty_labels = 0
     with open(VAL_ANNOTATION, 'r', encoding='utf-8') as f:
-        for line in f:
-            if ',' in line:
-                path_part, label_part = line.strip().split(',', 1)
-                label = label_part.strip().replace('"', '')
-                if not label:
-                    skipped_empty_labels += 1
-                    continue
+        for line_number, line in enumerate(f, start=1):
+            path_part, label_part = split_annotation_fields(
+                line, VAL_ANNOTATION, line_number
+            )
+            label = label_part.strip()
+            if not label:
+                skipped_empty_labels += 1
+                continue
 
-                annotated_path = os.path.join(
-                    os.path.dirname(VAL_ANNOTATION),
-                    path_part.strip(),
-                )
-                resolved_path = resolve_image_path(annotated_path)
-                image_id = os.path.splitext(os.path.basename(resolved_path))[0]
-                filename_to_label[image_id] = label
-                image_paths.append(resolved_path)
+            annotated_path = os.path.join(
+                os.path.dirname(VAL_ANNOTATION),
+                path_part,
+            )
+            resolved_path = resolve_image_path(annotated_path)
+            image_id = os.path.splitext(os.path.basename(resolved_path))[0]
+            filename_to_label[image_id] = label
+            image_paths.append(resolved_path)
 
     print(f"加载了 {len(filename_to_label)} 条标注记录")
     if skipped_empty_labels:

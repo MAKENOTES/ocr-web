@@ -17,16 +17,16 @@ def test_outputs_only_each_common_text(tmp_path: Path) -> None:
     write_annotation(
         train_path,
         [
-            'train_images/a.png, "相同,文字"',
-            'train_images/b.png, "仅训练集"',
-            'train_images/c.png, "相同,文字"',
+            "train_images/a.png\t相同,文字",
+            "train_images/b.png\t仅训练集",
+            "train_images/c.png\t相同,文字",
         ],
     )
     write_annotation(
         val_path,
         [
-            'val_images/d.png, "相同,文字"',
-            'val_images/e.png, "仅验证集"',
+            "val_images/d.png\t相同,文字",
+            "val_images/e.png\t仅验证集",
         ],
     )
 
@@ -43,8 +43,8 @@ def test_outputs_only_each_common_text(tmp_path: Path) -> None:
 def test_reports_when_there_are_no_matches(tmp_path: Path) -> None:
     train_path = tmp_path / "train.txt"
     val_path = tmp_path / "val.txt"
-    write_annotation(train_path, ['train_images/a.png, "甲"'])
-    write_annotation(val_path, ['val_images/b.png, "乙"'])
+    write_annotation(train_path, ["train_images/a.png\t甲"])
+    write_annotation(val_path, ["val_images/b.png\t乙"])
 
     common_texts = find_common_texts(
         load_annotations(train_path), load_annotations(val_path)
@@ -56,8 +56,8 @@ def test_reports_when_there_are_no_matches(tmp_path: Path) -> None:
 def test_reports_malformed_annotation_line(tmp_path: Path) -> None:
     train_path = tmp_path / "train.txt"
     val_path = tmp_path / "val.txt"
-    write_annotation(train_path, ["train_images/a.png 没有分隔逗号"])
-    write_annotation(val_path, ['val_images/b.png, "文字"'])
+    write_annotation(train_path, ["train_images/a.png 没有分隔符"])
+    write_annotation(val_path, ["val_images/b.png\t文字"])
 
     try:
         load_annotations(train_path)
@@ -67,4 +67,4 @@ def test_reports_malformed_annotation_line(tmp_path: Path) -> None:
         raise AssertionError("格式错误的标注行应该抛出 ValueError")
 
     assert f"{train_path}:1" in error
-    assert "缺少路径与文字之间的逗号" in error
+    assert "缺少路径与文字之间的 Tab 制表符" in error

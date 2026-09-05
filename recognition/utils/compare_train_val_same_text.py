@@ -14,6 +14,11 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    from recognition.utils.annotation import split_annotation_fields
+except ModuleNotFoundError:  # 支持直接运行当前脚本
+    from annotation import split_annotation_fields
+
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 OUTPUT_PATH = DATA_DIR / "train_val_same_text.txt"
@@ -48,11 +53,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def normalize_text(text_field: str) -> str:
-    """移除格式空白和一对外围双引号，保留正文内容。"""
-    text = text_field.strip()
-    if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
-        text = text[1:-1]
-    return text.strip()
+    """移除字段外空白，保留正文内容。"""
+    return text_field.strip()
 
 
 def load_annotations(annotation_path: Path) -> list[AnnotationRecord]:
@@ -63,20 +65,9 @@ def load_annotations(annotation_path: Path) -> list[AnnotationRecord]:
     records: list[AnnotationRecord] = []
     with annotation_path.open("r", encoding="utf-8-sig") as handle:
         for line_number, line in enumerate(handle, start=1):
-            raw_line = line.rstrip("\r\n")
-            if not raw_line:
-                raise ValueError(f"空白标注行: {annotation_path}:{line_number}")
-
-            path_field, separator, text_field = raw_line.partition(",")
-            if not separator:
-                raise ValueError(
-                    "标注格式错误，缺少路径与文字之间的逗号: "
-                    f"{annotation_path}:{line_number}"
-                )
-
-            image_path = path_field.strip()
-            if not image_path:
-                raise ValueError(f"图片路径为空: {annotation_path}:{line_number}")
+            image_path, text_field = split_annotation_fields(
+                line, annotation_path, line_number
+            )
 
             text = normalize_text(text_field)
             if not text:

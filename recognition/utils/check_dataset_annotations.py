@@ -18,6 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TypeVar
 
+try:
+    from recognition.utils.annotation import split_annotation_fields
+except ModuleNotFoundError:  # 支持直接运行当前脚本
+    from annotation import split_annotation_fields
+
 
 T = TypeVar("T")
 
@@ -113,11 +118,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def normalize_label(label_field: str) -> str:
-    """去掉格式空白和一对外围双引号，保留实际文字内容。"""
-    label = label_field.strip()
-    if len(label) >= 2 and label.startswith('"') and label.endswith('"'):
-        label = label[1:-1]
-    return label.strip()
+    """去掉字段外空白，保留实际文字内容。"""
+    return label_field.strip()
 
 
 def load_annotation_records(annotation_path: Path) -> dict[str, AnnotationRecord]:
@@ -128,20 +130,9 @@ def load_annotation_records(annotation_path: Path) -> dict[str, AnnotationRecord
     records: dict[str, AnnotationRecord] = {}
     with annotation_path.open("r", encoding="utf-8-sig") as handle:
         for line_number, line in enumerate(handle, start=1):
-            raw_line = line.rstrip("\r\n")
-            if not raw_line:
-                raise ValueError(f"空白标注行: {annotation_path}:{line_number}")
-
-            path_field, separator, label_field = raw_line.partition(",")
-            if not separator:
-                raise ValueError(
-                    f"标注格式错误，缺少路径与文字之间的逗号: "
-                    f"{annotation_path}:{line_number}"
-                )
-
-            image_path = path_field.strip()
-            if not image_path:
-                raise ValueError(f"图片路径为空: {annotation_path}:{line_number}")
+            image_path, label_field = split_annotation_fields(
+                line, annotation_path, line_number
+            )
             if "\\" in image_path:
                 raise ValueError(
                     f"标注路径必须使用正斜杠 '/': {annotation_path}:{line_number}: "

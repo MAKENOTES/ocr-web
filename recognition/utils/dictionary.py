@@ -7,6 +7,11 @@ import argparse
 import sys
 from pathlib import Path
 
+try:
+    from recognition.utils.annotation import split_annotation_fields
+except ModuleNotFoundError:  # 支持直接运行当前脚本
+    from annotation import split_annotation_fields
+
 
 RECOGNITION_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_INPUT = RECOGNITION_DIR / "data" / "append_annotation.txt"
@@ -38,21 +43,11 @@ def parse_annotation_text(
     line_number: int,
 ) -> str:
     """使用与 TextRecognitionDataset 相同的规则读取一行文字。"""
-    line = raw_line.rstrip("\r\n")
-    if not line:
-        raise ValueError(f"空白标注行: {annotation_path}:{line_number}")
+    _, text_field = split_annotation_fields(
+        raw_line, annotation_path, line_number
+    )
 
-    path_field, separator, text_field = line.partition(",")
-    if not separator:
-        raise ValueError(
-            "标注格式错误，缺少路径与文字之间的逗号: "
-            f"{annotation_path}:{line_number}"
-        )
-    if not path_field.strip():
-        raise ValueError(f"图片路径为空: {annotation_path}:{line_number}")
-
-    # TextRecognitionDataset 使用 split(',', 1) 后移除标签中的全部双引号。
-    text = text_field.strip().replace('"', "")
+    text = text_field.strip()
     if not text:
         raise ValueError(f"识别文字为空: {annotation_path}:{line_number}")
     return text

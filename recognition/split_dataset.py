@@ -23,6 +23,14 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path, PurePosixPath
 
+if __package__:
+    from recognition.utils.annotation import (
+        format_annotation_line,
+        split_annotation_fields,
+    )
+else:
+    from utils.annotation import format_annotation_line, split_annotation_fields
+
 
 @dataclass(frozen=True)
 class AnnotationEntry:
@@ -148,10 +156,7 @@ def systematic_validation_indices(total_count: int, val_count: int) -> list[int]
 
 
 def _normalized_label(label_field: str) -> str:
-    label = label_field.strip()
-    if len(label) >= 2 and label.startswith('"') and label.endswith('"'):
-        label = label[1:-1]
-    return label.strip()
+    return label_field.strip()
 
 
 def load_annotations(
@@ -170,20 +175,9 @@ def load_annotations(
 
     with annotation_path.open("r", encoding="utf-8-sig") as handle:
         for line_number, line in enumerate(handle, start=1):
-            raw_line = line.rstrip("\r\n")
-            if not raw_line:
-                raise ValueError(f"空白标注行: {annotation_path}:{line_number}")
-
-            path_field, separator, label_field = raw_line.partition(",")
-            if not separator:
-                raise ValueError(
-                    f"标注格式错误，缺少路径与文本之间的逗号: "
-                    f"{annotation_path}:{line_number}"
-                )
-
-            path_text = path_field.strip()
-            if not path_text:
-                raise ValueError(f"图片路径为空: {annotation_path}:{line_number}")
+            path_text, label_field = split_annotation_fields(
+                line, annotation_path, line_number
+            )
             if not _normalized_label(label_field):
                 raise ValueError(f"识别文本为空: {annotation_path}:{line_number}")
             if "\\" in path_text:
@@ -335,7 +329,9 @@ def annotation_line(
     annotation_path: Path,
 ) -> str:
     relative_path = os.path.relpath(image_path, start=annotation_path.parent)
-    return f"{Path(relative_path).as_posix()},{entry.label_field}\n"
+    return format_annotation_line(
+        Path(relative_path).as_posix(), entry.label_field
+    )
 
 
 def build_split(

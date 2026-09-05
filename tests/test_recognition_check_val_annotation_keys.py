@@ -80,9 +80,9 @@ def test_writes_images_text_and_unknown_characters(
     keys_path = tmp_path / "keys.txt"
     output_path = tmp_path / "val_unknown_keys.txt"
     annotation_path.write_text(
-        'val_images/a.png, "甲乙,丙"\n'
-        'val_images/b.png, "甲丁"\n'
-        'val_images/c.png, "甲乙"\n',
+        "val_images/a.png\t甲乙,丙\n"
+        "val_images/b.png\t甲丁\n"
+        "val_images/c.png\t甲乙\n",
         encoding="utf-8",
     )
     keys_path.write_text("甲\n乙\n", encoding="utf-8")
@@ -111,7 +111,7 @@ def test_passes_when_all_characters_are_in_keys(
     keys_path = tmp_path / "keys.txt"
     output_path = tmp_path / "val_unknown_keys.txt"
     annotation_path.write_text(
-        'val_images/a.png, "甲 乙"\n',
+        "val_images/a.png\t甲 乙\n",
         encoding="utf-8",
     )
     keys_path.write_text(" \n乙\n甲\n", encoding="utf-8")
@@ -138,9 +138,9 @@ def test_moves_unknown_images_and_annotations_out_of_val(
     unknown_annotation_path = data_dir / "val_unknown.txt"
     val_images_dir.mkdir(parents=True)
     annotation_path.write_text(
-        'val_images/a.png, "甲乙,丙"\n'
-        'val_images/b.png, "甲丁"\n'
-        'val_images/c.png, "甲乙"\n',
+        "val_images/a.png\t甲乙,丙\n"
+        "val_images/b.png\t甲丁\n"
+        "val_images/c.png\t甲乙\n",
         encoding="utf-8",
     )
     keys_path.write_text("甲\n乙\n", encoding="utf-8")
@@ -165,11 +165,11 @@ def test_moves_unknown_images_and_annotations_out_of_val(
     assert (unknown_images_dir / "a.png").read_bytes() == b"a.png"
     assert (unknown_images_dir / "b.png").read_bytes() == b"b.png"
     assert annotation_path.read_text(encoding="utf-8") == (
-        'val_images/c.png, "甲乙"\n'
+        "val_images/c.png\t甲乙\n"
     )
     assert unknown_annotation_path.read_text(encoding="utf-8") == (
-        'val_unknown/a.png, "甲乙,丙"\n'
-        'val_unknown/b.png, "甲丁"\n'
+        "val_unknown/a.png\t甲乙,丙\n"
+        "val_unknown/b.png\t甲丁\n"
     )
     assert "已转移图片和标注: 2 条" in console.out
 
@@ -191,7 +191,7 @@ def test_move_refuses_nonempty_destination_without_changing_source(
     (unknown_images_dir / "existing.png").write_bytes(b"existing")
     source_image = val_images_dir / "a.png"
     source_image.write_bytes(b"source")
-    original_annotation = 'val_images/a.png, "甲丁"\n'
+    original_annotation = "val_images/a.png\t甲丁\n"
     annotation_path.write_text(original_annotation, encoding="utf-8")
     keys_path.write_text("甲\n", encoding="utf-8")
 
@@ -225,7 +225,7 @@ def test_move_rolls_back_images_and_annotations_on_write_failure(
     val_images_dir.mkdir(parents=True)
     source_image = val_images_dir / "a.png"
     source_image.write_bytes(b"source")
-    original_annotation = 'val_images/a.png, "甲丁"\n'
+    original_annotation = "val_images/a.png\t甲丁\n"
     annotation_path.write_text(original_annotation, encoding="utf-8")
     _, unknown_records = check_module.find_unknown_character_records(
         annotation_path,
@@ -267,7 +267,7 @@ def test_rejects_multi_character_key_line(
     keys_path = tmp_path / "keys.txt"
     output_path = tmp_path / "val_unknown_keys.txt"
     annotation_path.write_text(
-        'val_images/a.png, "甲乙"\n',
+        "val_images/a.png\t甲乙\n",
         encoding="utf-8",
     )
     keys_path.write_text("甲乙\n", encoding="utf-8")

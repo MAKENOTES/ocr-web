@@ -10,7 +10,7 @@ Recognition 接收 detection 输出的单个文字框，输出 Unicode 文本。
 
 ```mermaid
 flowchart TD
-    A[annotation: relative_path,label] --> DS[TextRecognitionDataset]
+    A[annotation: relative_path TAB unquoted label] --> DS[TextRecognitionDataset]
     I[元素图片] --> DS
     DS --> PNG[严格读取标注中的 PNG 路径]
     PNG --> RGB[读取 RGB + 透明通道合成]

@@ -25,7 +25,7 @@ def _write_detection_case(tmp_path: Path) -> tuple[Path, Path]:
     image.save(image_path)
 
     annotation_path.write_text(
-        'menu-item-current_000.png, "首页274"\n',
+        "menu-item-current_000.png\t首页274\n",
         encoding="utf-8",
     )
     return image_path, annotation_path
@@ -62,8 +62,8 @@ def test_training_dataset_combines_multiple_annotation_files(tmp_path):
 
     first_annotation = first_dir / "train.txt"
     second_annotation = second_dir / "append.txt"
-    first_annotation.write_text('a.png, "甲"\n', encoding="utf-8")
-    second_annotation.write_text('b.png, "乙"\n', encoding="utf-8")
+    first_annotation.write_text("a.png\t甲\n", encoding="utf-8")
+    second_annotation.write_text("b.png\t乙\n", encoding="utf-8")
 
     dataset = TextRecognitionDataset(
         annotation_path=[first_annotation, second_annotation],

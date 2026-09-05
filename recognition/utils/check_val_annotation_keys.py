@@ -11,8 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 if __package__:
+    from recognition.utils.annotation import (
+        format_annotation_line,
+        split_annotation_fields,
+    )
     from recognition.utils.dictionary import parse_annotation_text
 else:
+    from annotation import format_annotation_line, split_annotation_fields
     from dictionary import parse_annotation_text
 
 
@@ -114,7 +119,9 @@ def find_unknown_character_records(
     with annotation_path.open("r", encoding="utf-8-sig") as handle:
         for line_number, line in enumerate(handle, start=1):
             text = parse_annotation_text(line, annotation_path, line_number)
-            image_path = line.partition(",")[0].strip()
+            image_path, _ = split_annotation_fields(
+                line, annotation_path, line_number
+            )
             unknown_chars = tuple(
                 dict.fromkeys(char for char in text if char not in keys)
             )
@@ -223,10 +230,15 @@ def build_transfer_plan(
             retained_lines.append(line)
             continue
 
-        raw_line = line.rstrip("\r\n")
-        path_field, separator, text_field = raw_line.partition(",")
-        image_path = path_field.strip()
-        if not separator or image_path != record.image_path:
+        try:
+            image_path, text_field = split_annotation_fields(
+                line, annotation_path, line_number
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"转移前标注内容发生变化: {annotation_path}:{line_number}"
+            ) from exc
+        if image_path != record.image_path:
             raise ValueError(
                 f"转移前标注内容发生变化: {annotation_path}:{line_number}"
             )
@@ -268,8 +280,8 @@ def build_transfer_plan(
         destination_annotation_path = destination_image.relative_to(
             annotation_dir
         ).as_posix()
-        destination_annotation_line = (
-            f"{destination_annotation_path},{text_field}\n"
+        destination_annotation_line = format_annotation_line(
+            destination_annotation_path, text_field
         )
         transfer_jobs.append(
             TransferJob(

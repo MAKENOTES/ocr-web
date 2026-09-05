@@ -16,6 +16,8 @@ from PIL import Image, ImageFile, ImageOps, ImageStat
 from torch.utils.data import Dataset, DataLoader, Sampler
 from torchvision import transforms
 
+from recognition.utils.annotation import split_annotation_fields
+
 # 防止截断报错 (针对超大图)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -371,13 +373,15 @@ class TextRecognitionDataset(BaseTextDataset):
             missing_images = []
             with open(current_annotation_path, "r", encoding="utf-8") as annotation_file:
                 for line_number, line in enumerate(annotation_file, start=1):
-                    parts = line.rstrip("\r\n").split(",", 1)
-                    if len(parts) != 2:
+                    try:
+                        path_part, label_field = split_annotation_fields(
+                            line, current_annotation_path, line_number
+                        )
+                    except ValueError:
                         malformed_lines.append(line_number)
                         continue
 
-                    path_part = parts[0].strip()
-                    label = parts[1].strip().replace('"', "")
+                    label = label_field.strip()
                     if not label:
                         empty_label_count += 1
                         continue

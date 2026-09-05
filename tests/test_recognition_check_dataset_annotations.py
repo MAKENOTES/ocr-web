@@ -41,26 +41,26 @@ def test_check_passes_when_filename_union_and_labels_match(tmp_path: Path) -> No
     write_annotation(
         data_dir / "all_annotation.txt",
         [
-            'all_images/du20260902-002391.png, "文字,一"',
-            'all_images/sample_b.png, "文字二"',
-            'all_images/sample_c.png, "文字三"',
-            'all_images/sample_d.png, "字典外文字"',
+            "all_images/du20260902-002391.png\t文字,一",
+            "all_images/sample_b.png\t文字二",
+            "all_images/sample_c.png\t文字三",
+            "all_images/sample_d.png\t字典外文字",
         ],
     )
     write_annotation(
         data_dir / "train_annotation.txt",
         [
-            'train_images/sample_c.png, "文字三"',
-            'train_images/du20260902-002391.png, "文字,一"',
+            "train_images/sample_c.png\t文字三",
+            "train_images/du20260902-002391.png\t文字,一",
         ],
     )
     write_annotation(
         data_dir / "val_annotation.txt",
-        ['val_images/sample_b.png, "文字二"'],
+        ["val_images/sample_b.png\t文字二"],
     )
     write_annotation(
         data_dir / "val_unknown.txt",
-        ['val_unknown/sample_d.png, "字典外文字"'],
+        ["val_unknown/sample_d.png\t字典外文字"],
     )
 
     result = run_check(data_dir)
@@ -79,25 +79,25 @@ def test_check_reports_missing_extra_and_train_val_overlap(tmp_path: Path) -> No
     write_annotation(
         data_dir / "all_annotation.txt",
         [
-            'all_images/sample_a.png, "甲"',
-            'all_images/sample_b.png, "乙"',
-            'all_images/sample_c.png, "丙"',
+            "all_images/sample_a.png\t甲",
+            "all_images/sample_b.png\t乙",
+            "all_images/sample_c.png\t丙",
         ],
     )
     write_annotation(
         data_dir / "train_annotation.txt",
         [
-            'train_images/sample_a.png, "甲"',
-            'train_images/extra.png, "额外"',
+            "train_images/sample_a.png\t甲",
+            "train_images/extra.png\t额外",
         ],
     )
     write_annotation(
         data_dir / "val_annotation.txt",
-        ['val_images/sample_a.png, "甲"'],
+        ["val_images/sample_a.png\t甲"],
     )
     write_annotation(
         data_dir / "val_unknown.txt",
-        ['val_unknown/sample_c.png, "丙"'],
+        ["val_unknown/sample_c.png\t丙"],
     )
 
     result = run_check(data_dir)
@@ -117,22 +117,22 @@ def test_check_reports_different_text_for_same_filename(tmp_path: Path) -> None:
     write_annotation(
         data_dir / "all_annotation.txt",
         [
-            'all_images/du20260902-002391.png, "原文字"',
-            'all_images/sample_b.png, "相同文字"',
-            'all_images/sample_c.png, "字典外文字"',
+            "all_images/du20260902-002391.png\t原文字",
+            "all_images/sample_b.png\t相同文字",
+            "all_images/sample_c.png\t字典外文字",
         ],
     )
     write_annotation(
         data_dir / "train_annotation.txt",
-        ['train_images/du20260902-002391.png, "修改后的文字"'],
+        ["train_images/du20260902-002391.png\t修改后的文字"],
     )
     write_annotation(
         data_dir / "val_annotation.txt",
-        ['val_images/sample_b.png, "相同文字"'],
+        ["val_images/sample_b.png\t相同文字"],
     )
     write_annotation(
         data_dir / "val_unknown.txt",
-        ['val_unknown/sample_c.png, "字典外文字"'],
+        ["val_unknown/sample_c.png\t字典外文字"],
     )
 
     result = run_check(data_dir)
@@ -151,21 +151,21 @@ def test_check_rejects_duplicate_basename_even_when_directories_differ(
     write_annotation(
         data_dir / "all_annotation.txt",
         [
-            'all_images/group_a/sample.png, "甲"',
-            'all_images/group_b/sample.png, "乙"',
+            "all_images/group_a/sample.png\t甲",
+            "all_images/group_b/sample.png\t乙",
         ],
     )
     write_annotation(
         data_dir / "train_annotation.txt",
-        ['train_images/sample.png, "甲"'],
+        ["train_images/sample.png\t甲"],
     )
     write_annotation(
         data_dir / "val_annotation.txt",
-        ['val_images/other.png, "乙"'],
+        ["val_images/other.png\t乙"],
     )
     write_annotation(
         data_dir / "val_unknown.txt",
-        ['val_unknown/unknown.png, "丙"'],
+        ["val_unknown/unknown.png\t丙"],
     )
 
     result = run_check(data_dir)
@@ -183,23 +183,23 @@ def test_check_reports_val_unknown_overlap_extra_and_label_mismatch(
     write_annotation(
         data_dir / "all_annotation.txt",
         [
-            'all_images/sample_a.png, "甲"',
-            'all_images/sample_b.png, "乙"',
+            "all_images/sample_a.png\t甲",
+            "all_images/sample_b.png\t乙",
         ],
     )
     write_annotation(
         data_dir / "train_annotation.txt",
-        ['train_images/sample_a.png, "甲"'],
+        ["train_images/sample_a.png\t甲"],
     )
     write_annotation(
         data_dir / "val_annotation.txt",
-        ['val_images/sample_b.png, "乙"'],
+        ["val_images/sample_b.png\t乙"],
     )
     write_annotation(
         data_dir / "val_unknown.txt",
         [
-            'val_unknown/sample_a.png, "不同文字"',
-            'val_unknown/extra.png, "额外"',
+            "val_unknown/sample_a.png\t不同文字",
+            "val_unknown/extra.png\t额外",
         ],
     )
 

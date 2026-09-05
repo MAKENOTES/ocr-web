@@ -6,11 +6,36 @@
 Recognition 标注格式为：
 
 ```text
-relative/path.png, "识别文字"
+relative/path.png<TAB>识别文字
 ```
 
 图片路径相对于标注文件所在目录，必须与磁盘上的 `.png` 文件精确对应。文字中可以
-包含逗号；读取脚本只使用每行第一个逗号分隔图片路径和文字。
+包含逗号和双引号；图片路径和文字之间必须使用一个 Tab 制表符（`\t`）分隔，文字字段
+首尾不添加格式双引号。
+
+旧的逗号分隔标注可一次性转换；默认处理 `all_annotation.txt`、
+`append_annotation.txt`、`train_annotation.txt`、`val_annotation.txt` 和
+`val_unknown.txt`：
+
+```bash
+# 只检查
+.venv/bin/python recognition/utils/convert_annotation_delimiter.py --check
+
+# 执行转换
+.venv/bin/python recognition/utils/convert_annotation_delimiter.py
+```
+
+如果旧标注的文字字段带有外围双引号，可在完成分隔符转换后运行：
+
+```bash
+# 只检查
+.venv/bin/python recognition/utils/remove_annotation_outer_quotes.py --check
+
+# 移除五个默认标注文件中文字最外层的一对双引号
+.venv/bin/python recognition/utils/remove_annotation_outer_quotes.py
+```
+
+该脚本只移除文字字段最外层的一对 `"`，正文内部的双引号保持不变。
 
 ## 推荐顺序
 
@@ -148,8 +173,8 @@ recognition/keys-new.txt
 ```
 
 脚本使用与 `TextRecognitionDataset` 一致的文字解析规则，收集 train 中的所有唯一字符，
-按 Unicode 顺序排序，并保证字典每个非空行只有一个字符。正文中的逗号不会导致文字被
-截断。
+按 Unicode 顺序排序，并保证字典每个非空行只有一个字符。正文中的逗号会作为普通文字
+保留。
 
 也可以明确指定输入和输出：
 
