@@ -179,13 +179,13 @@ recognition/keys-new.txt
 核对当前正式字典：
 
 ```bash
-.venv/bin/python recognition/check_val_annotation_keys.py
+.venv/bin/python recognition/utils/check_val_annotation_keys.py
 ```
 
 在训练新模型前，应优先核对刚生成的候选字典：
 
 ```bash
-.venv/bin/python recognition/check_val_annotation_keys.py \
+.venv/bin/python recognition/utils/check_val_annotation_keys.py \
   --keys recognition/keys-new.txt
 ```
 
@@ -216,7 +216,7 @@ recognition/data/val_unknown_keys.txt
 确认要把这些样本从验证集隔离时，显式添加：
 
 ```bash
-.venv/bin/python recognition/check_val_annotation_keys.py --move-unknown
+.venv/bin/python recognition/utils/check_val_annotation_keys.py --move-unknown
 ```
 
 该参数会同时执行以下操作：
@@ -265,7 +265,7 @@ recognition/data/val_unknown_keys.txt
 .venv/bin/python recognition/utils/dictionary.py
 
 # 4. 检查 val 字符是否全部被候选字典覆盖
-.venv/bin/python recognition/check_val_annotation_keys.py \
+.venv/bin/python recognition/utils/check_val_annotation_keys.py \
   --keys recognition/keys-new.txt
 ```
 

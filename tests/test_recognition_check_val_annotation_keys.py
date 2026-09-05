@@ -1,9 +1,34 @@
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
 import recognition.utils.check_val_annotation_keys as check_module
+
+
+def test_script_can_be_run_directly() -> None:
+    result = subprocess.run(
+        [sys.executable, str(Path(check_module.__file__).resolve()), "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "列出验证标注中包含 keys.txt 未收录字符的图片" in result.stdout
+
+
+def test_default_paths_are_relative_to_recognition_directory() -> None:
+    recognition_dir = Path(check_module.__file__).resolve().parents[1]
+
+    assert check_module.DEFAULT_ANNOTATION == (
+        recognition_dir / "data" / "val_annotation.txt"
+    )
+    assert check_module.DEFAULT_KEYS == recognition_dir / "keys.txt"
+    assert check_module.OUTPUT_PATH == (
+        recognition_dir / "data" / "val_unknown_keys.txt"
+    )
 
 
 def run_check(

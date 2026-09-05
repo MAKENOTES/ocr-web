@@ -13,10 +13,10 @@ from pathlib import Path, PurePosixPath
 if __package__:
     from recognition.utils.dictionary import parse_annotation_text
 else:
-    from utils.dictionary import parse_annotation_text
+    from dictionary import parse_annotation_text
 
 
-RECOGNITION_DIR = Path(__file__).resolve().parent
+RECOGNITION_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_ANNOTATION = RECOGNITION_DIR / "data" / "val_annotation.txt"
 DEFAULT_KEYS = RECOGNITION_DIR / "keys.txt"
 OUTPUT_PATH = RECOGNITION_DIR / "data" / "val_unknown_keys.txt"
