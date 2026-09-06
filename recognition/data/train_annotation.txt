@@ -36363,7 +36363,7 @@ train_images/du20260902-002891.png	ZX-E-260612023
 train_images/du20260902-002892.png	ZX-E-260613001
 train_images/du20260902-002893.png	ZX-E-260612024
 train_images/du20260902-002895.png	ZX-E-260606007
-train_images/du20260902-002896.png	7X-F-260529003
+train_images/du20260902-002896.png	ZX-F-260529003
 train_images/du20260902-002897.png	实验员简称：
 train_images/du20260902-002898.png	实验员：
 train_images/du20260902-002900.png	编辑

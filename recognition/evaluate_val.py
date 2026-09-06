@@ -23,8 +23,8 @@ from recognition.utils.annotation import split_annotation_fields
 # ================= 配置区域 =================
 MODEL_PATH = "recognition/checkpoints/1788651042best_cer_0.0088_epoch_578.pth"  # 修改为你的最佳模型路径
 KEYS_PATH = "recognition/keys.txt"
-VAL_ANNOTATION = "recognition/data/train_annotation.txt"
-# VAL_ANNOTATION = "recognition/data/val_annotation.txt"
+# VAL_ANNOTATION = "recognition/data/train_annotation.txt"
+VAL_ANNOTATION = "recognition/data/val_annotation.txt"
 # VAL_ANNOTATION = "recognition/data/append_annotation.txt"
 # VAL_ANNOTATION = "recognition/data/bench1_annotation.txt"
 
