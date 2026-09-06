@@ -1,80 +1,118 @@
-import re
+#!/usr/bin/env python3
+"""找出 Recognition 标注中存在、但字符字典未收录的字符。"""
+
+from __future__ import annotations
+
+import sys
+from collections.abc import Iterable
+from pathlib import Path
+
+try:
+    from recognition.utils.annotation import split_annotation_fields
+except ModuleNotFoundError:  # 支持直接运行当前脚本
+    from annotation import split_annotation_fields
 
 
-def extract_chars_from_annotation(input_file):
-    """从标注文件中提取所有唯一字符（双引号中的文本）。"""
-    all_chars = set()
+def extract_chars_from_annotation(input_file: str | Path) -> set[str]:
+    """按 ``图片路径<TAB>文字`` 格式提取标注中的全部唯一字符。"""
+    annotation_path = Path(input_file)
+    if not annotation_path.is_file():
+        raise FileNotFoundError(f"标注文件不存在: {annotation_path}")
 
-    with open(input_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            # 匹配双引号中的内容
-            match = re.search(r'"(.*?)"', line)
-            if match:
-                text = match.group(1)
-                for char in text:
-                    if char != '\n' and char != '\r':
-                        all_chars.add(char)
+    all_chars: set[str] = set()
+    record_count = 0
+    with annotation_path.open("r", encoding="utf-8-sig") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            _, text_field = split_annotation_fields(
+                line, annotation_path, line_number
+            )
+            text = text_field.strip()
+            if not text:
+                raise ValueError(
+                    f"识别文字为空: {annotation_path}:{line_number}"
+                )
+            all_chars.update(text)
+            record_count += 1
 
+    if record_count == 0:
+        raise ValueError(f"标注文件为空: {annotation_path}")
     return all_chars
 
 
-def load_keys(keys_file):
-    """读取 keys.txt，每行一个字符。"""
-    keys = set()
+def load_keys(keys_file: str | Path) -> set[str]:
+    """读取每个非空行恰好包含一个字符的字典文件。"""
+    keys_path = Path(keys_file)
+    if not keys_path.is_file():
+        raise FileNotFoundError(f"字符字典不存在: {keys_path}")
 
-    with open(keys_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            # 去掉行尾换行，但保留字符本身（包括空格）
-            char = line.rstrip('\n').rstrip('\r')
-            if char != '':
-                keys.add(char)
+    keys: set[str] = set()
+    with keys_path.open("r", encoding="utf-8-sig") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            char = line.rstrip("\r\n")
+            if not char:
+                continue
+            if len(char) != 1:
+                raise ValueError(
+                    f"字符字典每个非空行必须恰好包含一个字符: "
+                    f"{keys_path}:{line_number}: {char!r}"
+                )
+            keys.add(char)
 
+    if not keys:
+        raise ValueError(f"字符字典没有有效字符: {keys_path}")
     return keys
 
 
-def compare_keys(annotation_files, keys_file="recognition/keys.txt",
-                 output_file="keys-compare.txt"):
+def compare_keys(
+    annotation_files: Iterable[str | Path],
+    keys_file: str | Path = "recognition/keys.txt",
+    output_file: str | Path = "keys-compare.txt",
+) -> list[str]:
+    """把所有标注中未被 ``keys_file`` 收录的字符写入输出文件。"""
+    annotation_paths = [Path(path) for path in annotation_files]
+    if not annotation_paths:
+        raise ValueError("annotation_files 不能为空")
+
+    annotation_chars: set[str] = set()
+    for annotation_path in annotation_paths:
+        chars = extract_chars_from_annotation(annotation_path)
+        print(f"从 {annotation_path} 中提取 {len(chars)} 个唯一字符。")
+        annotation_chars.update(chars)
+
+    keys_path = Path(keys_file)
+    keys = load_keys(keys_path)
+    missing_in_keys = sorted(annotation_chars - keys)
+
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        "".join(f"{char}\n" for char in missing_in_keys),
+        encoding="utf-8",
+    )
+
+    print(f"keys 文件 {keys_path} 中共 {len(keys)} 个字符。")
+    print(f"标注中共 {len(annotation_chars)} 个唯一字符。")
+    print(f"标注中存在、但 keys 未收录的字符共 {len(missing_in_keys)} 个。")
+    print(f"结果已写入: {output_path}")
+    return missing_in_keys
+
+
+def main() -> int:
     try:
-        # 1. 从所有标注文件中收集字符
-        annotation_chars = set()
-        for f in annotation_files:
-            chars = extract_chars_from_annotation(f)
-            print(f"从 {f} 中提取 {len(chars)} 个唯一字符。")
-            annotation_chars |= chars
-
-        # 2. 读取现有字典
-        keys = load_keys(keys_file)
-        print(f"keys 文件 {keys_file} 中共 {len(keys)} 个字符。")
-
-        # 3. 找出标注中存在、但字典里没有的字符（缺失字符）
-        missing_in_keys = annotation_chars - keys
-
-        # 4. 排序并写入
-        sorted_chars = sorted(missing_in_keys)
-
-        with open(output_file, 'w', encoding='utf-8') as f_out:
-            for char in sorted_chars:
-                f_out.write(f"{char}\n")
-
-        print(f"\n标注中共 {len(annotation_chars)} 个唯一字符。")
-        print(f"标注里有、但 keys 里没有的字符：{len(sorted_chars)} 个。")
-        print(f"差异已保存至: {output_file}")
-
-        # 额外提示：keys 里有、但标注中未出现的字符
-        unused_in_keys = keys - annotation_chars
-        print(f"（参考）keys 里有、但标注中未出现的字符：{len(unused_in_keys)} 个。{unused_in_keys}")
-
-    except FileNotFoundError as e:
-        print(f"错误：找不到文件 '{e.filename}'，请检查文件名。")
+        compare_keys(
+            annotation_files=[
+                "recognition/data/train_annotation.txt",
+                "recognition/data/append_annotation.txt",
+                "recognition/data/bench1_annotation.txt",
+            ],
+            keys_file="recognition/keys.txt",
+            output_file="recognition/keys-compare.txt",
+        )
+    except (OSError, ValueError) as exc:
+        print(f"错误: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-
-    compare_keys(
-        annotation_files=[
-            "recognition/data/train_annotation.txt",
-            "recognition/data/val_annotation.txt",
-        ],
-        keys_file="recognition/keys.txt",
-        output_file="recognition/keys-compare.txt",
-    )
+    raise SystemExit(main())

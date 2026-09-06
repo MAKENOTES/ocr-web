@@ -298,9 +298,8 @@ recognition/data/val_unknown_keys.txt
 
 ## 历史工具说明
 
-- `recognition/utils/compare_keys.py` 使用旧的正则解析标注，并同时读取 train 和 val；当前
-  流程不再推荐使用。请用 `dictionary.py` 从 train 生成候选字典，再用
-  `utils/check_val_annotation_keys.py` 检查 val 覆盖情况。
+- `recognition/utils/compare_keys.py` 可汇总多个 Tab 分隔标注文件中的字符，并把
+  `keys.txt` 未收录的字符逐行写入指定结果文件；它只生成差异列表，不修改模型字典。
 - `recognition/utils/normalization_label.py` 会生成替换英文逗号后的标注文件，它不是当前
   数据核对流程的一部分。文字中的英文逗号属于合法内容，不应为了适配解析脚本而批量
   替换。
