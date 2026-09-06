@@ -873,7 +873,7 @@ train_images/000045-000030.png	9978
 train_images/000045-000032.png	试加工费2标
 train_images/000045-000033.png	北京路
 train_images/000045-000034.png	艺作物
-train_images/000045-000035.png	亨、PRM50相对
+train_images/000045-000035.png	序、PRM50相对
 train_images/000045-000037.png	研究所
 train_images/000045-000038.png	2238号
 train_images/000045-000039.png	定量和转录组、
@@ -36363,7 +36363,6 @@ train_images/du20260902-002891.png	ZX-E-260612023
 train_images/du20260902-002892.png	ZX-E-260613001
 train_images/du20260902-002893.png	ZX-E-260612024
 train_images/du20260902-002895.png	ZX-E-260606007
-train_images/du20260902-002896.png	ZX-F-260529003
 train_images/du20260902-002897.png	实验员简称：
 train_images/du20260902-002898.png	实验员：
 train_images/du20260902-002900.png	编辑
