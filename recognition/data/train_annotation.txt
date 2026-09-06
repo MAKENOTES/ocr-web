@@ -346,7 +346,7 @@ train_images/000011-000058.png	投标人公章，日期以合同签订日期为�
 train_images/000011-000059.png	要求提供证明材料的业绩不得分。
 train_images/000011-000060.png	我公司可完全满足招标
 train_images/000011-000061.png	项目实施团队
-train_images/000011-000063.png	｜根据投标人投入的项目实施团队人数情况进
+train_images/000011-000063.png	根据投标人投入的项目实施团队人数情况进
 train_images/000011-000064.png	第_159_页
 train_images/000011-000065.png	行评审（满分5分）：
 train_images/000011-000066.png	已提供我公司投入本项

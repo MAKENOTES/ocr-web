@@ -14,7 +14,7 @@ except ModuleNotFoundError:  # 支持直接运行当前脚本
 
 
 RECOGNITION_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT = RECOGNITION_DIR / "data" / "val_unknown.txt"
+DEFAULT_INPUT = RECOGNITION_DIR / "data" / "bench2_annotation.txt"
 DEFAULT_OUTPUT = RECOGNITION_DIR / "keys-new.txt"
 
 
