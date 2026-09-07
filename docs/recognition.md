@@ -99,6 +99,42 @@ train_次数、val_次数、bench2_次数、append_次数、bench1_次数、合�
 脚本复用训练的 Tab 解析和首尾空白处理规则，不进行标点、Unicode 或转义归一化；
 空标签按训练规则跳过并计数，格式错误直接报告具体文件与行号。此脚本不检查图片。
 
+### 按字符统计移除补充数据
+
+`recognition/utils/remove_characters_by_stats.py` 使用上述默认 CSV，并核对当前
+`keys.txt` 和 train、val、append、bench1、bench2 五份标注中的实际字符次数。
+CSV 缺列、字符集合或次数不一致时停止，需先重新运行 `character_stats.py`。
+
+两种方式均要求字符在 train 和 val 中出现次数为 0：
+
+- `--mode 1`：append、bench1、bench2 出现次数之和严格小于 10，包含零次字符。
+- `--mode 2`：只在 append、bench1、bench2 中恰好一份出现，次数不限。
+- `--mode both`：两种方式取并集，也是默认方式；仅根据本次 CSV 筛选一次，不递归清理。
+
+```bash
+# 默认只预览，并打印全部命中字符、各文件删除数量及前 20 条图片明细
+.venv/bin/python recognition/utils/remove_characters_by_stats.py
+
+# 单独预览第二种方式；0 表示显示全部图片明细
+.venv/bin/python recognition/utils/remove_characters_by_stats.py --mode 2 --max-details 0
+
+# 真正执行两种方式的并集（也可以显式指定 --mode 1 或 --mode 2）
+.venv/bin/python recognition/utils/remove_characters_by_stats.py --apply
+```
+
+只要标签包含命中字符，就删除对应的**整条标注和图片**，不会只删标签里的个别字。
+只更新 append、bench1、bench2 标注以及 keys 中命中的字符行，保留其余行内容、换行和
+字典相对顺序。图片路径按标注文件所在目录解析并去重；待删图片缺失、路径越出数据目录、
+通过符号链接访问，或仍被这五份文件中任一保留标注引用时，在写入前报错。
+train、val 标注不修改，不扫描五份标注之外的图片引用。
+
+只有传入 `--apply` 才写入文件。执行前将所有待修改的原始标注、keys、待删图片及输入
+CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.json` 记录
+原路径、备份路径及删除明细。单个文字文件使用原子替换，多文件操作不构成事务，若中断或
+磁盘错误导致部分完成，可按 manifest 恢复。预览不创建备份或任何输出文件。
+可用 `--csv`、`--keys`、`--data-dir`、`--backup-dir` 指定路径。
+删除后需重新生成字符统计；变更 keys 会改变模型 ABI，必须重新训练、导出并验证模型。
+
 ## 3. 模型与张量契约
 
 ```mermaid

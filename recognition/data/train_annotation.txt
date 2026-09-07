@@ -1999,7 +1999,6 @@ train_images/000102-000050.png	3、付款方式：
 train_images/000102-000053.png	10/18
 train_images/000102-000054.png	第100页
 train_images/000103-000002.png	投标文件
-train_images/000103-000003.png	☑全款支付：合同签订后，完成全部测试化验/服务内容后，支付合同总额人民币玖拾伍万
 train_images/000103-000005.png	口分两期支付。
 train_images/000103-000006.png	（1）第一期：合同签订后，支付合同总额的_%，人民币_元整（¥）;
 train_images/000103-000007.png	（2）第二期：乙方向甲方提供全部项目数据，并经甲方验收合格后，支付剩余的_%合同
@@ -5897,7 +5896,7 @@ train_images/000481-000028.png	理
 train_images/000481-000029.png	压力传感器
 train_images/000481-000031.png	服
 train_images/000481-000032.png	模
-train_images/000481-000033.png	烟雾传懸器
+train_images/000481-000033.png	烟雾传感器
 train_images/000481-000034.png	模数转换器
 train_images/000481-000036.png	务
 train_images/000481-000037.png	块
