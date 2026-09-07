@@ -66,6 +66,39 @@ flowchart TD
 split 中同名图片后面的识别文字。校对通过返回 0；缺失、多余、跨 split 重复或文字不同
 会列出具体文件名并返回 1。每类默认最多显示 20 条详情，传入 `--max-details 0` 可显示全部。
 
+### 字符频次与数据集覆盖率
+
+```bash
+# 默认统计五份标注，按合计占比倒序打印全部字符，并将完整明细写入 CSV
+.venv/bin/python recognition/utils/character_stats.py
+
+# 终端只显示“王”的次数和占比，CSV 仍保留 keys 中的全部字符
+.venv/bin/python recognition/utils/character_stats.py --chars 王
+
+# 按 train.py 的四份训练标注统计，排除 val
+.venv/bin/python recognition/utils/character_stats.py \
+  --annotations recognition/data/train_annotation.txt \
+  recognition/data/append_annotation.txt recognition/data/bench1_annotation.txt \
+  recognition/data/bench2_annotation.txt \
+  --output-dir outputs/recognition_training_character_stats
+```
+
+只生成 `outputs/recognition_character_stats/character_stats.csv`，不再生成 JSON。
+CSV 和终端均按未舍入的合计占比倒序输出，同频保持 keys 原顺序，零出现字符也保留；
+只列 keys 中的字符，不修改 keys。占比列在前，次数列统一放在最后。
+列顺序为 `字符、train_占比、val_占比、bench2_占比、append_占比、bench1_占比、合计_占比、
+train_次数、val_次数、bench2_次数、append_次数、bench1_次数、合计_次数`。
+`次数` 包括同一标签内重复出现的字符；`占比` 为该字符次数除以对应文件全部文字字符数
+（含字典外字符），直接显示百分数，保留五位小数，例如 `0.00000%`。出现 80 次、总共
+1,000 个字符时，占比为 `8.00000%`。合计占比为五份文件的该字总次数除以五份文字总字符数，不是各占比平均。
+合计累加本次传入的全部标注记录，不去重，默认包含 val，不能当作训练集总量。
+终端同时提供各文件及合计的文字总字符数，方便核对分母。
+默认运行也会在终端逐行打印全部字符；`--chars` 只限制终端展示，不过滤输出文件。
+`outputs/` 在 `.gitignore` 中，编辑器全局搜索可能排除它；直接打开文件搜索，或显式运行
+`rg -n 王 outputs/recognition_character_stats/character_stats.csv`。
+脚本复用训练的 Tab 解析和首尾空白处理规则，不进行标点、Unicode 或转义归一化；
+空标签按训练规则跳过并计数，格式错误直接报告具体文件与行号。此脚本不检查图片。
+
 ## 3. 模型与张量契约
 
 ```mermaid
@@ -120,17 +153,17 @@ flowchart LR
 - `recognition_inference.py`：ONNX/OpenVINO/PyTorch 部署推理。
 
 `train.py` 的 `TRAIN_ANNOTATION` 可配置一个标注路径或多个标注路径；当前训练集按配置顺序
-合并 `train_annotation.txt` 和 `append_annotation.txt`，各文件内的图片路径分别相对于自身所在目录解析。
+合并 `train_annotation.txt`、`append_annotation.txt`、`bench1_annotation.txt` 和
+`bench2_annotation.txt`，各文件内的图片路径分别相对于自身所在目录解析。
 
 示例：
 
 ```bash
 python recognition/train.py
 
-python recognition/evaluate_val.py \
-  --model_path recognition/checkpoints/<model>.pth \
-  --annotation recognition/data/val_annotation.txt \
-  --batch_size 1
+# evaluate_val.py 当前仍使用文件顶部常量，不支持命令行参数。
+# 先配置 MODEL_PATH、启用一个 VAL_ANNOTATION，并为本次评估设置 ERROR_OUTPUT_FILE。
+.venv/bin/python recognition/evaluate_val.py
 
 python recognition_export_onnx.py \
   --model_path recognition/checkpoints/<model>.pth \
@@ -172,3 +205,7 @@ python recognition_inference.py \
 - 输入高度目前固定 32；48 高度只能作为同数据、同训练预算的消融实验，不能直接替换现有权重。
 - `recognition_quantize_static.py` 当前不进入发布路径。FP32 ONNX/OpenVINO 是默认优化方向。
 - `model_resnet50.py` 和历史说明文档属于实验资产，未通过同一门禁前不替代当前基线。
+
+2026-09-07 对 epoch 471 权重、红章/小字清单、字符频次和训练日志的实测见
+[专项分析](recognition-analysis-2026-09-07.md)。该报告中的输入通道和边缘探针仅用于诊断，
+没有改变上述训练或推理契约。

@@ -38,6 +38,13 @@ recognition/utils/extract_error_keys.py
 recognition/utils/normalization_label.py     
 recognition/utils/remove_annotation_outer_quotes.py
 
+### 数据归一化
+- 无空格
+- 只有中文括号
+- /home/weiqiang/AI/ocr-web/recognition/data/bench1_annotation.txt   中 做了 ()  和 :   归一化成中文的
+
+### 数据合成
+合成工具（可自己生成网站/PDF 风格数据）：PaddleOCR 文档里推荐了 text_renderer、SynthText、TextRecognitionDataGenerator 等。
 
 ## 错误数据集记录
 
