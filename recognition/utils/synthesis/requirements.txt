@@ -1,0 +1,4 @@
+# 在仓库 .venv 中安装：python -m pip install --no-deps -r 本文件
+# 只调用 FontText/draw_text_on_bg，依赖现有 Pillow、NumPy、fontTools。
+# 不使用上游 Corpus/Effect，避免其 albumentations<2 约束降级训练环境。
+text_renderer @ git+https://github.com/oh-my-ocr/text_renderer.git@a08835263289c9488ba8c24abacc321318c3f1e0

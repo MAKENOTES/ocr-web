@@ -140,6 +140,54 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 使本轮未命中的字符在下一轮满足条件；此时需基于新 CSV 再次预览、执行。
 变更 keys 会改变模型 ABI，必须重新训练、导出并验证模型。
 
+### 补字合成数据
+
+`recognition/utils/synthesis/generate.py` 使用
+[oh-my-ocr/text_renderer](https://github.com/oh-my-ocr/text_renderer) 的
+`FontText` 和 `draw_text_on_bg` 字形渲染接口。针对 `recognition/keys-append.txt`
+每个字默认生成 100 张；配字仅取 `recognition/keys.txt` 中**非目标字**且当前字体支持的字符，
+每张仅包含一个目标字，保证每个目标字的图片数和出现次数都严格等于 100。
+字符文件要求每行一个可见字符、无重复；目标不在 keys 或没有字体支持时直接报错。
+不修改 keys、现有训练/验证数据或训练配置。
+
+```bash
+# 可选工具依赖：锁定上游提交，只装绘字模块，保留现有训练依赖版本
+.venv/bin/python -m pip install --no-deps -r recognition/utils/synthesis/requirements.txt
+
+# 默认生成到 recognition/data/synthesis_images
+.venv/bin/python recognition/utils/synthesis/generate.py
+
+# 小批量预览，输出到独立目录
+.venv/bin/python recognition/utils/synthesis/generate.py --per-char 2 \
+  --output-dir outputs/synthesis_preview/images \
+  --annotation outputs/synthesis_preview/annotation.txt \
+  --report-dir outputs/synthesis_preview/report
+```
+
+默认字体为本机思源黑体/宋体常规与粗体、Droid Sans Fallback、文鼎宋体；
+不存在的默认字体不加入候选，没有覆盖目标字的字体则停止。也可通过 `--fonts file.ttf file.ttc`
+指定字体文件；TTC 默认选择 Noto 简体中文比例字体、文鼎 CN 字形，逐字检查 cmap，
+不以缺字方框替代文字。字体文件不复制到仓库。
+
+默认按图片数量比例抽样 train_images/val_images 共 1,600 张，仅提取背景/前景色、
+高度、文字占比与左右留白，不取验证集标注或复制真实含字像素。透明 PNG 通过共享
+`load_rgb_image` 读取。合成 RGB PNG 高度 16～64、文本长度 1～24，按参考宽高比估计
+长度，配字为随机字符组合；采用水平文字、完整字形、轻微模糊/噪声，不添加未标注文字。
+默认种子 `20260907`，可用 `--seed`、`--per-char`、`--references`、`--style-samples` 调整。
+
+输出：
+
+- `recognition/data/synthesis_images/uXXXXXX_NNN.png`：Unicode 码点和样本序号命名。
+- `recognition/data/synthesis_annotation.txt`：复用当前加载器的 `relative/path.png<TAB>文字`
+  格式；当前代码已使用 Tab，AGENTS.md 中逗号加引号的描述是旧格式。
+- `recognition/data/synthesis_report/summary.json`：逐字计数、种子、字体计数、输入校验和。
+- 同目录 `samples.jsonl`、`preview.png`：每张图的目标字/字体/参考风格及抽样预览。
+
+图片和报告目录必须为空，标注必须不存在；失败保留已生成图片和 `.partial` 标注供排查，
+不会覆盖或自动清理旧产物。成功后才原子发布正式标注。上述数据均被 Git 忽略。
+使用合成数据训练时，将 `recognition/data/synthesis_annotation.txt` 加入
+`recognition/train.py` 的 `TRAIN_ANNOTATION` 列表，验证集继续使用原来的 val 标注。
+
 ## 3. 模型与张量契约
 
 ```mermaid
