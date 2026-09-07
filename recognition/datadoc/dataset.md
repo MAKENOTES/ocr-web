@@ -14,16 +14,16 @@
 
 ### 新增数据集
 1、从数据集txt文件中 提取keys 到 keys-new.txt
-recognition/utils/dictionary.py
+python recognition/utils/dictionary.py
 2、对比 keys-new.txt 与 keys.txt 得到哪些文字是新增的文字
-recognition/utils/compare_key_files.py
+python recognition/utils/compare_key_files.py
 
 ### 数据集评估
 1、从 不同的数据集txt文件，对模型评估
-recognition/evaluate_val.py
+python recognition/evaluate_val.py
 
 2、从error_cases.txt中提取 错误字符 到 keys-error.txt
-recognition/utils/extract_error_keys.py
+python recognition/utils/extract_error_keys.py
 
 3、核对  keys-error.txt 和  error_cases.txt
 需注意，暂时需人工核对，对识别错误样本进行分类。只有 确定 缺少数据集 再去收集数据集。
@@ -31,13 +31,13 @@ recognition/utils/extract_error_keys.py
 ### 精简数据集
 
 1、 统计字符占比
-recognition/utils/character_stats.py
+python recognition/utils/character_stats.py
 
 2、移除非目标keys中字符
 预览
-recognition/utils/remove_characters_by_stats.py
+python recognition/utils/remove_characters_by_stats.py
 真移除
-recognition/utils/remove_characters_by_stats.py --apply
+python recognition/utils/remove_characters_by_stats.py --apply
 
 ### 数据集核对工具
 1、recognition/utils/check_val_annotation_keys.py   得到对应数据集中字符， 不在keys.txt ， 并可以移动到 unknown 中

@@ -120,6 +120,9 @@ CSV 缺列、字符集合或次数不一致时停止，需先重新运行 `chara
 
 # 真正执行两种方式的并集（也可以显式指定 --mode 1 或 --mode 2）
 .venv/bin/python recognition/utils/remove_characters_by_stats.py --apply
+
+# 只处理指定字符，仍须满足所选方式；不传 --apply 则只预览
+.venv/bin/python recognition/utils/remove_characters_by_stats.py --chars 癫 --apply
 ```
 
 只要标签包含命中字符，就删除对应的**整条标注和图片**，不会只删标签里的个别字。
@@ -133,7 +136,9 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 原路径、备份路径及删除明细。单个文字文件使用原子替换，多文件操作不构成事务，若中断或
 磁盘错误导致部分完成，可按 manifest 恢复。预览不创建备份或任何输出文件。
 可用 `--csv`、`--keys`、`--data-dir`、`--backup-dir` 指定路径。
-删除后需重新生成字符统计；变更 keys 会改变模型 ABI，必须重新训练、导出并验证模型。
+删除后需重新生成字符统计。删除整条样本会减少其他字符的次数、改变其数据集分布，
+使本轮未命中的字符在下一轮满足条件；此时需基于新 CSV 再次预览、执行。
+变更 keys 会改变模型 ABI，必须重新训练、导出并验证模型。
 
 ## 3. 模型与张量契约
 

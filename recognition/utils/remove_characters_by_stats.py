@@ -81,7 +81,10 @@ def read_lines(path: Path) -> list[str]:
         return handle.readlines()
 
 
-def build_plan(csv_path: Path, keys_path: Path, data_dir: Path, mode: str = "both") -> RemovalPlan:
+def build_plan(
+    csv_path: Path, keys_path: Path, data_dir: Path, mode: str = "both",
+    chars: str | None = None,
+) -> RemovalPlan:
     if mode not in ("1", "2", "both"):
         raise ValueError(f"未知移除方式: {mode}")
     counts = load_statistics(csv_path)
@@ -89,6 +92,11 @@ def build_plan(csv_path: Path, keys_path: Path, data_dir: Path, mode: str = "bot
     if set(keys) != set(counts):
         raise ValueError(f"CSV 字符集合与字典不一致，请重新运行 character_stats.py: {csv_path}; {keys_path}")
     selected = select_characters(counts, mode)
+    if chars is not None:
+        requested = set(chars)
+        if not requested or requested - set(selected):
+            raise ValueError(f"指定字符为空、不在字典中或不满足移除条件: {sorted(requested - set(selected))!r}")
+        selected = {char: reasons for char, reasons in selected.items() if char in requested}
     selected_set = set(selected)
     originals = {}
     replacements = {}
@@ -192,6 +200,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mode", choices=("1", "2", "both"), default="both",
                         help="1: 三者合计 <10（含零次）；2: 仅在三者之一出现；both: 两者并集（默认）")
     parser.add_argument("--apply", action="store_true", help="备份后真正移除；不传时只预览")
+    parser.add_argument("--chars", help="只处理指定字符，例如 癫；仍须满足所选移除条件")
     parser.add_argument("--backup-dir", type=Path,
                         default=RECOGNITION_DIR.parent / "outputs" / "recognition_character_removal")
     parser.add_argument("--max-details", type=int, default=20, help="显示的图片明细数量；0 为全部")
@@ -199,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.max_details < 0:
         parser.error("--max-details 必须 >= 0")
     try:
-        plan = build_plan(args.csv.resolve(), args.keys.absolute(), args.data_dir, args.mode)
+        plan = build_plan(args.csv.resolve(), args.keys.absolute(), args.data_dir, args.mode, args.chars)
         print(f"{'执行' if args.apply else '预览'}；移除方式: {args.mode}；均要求 train/val 次数为 0")
         print("字符\t方式\tappend\tbench1\tbench2\t三者合计")
         for char, reasons in plan.characters.items():

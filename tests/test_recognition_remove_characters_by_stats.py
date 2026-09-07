@@ -60,6 +60,24 @@ def test_overlapping_rules_record_both_reasons():
     assert select_characters(counts, "both") == {"甲": ("1", "2")}
 
 
+def test_requested_character_only_removes_its_samples_and_key(tmp_path):
+    keys, csv_path = make_dataset(tmp_path)
+    assert main([*cli_args(tmp_path, keys, csv_path), "--chars", "独", "--apply"]) == 0
+    assert "独" not in keys.read_text()
+    assert "稀" in keys.read_text()
+    assert "零" in keys.read_text()
+    assert not (tmp_path / "append_images/1.png").exists()
+    assert (tmp_path / "append_images/0.png").is_file()
+    assert (tmp_path / "bench1_images/0.png").is_file()
+
+
+@pytest.mark.parametrize("chars", ["保", "验", "界", "外", ""])
+def test_requested_character_cannot_bypass_removal_conditions(tmp_path, chars):
+    keys, csv_path = make_dataset(tmp_path)
+    assert main([*cli_args(tmp_path, keys, csv_path), "--chars", chars, "--apply"]) == 1
+    assert not (tmp_path / "backups").exists()
+
+
 def test_default_preview_writes_nothing(tmp_path, capsys):
     keys, csv_path = make_dataset(tmp_path)
     before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
