@@ -2815,7 +2815,7 @@ val_images/001074-000042.png	网i/Web：www.majorbio.com
 val_images/001075-000004.png	B.在固定液中保存多年或化石标本：这样的样品可能存在提取困难、DNA
 val_images/001075-000014.png	A.保存方式：TE（pH8.0）或超纯水中，置于1.5ml或2.0ml离心管内;
 val_images/001075-000019.png	2.1.1提取
-val_images/001075-000024.png	A．缓冲液：对于高分子质量DNA，TAE的分辨率略高于TBE或TPE，因此基因组DNA的检测一般采用TAE作
+val_images/001075-000024.png	A.缓冲液：对于高分子质量DNA，TAE的分辨率略高于TBE或TPE，因此基因组DNA的检测一般采用TAE作
 val_images/001075-000034.png	2.2样品标示
 val_images/001075-000040.png	网i/Web：www.majorbio.com
 val_images/001076-000009.png	用量，如平常数量的1.5倍;使用干冰运输，时间尽量不要超过72小时。使用生物冰袋运输，时间不要超过24小
