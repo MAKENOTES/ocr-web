@@ -140,6 +140,39 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 使本轮未命中的字符在下一轮满足条件；此时需基于新 CSV 再次预览、执行。
 变更 keys 会改变模型 ABI，必须重新训练、导出并验证模型。
 
+### 移除 train/val 已覆盖字符的合成样本
+
+`recognition/utils/remove_common_synthesis.py` 专门处理
+`recognition/data/synthesis1_annotation.txt` 和 `synthesis2_annotation.txt`。
+读取 `outputs/recognition_character_stats/character_stats.csv` 的 `train_次数`、`val_次数`，
+以 **train + val 合计 >= 100** 判断常见字，包含恰好 100 次；不使用包含 synthesis 的总次数
+来判断是否需要补充。可用 `--threshold` 调整阈值。
+
+- `--match all`（默认）：整条非空文字的每个字符均为常见字才移除，保留含低频字或 CSV 未收录字符的样本。
+- `--match any`：包含任一常见字就移除整条样本，也会连带减少其中的低频字。
+
+两种方式都按**整条标注和对应 PNG 图片**删除，不单独删标签中的字，不修改 keys、train、val。
+预览打印两份标注的原条数、删除/保留条数、连带减少的低频字次数，以及合计从达标降到阈值以下
+的字符数量。若所有样本都包含低频字，默认 `all` 会删除 0 条。
+
+```bash
+# 默认预览 all 规则，不写文件
+.venv/bin/python recognition/utils/remove_common_synthesis.py
+
+# 预览 any 规则，先检查连带减少的低频字数量
+.venv/bin/python recognition/utils/remove_common_synthesis.py --match any
+
+# 备份后按指定规则执行；此例采用 all
+.venv/bin/python recognition/utils/remove_common_synthesis.py --match all --apply
+```
+
+复用现有清理工具的统计校验、备份和原子替换逻辑；检查四份标注实际次数与 CSV 一致，
+待删 PNG 必须是数据目录内的普通相对路径且存在，并且未被四份文件中保留的标注引用。
+不会扫描其他标注文件的引用。仅 `--apply` 执行写入，先将待改标注和待删图片备份到
+`outputs/recognition_common_synthesis_removal/removal-*/`，同时保存原始 CSV 与 `manifest.json`。
+多文件操作不是事务，异常中断可按 manifest 从备份恢复。执行后重新运行 `character_stats.py`。
+支持 `--csv`、`--data-dir`、`--backup-dir` 和 `--max-details`；默认不执行真实数据删除。
+
 ### 补字合成数据
 
 `recognition/utils/synthesis/generate.py` 使用
@@ -187,6 +220,48 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 不会覆盖或自动清理旧产物。成功后才原子发布正式标注。上述数据均被 Git 忽略。
 使用合成数据训练时，将 `recognition/data/synthesis_annotation.txt` 加入
 `recognition/train.py` 的 `TRAIN_ANNOTATION` 列表，验证集继续使用原来的 val 标注。
+
+### 红章干扰合成（默认 1000 张）
+
+`recognition/utils/synthesis/generate_red_stamp.py` 默认读取同目录
+`red_stamp_references.txt` 中指定的 43 张参考框（train 29 张、val 14 张），提取正文颜色、
+高度、留白、宽高比，以及红章颜色、相对直径、浓淡和覆盖率。参考图经过共享
+`load_rgb_image` 读取，仅保留数值风格，不复制原图像素，不读取 val 标注。
+其中 `train_images/000351-000003.png` 未测到明显红色，只提供正文风格，红章参数使用
+其余参考的中位数；终端和报告明确标记 `red_measured=false`。整批参考都无红章时停止。
+
+正文从 `train_annotation.txt` 中选择长度接近参考宽高比的整条文字，复用 `generate.py`
+的字体渲染重新绘制。不是新增随机句子，也不限制到旧补字脚本的 24 字；这些参考主要是长行
+正文，按中英文估计字宽选择整条标签，保留内部空格、标点和全部正文。字典外字符或整条文字
+没有字体覆盖时在写入前报错。字体默认偏重宋体常规字重。
+
+红章用程序绘制圆环、弧形章字、五角星，再截取上部、中部或下部局部与正文叠加；随机位置、
+线宽、角度、透明度、轻微印泥不均匀和模糊。以乘色混合为主，模拟红印透出黑字。
+每张都检查红章可见且与正文墨迹相交，不会生成完全未受章影响的样本。
+**标注只包含正文，章中文字视作干扰，不加入标签**；这与原普通合成图无额外文字的用途不同。
+
+```bash
+# 默认生成 1000 张，文件名日期自动取系统当天
+.venv/bin/python recognition/utils/synthesis/generate_red_stamp.py
+
+# 小批量效果预览，使用独立输出路径
+.venv/bin/python recognition/utils/synthesis/generate_red_stamp.py --images 43 \
+  --output-dir outputs/red_stamp_preview/images \
+  --annotation outputs/red_stamp_preview/annotation.txt \
+  --report-dir outputs/red_stamp_preview/report
+```
+
+默认输出图片为 `recognition/data/synthesis_red_stamp_YYYYMMDD_images/YYYYMMDD_00001.png`，
+标注为同级 `synthesis_red_stamp_YYYYMMDD_annotation.txt`，报告位于
+`outputs/synthesis_red_stamp_YYYYMMDD_report/`，包含 `summary.json`、逐图 `samples.jsonl`
+和最多 40 张抽样的 `preview.png`。记录原 train 文本行号、字体、参考风格、章的位置和正文
+重叠比例，便于复核。每张参考均匀采样；图数不少于参考数时，每张参考至少使用一次。
+支持 `--images`、`--references`（清单路径，条目相对于 `--data-dir`）、`--corpus`、
+`--fonts`、`--stamp-text`、`--seed` 及三个输出路径参数。
+
+输出 RGB PNG 和 Tab 分隔标注，拒绝覆盖已有产物；失败保留 `.partial`，成功后才发布正式标注。
+训练数据和配置不自动修改，使用时将新标注加入 `TRAIN_ANNOTATION`。本脚本是红章干扰增强，
+不保证低频字符补齐配额，也不执行裁章或红色像素删除。
 
 ### 按统计补齐低频字（约 30000 张）
 
