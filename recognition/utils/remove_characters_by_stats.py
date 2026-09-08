@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""按字符统计清理 append/bench1/bench2 图片、整条标注及 keys；默认仅预览。"""
+"""按字符统计清理 synthesis 图片、整条标注及 keys；默认仅预览。"""
 
 from __future__ import annotations
 
@@ -15,15 +15,17 @@ from pathlib import Path
 
 try:
     from recognition.utils.annotation import split_annotation_fields
-    from recognition.utils.character_stats import DEFAULT_OUTPUT_DIR, RECOGNITION_DIR, load_keys
+    from recognition.utils.character_stats import (
+        DEFAULT_OUTPUT_DIR, RECOGNITION_DIR, SYNTHESIS_DATASET, load_keys,
+    )
     from recognition.utils.convert_annotation_delimiter import atomic_write
 except ModuleNotFoundError:  # 支持直接运行脚本，不依赖 torch
     from annotation import split_annotation_fields
-    from character_stats import DEFAULT_OUTPUT_DIR, RECOGNITION_DIR, load_keys
+    from character_stats import DEFAULT_OUTPUT_DIR, RECOGNITION_DIR, SYNTHESIS_DATASET, load_keys
     from convert_annotation_delimiter import atomic_write
 
 
-TARGETS = ("synthesis")
+TARGETS = (SYNTHESIS_DATASET,)
 DATASETS = ("train", "val", *TARGETS)
 
 
@@ -38,7 +40,7 @@ class RemovalPlan:
 
 
 def load_statistics(path: Path) -> dict[str, dict[str, int]]:
-    """只使用中文字符列和五份数据的次数列；拒绝损坏或不完整的 CSV。"""
+    """只使用中文字符列及 DATASETS 的次数列；拒绝损坏或不完整的 CSV。"""
     result = {}
     required = {"字符", *(f"{name}_次数" for name in DATASETS)}
     with path.open(encoding="utf-8-sig", newline="") as handle:
@@ -194,11 +196,14 @@ def apply_plan(plan: RemovalPlan, csv_path: Path, backup_root: Path) -> Path | N
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    target_names = "、".join(TARGETS)
     parser.add_argument("--csv", type=Path, default=DEFAULT_OUTPUT_DIR / "character_stats.csv")
     parser.add_argument("--keys", type=Path, default=RECOGNITION_DIR / "keys.txt")
     parser.add_argument("--data-dir", type=Path, default=RECOGNITION_DIR / "data")
     parser.add_argument("--mode", choices=("1", "2", "both"), default="both",
-                        help="1: 三者合计 <10（含零次）；2: 仅在三者之一出现；both: 两者并集（默认）")
+                        help=f"均要求 train/val 次数为 0；1: {target_names} 合计 <10（含零次）；"
+                             f"2: 在目标数据集中恰好一份出现（当前仅 {target_names}，次数不限）；"
+                             "both: 两者并集（默认）")
     parser.add_argument("--apply", action="store_true", help="备份后真正移除；不传时只预览")
     parser.add_argument("--chars", help="只处理指定字符，例如 癫；仍须满足所选移除条件")
     parser.add_argument("--backup-dir", type=Path,
@@ -210,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         plan = build_plan(args.csv.resolve(), args.keys.absolute(), args.data_dir, args.mode, args.chars)
         print(f"{'执行' if args.apply else '预览'}；移除方式: {args.mode}；均要求 train/val 次数为 0")
-        print("字符\t方式\tappend\tbench1\tbench2\t三者合计")
+        print("\t".join(("字符", "方式", *TARGETS, "目标合计")))
         for char, reasons in plan.characters.items():
             values = [plan.counts[char][name] for name in TARGETS]
             print(f"{char!r}\t{'+'.join(reasons)}\t" + "\t".join(map(str, [*values, sum(values)])))

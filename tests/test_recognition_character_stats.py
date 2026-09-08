@@ -2,7 +2,31 @@ import csv
 
 import pytest
 
-from recognition.utils.character_stats import build_statistics, main
+from recognition.utils.character_stats import DEFAULT_ANNOTATIONS, build_statistics, main
+
+
+def test_default_annotations_produce_train_val_synthesis_columns(tmp_path, monkeypatch):
+    keys = tmp_path / "keys.txt"
+    keys.write_text("甲\n零\n", encoding="utf-8")
+    annotations = [tmp_path / path.name for path in DEFAULT_ANNOTATIONS]
+    assert [path.name for path in annotations] == [
+        "train_annotation.txt", "val_annotation.txt", "synthesis_annotation.txt",
+    ]
+    for index, path in enumerate(annotations, 1):
+        path.write_text(f"a.png\t{'甲' * index}\n", encoding="utf-8")
+    monkeypatch.setattr("recognition.utils.character_stats.DEFAULT_ANNOTATIONS", annotations)
+    output = tmp_path / "stats"
+    assert main(["--keys", str(keys), "--output-dir", str(output)]) == 0
+    with (output / "character_stats.csv").open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        assert reader.fieldnames == [
+            "字符", "train_占比", "val_占比", "synthesis_占比", "合计_占比",
+            "train_次数", "val_次数", "synthesis_次数", "合计_次数",
+        ]
+        rows = {row["字符"]: row for row in reader}
+    assert rows["甲"]["synthesis_次数"] == "3"
+    assert rows["甲"]["合计_次数"] == "6"
+    assert rows["零"]["synthesis_占比"] == "0.00000%"
 
 
 def test_counts_use_all_text_characters_and_keep_only_dictionary_rows(tmp_path):
