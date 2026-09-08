@@ -187,7 +187,7 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 # 可选工具依赖：锁定上游提交，只装绘字模块，保留现有训练依赖版本
 .venv/bin/python -m pip install --no-deps -r recognition/utils/synthesis/requirements.txt
 
-# 默认生成到 recognition/data/synthesis_images
+# 默认选择未占用的 synthesisN_images 目录
 .venv/bin/python recognition/utils/synthesis/generate.py
 
 # 小批量预览，输出到独立目录
@@ -210,15 +210,16 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 
 输出：
 
-- `recognition/data/synthesis_images/uXXXXXX_NNN.png`：Unicode 码点和样本序号命名。
-- `recognition/data/synthesis_annotation.txt`：复用当前加载器的 `relative/path.png<TAB>文字`
+- `recognition/data/synthesisN_images/synthesisN_YYYYMMDD_00001.png`：按系统日期和整批连续序号命名。
+- `recognition/data/synthesisN_annotation.txt`：复用当前加载器的 `relative/path.png<TAB>文字`
   格式；当前代码已使用 Tab，AGENTS.md 中逗号加引号的描述是旧格式。
-- `recognition/data/synthesis_report/summary.json`：逐字计数、种子、字体计数、输入校验和。
+- `recognition/utils/synthesis/synthesis_report/synthesisN_YYYYMMDD/summary.json`：逐字计数、种子、字体计数、输入校验和。
 - 同目录 `samples.jsonl`、`preview.png`：每张图的目标字/字体/参考风格及抽样预览。
 
 图片和报告目录必须为空，标注必须不存在；失败保留已生成图片和 `.partial` 标注供排查，
 不会覆盖或自动清理旧产物。成功后才原子发布正式标注。上述数据均被 Git 忽略。
-使用合成数据训练时，将 `recognition/data/synthesis_annotation.txt` 加入
+默认从 N=1 开始，已有图片目录、标注、未完成标注或当天报告批次占用时自动递增编号。
+使用合成数据训练时，将实际生成的 `recognition/data/synthesisN_annotation.txt` 加入
 `recognition/train.py` 的 `TRAIN_ANNOTATION` 列表，验证集继续使用原来的 val 标注。
 
 ### 红章干扰合成（默认 1000 张）
@@ -251,9 +252,9 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
   --report-dir outputs/red_stamp_preview/report
 ```
 
-默认输出图片为 `recognition/data/synthesis_red_stamp_YYYYMMDD_images/YYYYMMDD_00001.png`，
-标注为同级 `synthesis_red_stamp_YYYYMMDD_annotation.txt`，报告位于
-`outputs/synthesis_red_stamp_YYYYMMDD_report/`，包含 `summary.json`、逐图 `samples.jsonl`
+默认输出图片为 `recognition/data/synthesis_red_YYYYMMDD_images/YYYYMMDD_00001.png`，
+标注为同级 `synthesis_red_YYYYMMDD_annotation.txt`，报告位于
+`recognition/utils/synthesis/synthesis_report/synthesis_red_YYYYMMDD/`，包含 `summary.json`、逐图 `samples.jsonl`
 和最多 40 张抽样的 `preview.png`。记录原 train 文本行号、字体、参考风格、章的位置和正文
 重叠比例，便于复核。每张参考均匀采样；图数不少于参考数时，每张参考至少使用一次。
 支持 `--images`、`--references`（清单路径，条目相对于 `--data-dir`）、`--corpus`、
@@ -263,7 +264,7 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 训练数据和配置不自动修改，使用时将新标注加入 `TRAIN_ANNOTATION`。本脚本是红章干扰增强，
 不保证低频字符补齐配额，也不执行裁章或红色像素删除。
 
-### 按统计补齐低频字（约 30000 张）
+### 按统计补齐低频字（默认 50000 张）
 
 `recognition/utils/synthesis/generate_balanced.py` 是独立的补齐入口，复用上述字体检查、
 train/val 风格采样和 RGB 渲染。默认读取
@@ -274,10 +275,10 @@ train/val 风格采样和 RGB 渲染。默认读取
 不是每字图片数，也不是仅训练集次数；默认 CSV 基线包含 train、val 和旧 synthesis。
 
 ```bash
-# 先校验实际 CSV、字典、字体、参考图和全部 30000 条文字配额，不写文件
+# 先校验实际 CSV、字典、字体、参考图和全部 50000 条文字配额，不写文件
 .venv/bin/python recognition/utils/synthesis/generate_balanced.py --dry-run
 
-# 默认生成恰好 30000 张，年月日前缀自动取系统当天日期，无需传日期参数
+# 默认生成恰好 50000 张，年月日前缀自动取系统当天日期，无需传日期参数
 .venv/bin/python recognition/utils/synthesis/generate_balanced.py
 
 # 调整图片总数及最终字符次数
@@ -294,9 +295,9 @@ train/val 风格采样和 RGB 渲染。默认读取
 日期在脚本启动时从系统本地时间读取一次，同一批跨午夜也保持一致；不提供 `--date` 参数。
 以系统日期为 2026 年 9 月 8 日为例，默认输出为：
 
-- 图片：`../recognition/data/synthesis2_images/20260908_00001.png` 至 `20260908_30000.png`。
+- 图片：`recognition/data/synthesis_balanced_20260908_images/synthesis_balanced_20260908_00001.png` 至 `synthesis_balanced_20260908_50000.png`。
 - 标注：`recognition/data/synthesis_balanced_20260908_annotation.txt`，沿用实际加载器的 Tab 分隔格式。
-- 报告：`outputs/synthesis_balanced_20260908_report/`，包含逐字原次数/新增次数/最终次数
+- 报告：`recognition/utils/synthesis/synthesis_report/synthesis_balanced_20260908/`，包含逐字原次数/新增次数/最终次数
   `character_counts.csv`、`summary.json`、逐图 `samples.jsonl` 和 `preview.png`。
 
 支持 `--output-dir`、`--annotation`、`--report-dir` 自定义输出；沿用空目录检查和标注原子发布，

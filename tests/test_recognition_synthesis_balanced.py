@@ -99,7 +99,7 @@ def test_outputs_date_names_rgb_labels_and_auditable_final_counts(generation_arg
     assert len(lines) == 8
     for number, line in enumerate(lines, 1):
         relative, text = split_annotation_fields(line, args.annotation, number)
-        assert Path(relative).name == f"{args.date}_{number:05d}.png"
+        assert Path(relative).name == f"synthesis_balanced_{args.date}_{number:05d}.png"
         assert not Path(relative).is_absolute()
         with Image.open(args.annotation.parent / relative) as image:
             assert image.mode == "RGB"
@@ -144,4 +144,3 @@ def test_failed_render_does_not_publish_annotation(generation_args, monkeypatch)
     assert args.annotation.with_name("labels.txt.partial").exists()
     with pytest.raises(FileExistsError):
         balanced.generate(args)
-

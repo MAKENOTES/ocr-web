@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""按字符统计补齐低频字，默认合成 30000 张参考 train/val 风格的 PNG。"""
+"""按字符统计补齐低频字，默认合成 50000 张参考 train/val 风格的 PNG。"""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ from recognition.utils.synthesis.generate import (
     read_chars, render_image, sha256,
 )
 from recognition.utils.synthesis.style import Style, sample_styles
+from recognition.utils.synthesis.naming import REPORT_ROOT
 
 
 @dataclass(frozen=True)
@@ -177,7 +178,7 @@ def generate(args: argparse.Namespace) -> dict:
         for number, sample in enumerate(samples, 1):
             face = fonts[sample.font_index]
             image = render_image(sample.text, face, sample.style, rng)
-            filename = f"{args.date}_{number:05d}.png"
+            filename = f"synthesis_balanced_{args.date}_{number:05d}.png"
             path = args.output_dir / filename
             with path.open("xb") as handle:
                 image.save(handle, format="PNG")
@@ -239,7 +240,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     prefix = f"synthesis_balanced_{args.date}"
     args.output_dir = args.output_dir or DATA / f"{prefix}_images"
     args.annotation = args.annotation or DATA / f"{prefix}_annotation.txt"
-    args.report_dir = args.report_dir or ROOT / "outputs" / f"{prefix}_report"
+    args.report_dir = args.report_dir or REPORT_ROOT / prefix
     return args
 
 

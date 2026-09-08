@@ -69,6 +69,7 @@ def test_synthesis_outputs_exact_quota_and_readable_rgb_annotations(tmp_path):
     counts = Counter()
     for number, line in enumerate(args.annotation.read_text().splitlines(), 1):
         relative, text = split_annotation_fields(line, args.annotation, number)
+        assert Path(relative).name == f"{args.batch_name}_{args.date}_{number:05d}.png"
         assert not Path(relative).is_absolute()
         with Image.open(args.annotation.parent / relative) as image:
             assert image.mode == "RGB"

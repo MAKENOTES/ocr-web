@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime
 from functools import lru_cache
 import hashlib
 import importlib.metadata
@@ -25,6 +26,7 @@ if str(ROOT) not in sys.path:
 
 from recognition.utils.annotation import format_annotation_line
 from recognition.utils.synthesis.style import Style, sample_styles
+from recognition.utils.synthesis.naming import REPORT_ROOT, numbered_filename, numbered_outputs
 
 DATA = ROOT / "recognition/data"
 UPSTREAM_COMMIT = "a08835263289c9488ba8c24abacc321318c3f1e0"
@@ -210,7 +212,8 @@ def generate(args: argparse.Namespace) -> dict:
                 length = style.length
                 text = make_text(target, pools[face_index], length, rng)
                 image = render_image(text, face, style, rng)
-                filename = f"u{ord(target):06x}_{sample_index:03d}.png"
+                filename = numbered_filename(args.batch_name, args.date,
+                                             target_index * args.per_char + sample_index + 1)
                 path = args.output_dir / filename
                 with path.open("xb") as image_file:
                     image.save(image_file, format="PNG")
@@ -238,6 +241,7 @@ def generate(args: argparse.Namespace) -> dict:
     report = {
         "images": sum(counts.values()), "target_characters": len(targets),
         "per_char": args.per_char, "counts": dict(counts), "seed": args.seed,
+        "batch_name": args.batch_name, "date": args.date,
         "renderer": "oh-my-ocr/text_renderer.utils.draw_utils.draw_text_on_bg",
         "renderer_version": version, "tested_upstream_commit": UPSTREAM_COMMIT,
         "targets": str(args.targets), "targets_sha256": sha256(args.targets),
@@ -266,10 +270,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         default=[DATA / "train_images", DATA / "val_images"])
     parser.add_argument("--style-samples", type=int, default=1600)
     parser.add_argument("--fonts", type=Path, nargs="+", help="TTF/OTF/TTC 字体文件；默认本机中文字体")
-    parser.add_argument("--output-dir", type=Path, default=DATA / "synthesis_images")
-    parser.add_argument("--annotation", type=Path, default=DATA / "synthesis_annotation.txt")
-    parser.add_argument("--report-dir", type=Path, default=DATA / "synthesis_report")
-    return parser.parse_args(argv)
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--annotation", type=Path)
+    parser.add_argument("--report-dir", type=Path)
+    args = parser.parse_args(argv)
+    args.date = datetime.now().strftime("%Y%m%d")
+    args.batch_name, args.output_dir, args.annotation = numbered_outputs(
+        DATA, args.date, args.output_dir, args.annotation)
+    args.report_dir = args.report_dir or REPORT_ROOT / f"{args.batch_name}_{args.date}"
+    return args
 
 
 def main() -> int:

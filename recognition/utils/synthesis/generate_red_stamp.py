@@ -31,6 +31,7 @@ from recognition.utils.synthesis.generate import (
     load_fonts, render_image, sha256,
 )
 from recognition.utils.synthesis.style import Style
+from recognition.utils.synthesis.naming import REPORT_ROOT
 
 
 @dataclass(frozen=True)
@@ -355,11 +356,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--report-dir", type=Path)
     args = parser.parse_args(argv)
     args.date = datetime.now().strftime("%Y%m%d")
-    prefix = f"synthesis_red_stamp_{args.date}"
+    prefix = f"synthesis_red_{args.date}"
     args.corpus = args.corpus or args.data_dir / "train_annotation.txt"
     args.output_dir = args.output_dir or args.data_dir / f"{prefix}_images"
     args.annotation = args.annotation or args.data_dir / f"{prefix}_annotation.txt"
-    args.report_dir = args.report_dir or ROOT / "outputs" / f"{prefix}_report"
+    args.report_dir = args.report_dir or REPORT_ROOT / prefix
     return args
 
 

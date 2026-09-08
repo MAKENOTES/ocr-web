@@ -19,6 +19,12 @@
 .venv/bin/python -m pip install --no-deps -r recognition/utils/synthesis/requirements.txt
 ```
 
+三个入口的日期均在启动时自动取系统本地日期，序号从 `00001` 开始，在整批内连续递增。
+报告统一放在 `recognition/utils/synthesis/synthesis_report/` 下，按批次建立子目录：
+`synthesisN_YYYYMMDD/`、`synthesis_balanced_YYYYMMDD/`、`synthesis_red_YYYYMMDD/`。
+各子目录分别保存 `summary.json`、`samples.jsonl`、`preview.png` 等，互不覆盖。
+显式传入 `--report-dir` 时直接使用指定目录；三个入口仍支持自定义图片目录和标注文件路径。
+
 ## 1、全新或者占比少的字符
 对应脚本：[recognition/utils/synthesis/generate.py](../utils/synthesis/generate.py)。
 适用于已整理好目标字清单，希望给每个字新增固定数量样本的情况。
@@ -37,7 +43,14 @@
 | 标注文件 | `recognition/data/synthesis1_annotation.txt` |
 | 报告目录 | `recognition/utils/synthesis/synthesis_report/` |
 
-如果synthesis1存在 自动变成synthesis2，如果synthesis2存在 自动变成synthesis3 ，以此类推。
+默认从 `synthesis1` 开始选择未占用编号。如果对应图片目录、标注、`.partial` 标注或当天报告批次存在，
+自动尝试 `synthesis2`、`synthesis3`，以此类推；图片文件名前缀与选中的编号一致。
+显式指定的图片目录或标注名称包含 `synthesisN` 时沿用该编号，已有非空输出仍拒绝覆盖。
+
+已有 `synthesis1_annotation.txt`、`synthesis2_annotation.txt` 中的图片按各自标注顺序重新编号，
+日期取迁移当天。可用 `python recognition/utils/rename_synthesis_images.py` 预览，
+加 `--apply` 同步改名和更新标注路径；正文和图片内容不变。
+原始标注、新旧文件名映射及图片 SHA-256 保存在 `outputs/synthesis_naming_migration/rename-*/`。
 
 ### 风格要求
 默认从 `recognition/data/train_images/`、`val_images/` 合并抽样最多 **1600 张**参考图，

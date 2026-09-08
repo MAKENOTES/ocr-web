@@ -21,10 +21,12 @@ recognition/data/*
 !recognition/data/bench2_annotation.txt
 !recognition/data/synthesis1_annotation.txt
 !recognition/data/synthesis2_annotation.txt
+!recognition/data/synthesis_red_annotation.txt
 !recognition/data/train_annotation.txt
 !recognition/data/val_annotation.txt
 !recognition/data/val_unknown.txt
 recognition/runs/
+recognition/utils/synthesis/synthesis_report/
 recognition/checkpoints/
 recognition_quantized_model_bak/
 
@@ -36,5 +38,4 @@ best_detection.pth
 best_recognition.onnx
 best_recognition.onnx.data
 best_recognition.pth
-
 
