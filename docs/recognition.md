@@ -188,6 +188,46 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 使用合成数据训练时，将 `recognition/data/synthesis_annotation.txt` 加入
 `recognition/train.py` 的 `TRAIN_ANNOTATION` 列表，验证集继续使用原来的 val 标注。
 
+### 按统计补齐低频字（约 30000 张）
+
+`recognition/utils/synthesis/generate_balanced.py` 是独立的补齐入口，复用上述字体检查、
+train/val 风格采样和 RGB 渲染。默认读取
+`outputs/recognition_character_stats/character_stats.csv` 的**第一列字符和最后一列次数**，
+只选中原次数严格小于 100 的字符（包含零次），新增次数为 `110 - 原次数`。
+可用 `--target-count 100` 到 `120` 调整最终次数；原本已经达到 100 次的字不设补齐配额。
+这里的最终次数是 **CSV 基线 + 本批新增标注中的字符出现次数**，同一图片内重复字也累加，
+不是每字图片数，也不是仅训练集次数；默认 CSV 基线包含 train、val 和旧 synthesis。
+
+```bash
+# 先校验实际 CSV、字典、字体、参考图和全部 30000 条文字配额，不写文件
+.venv/bin/python recognition/utils/synthesis/generate_balanced.py --dry-run
+
+# 默认生成恰好 30000 张，年月日前缀自动取系统当天日期，无需传日期参数
+.venv/bin/python recognition/utils/synthesis/generate_balanced.py
+
+# 调整图片总数及最终字符次数
+.venv/bin/python recognition/utils/synthesis/generate_balanced.py \
+  --images 30000 --target-count 110
+```
+
+为同时满足图片总数和补齐次数，一张图可以包含多个目标字。先打乱全部缺口字符，
+再均匀分配至 `--images` 张图；配字仅从 CSV 中已达到 100 次且 keys/当前字体支持的字中选取，
+不会额外增加目标字次数。文字长度沿用参考图估计值；若容纳不下分配的目标字则扩长，
+仍最多 24 字，颜色、高度与留白继续使用参考风格。图数不足以容纳全部缺口时提前报错，
+不静默减少配额。每条文字须由同一个字体完整覆盖，缺字或配字不足会在写图片前报错。
+
+日期在脚本启动时从系统本地时间读取一次，同一批跨午夜也保持一致；不提供 `--date` 参数。
+以系统日期为 2026 年 9 月 8 日为例，默认输出为：
+
+- 图片：`../recognition/data/synthesis2_images/20260908_00001.png` 至 `20260908_30000.png`。
+- 标注：`recognition/data/synthesis_balanced_20260908_annotation.txt`，沿用实际加载器的 Tab 分隔格式。
+- 报告：`outputs/synthesis_balanced_20260908_report/`，包含逐字原次数/新增次数/最终次数
+  `character_counts.csv`、`summary.json`、逐图 `samples.jsonl` 和 `preview.png`。
+
+支持 `--output-dir`、`--annotation`、`--report-dir` 自定义输出；沿用空目录检查和标注原子发布，
+拒绝覆盖旧产物，不自动修改训练配置或合并旧标注。后续再补齐前，应将本批标注纳入
+`character_stats.py --annotations ...` 重新统计，并通过 `--stats` 指定新 CSV，避免重复使用旧基线。
+
 ## 3. 模型与张量契约
 
 ```mermaid

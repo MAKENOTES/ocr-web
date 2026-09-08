@@ -16,10 +16,11 @@ except ModuleNotFoundError:  # 支持直接运行当前脚本，不依赖 torch
 
 
 RECOGNITION_DIR = Path(__file__).resolve().parents[1]
-SYNTHESIS_DATASET = "synthesis"
+SYNTHESIS_DATASET1 = "synthesis1"
+SYNTHESIS_DATASET2 = "synthesis2"
 DEFAULT_ANNOTATIONS = [
     RECOGNITION_DIR / "data" / f"{name}_annotation.txt"
-    for name in ("train", "val", SYNTHESIS_DATASET)
+    for name in ("train", "val", SYNTHESIS_DATASET1, SYNTHESIS_DATASET2)
 ]
 DEFAULT_OUTPUT_DIR = RECOGNITION_DIR.parent / "outputs" / "recognition_character_stats"
 
@@ -187,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--keys", type=Path, default=RECOGNITION_DIR / "keys.txt")
     parser.add_argument("--annotations", type=Path, nargs="+", default=DEFAULT_ANNOTATIONS,
-                        help=f"标注文件路径；默认统计 train、val、{SYNTHESIS_DATASET}")
+                        help=f"标注文件路径；默认统计 train、val、{SYNTHESIS_DATASET1}、{SYNTHESIS_DATASET2}")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
         "--chars", help="终端仅显示指定字符，例如 王 或 王李；默认显示全部，CSV 始终保存全部 keys 字符"

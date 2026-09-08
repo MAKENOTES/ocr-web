@@ -16,16 +16,16 @@ from pathlib import Path
 try:
     from recognition.utils.annotation import split_annotation_fields
     from recognition.utils.character_stats import (
-        DEFAULT_OUTPUT_DIR, RECOGNITION_DIR, SYNTHESIS_DATASET, load_keys,
+        DEFAULT_OUTPUT_DIR, RECOGNITION_DIR, SYNTHESIS_DATASET1, SYNTHESIS_DATASET2, load_keys,
     )
     from recognition.utils.convert_annotation_delimiter import atomic_write
 except ModuleNotFoundError:  # 支持直接运行脚本，不依赖 torch
     from annotation import split_annotation_fields
-    from character_stats import DEFAULT_OUTPUT_DIR, RECOGNITION_DIR, SYNTHESIS_DATASET, load_keys
+    from character_stats import DEFAULT_OUTPUT_DIR, RECOGNITION_DIR, SYNTHESIS_DATASET1, SYNTHESIS_DATASET2, load_keys
     from convert_annotation_delimiter import atomic_write
 
 
-TARGETS = (SYNTHESIS_DATASET,)
+TARGETS = (SYNTHESIS_DATASET1, SYNTHESIS_DATASET2)
 DATASETS = ("train", "val", *TARGETS)
 
 
