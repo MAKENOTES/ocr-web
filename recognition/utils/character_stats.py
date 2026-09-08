@@ -18,7 +18,7 @@ except ModuleNotFoundError:  # 支持直接运行当前脚本，不依赖 torch
 RECOGNITION_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_ANNOTATIONS = [
     RECOGNITION_DIR / "data" / f"{name}_annotation.txt"
-    for name in ("train", "val", "bench2", "append", "bench1")
+    for name in ("train", "val", "synthesis")
 ]
 DEFAULT_OUTPUT_DIR = RECOGNITION_DIR.parent / "outputs" / "recognition_character_stats"
 

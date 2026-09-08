@@ -47,10 +47,8 @@ python recognition/utils/remove_characters_by_stats.py --apply
 
 4、recognition/split_dataset.py 把某个数据集划分成 训练和验证，首次用后续预计不会用。
 5、recognition/utils/check_dataset_annotations.py  核对多个数据集 ，暂时不能用 all 删除了 而且新增了几个数据集。
-6、recognition/utils/convert_annotation_delimiter.py  转换数据集分割符号工具，后续应该不用。
-7、之前的工具，应该不用了。
-recognition/utils/normalization_label.py     
-recognition/utils/remove_annotation_outer_quotes.py
+6、被依赖
+convert_annotation_delimiter
 
 ### 数据归一化
 - 无空格

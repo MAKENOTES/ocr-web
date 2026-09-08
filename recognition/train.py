@@ -24,9 +24,10 @@ import Levenshtein
 # 1. 路径配置
 TRAIN_ANNOTATION = (
     "recognition/data/train_annotation.txt",
-    "recognition/data/append_annotation.txt",
-    "recognition/data/bench1_annotation.txt",
-    "recognition/data/bench2_annotation.txt",
+    # "recognition/data/append_annotation.txt",
+    # "recognition/data/bench1_annotation.txt",
+    # "recognition/data/bench2_annotation.txt",
+    "recognition/data/synthesis_annotation.txt",
 )
 VALID_ANNOTATION = "recognition/data/val_annotation.txt"
 KEYS_PATH = "recognition/keys.txt"

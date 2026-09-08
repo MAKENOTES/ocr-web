@@ -75,11 +75,11 @@ split 中同名图片后面的识别文字。校对通过返回 0；缺失、多
 # 终端只显示“王”的次数和占比，CSV 仍保留 keys 中的全部字符
 .venv/bin/python recognition/utils/character_stats.py --chars 王
 
-# 按 train.py 的四份训练标注统计，排除 val
+# 按 train.py 的五份训练标注统计，排除 val
 .venv/bin/python recognition/utils/character_stats.py \
   --annotations recognition/data/train_annotation.txt \
   recognition/data/append_annotation.txt recognition/data/bench1_annotation.txt \
-  recognition/data/bench2_annotation.txt \
+  recognition/data/bench2_annotation.txt recognition/data/synthesis_annotation.txt \
   --output-dir outputs/recognition_training_character_stats
 ```
 
@@ -242,8 +242,9 @@ flowchart LR
 - `recognition_inference.py`：ONNX/OpenVINO/PyTorch 部署推理。
 
 `train.py` 的 `TRAIN_ANNOTATION` 可配置一个标注路径或多个标注路径；当前训练集按配置顺序
-合并 `train_annotation.txt`、`append_annotation.txt`、`bench1_annotation.txt` 和
-`bench2_annotation.txt`，各文件内的图片路径分别相对于自身所在目录解析。
+合并 `train_annotation.txt`、`append_annotation.txt`、`bench1_annotation.txt`、
+`bench2_annotation.txt` 和 `synthesis_annotation.txt`，各文件内的图片路径分别相对于
+自身所在目录解析。
 
 示例：
 
@@ -295,6 +296,6 @@ python recognition_inference.py \
 - `recognition_quantize_static.py` 当前不进入发布路径。FP32 ONNX/OpenVINO 是默认优化方向。
 - `model_resnet50.py` 和历史说明文档属于实验资产，未通过同一门禁前不替代当前基线。
 
-2026-09-07 对 epoch 471 权重、红章/小字清单、字符频次和训练日志的实测见
-[专项分析](recognition-analysis-2026-09-07.md)。该报告中的输入通道和边缘探针仅用于诊断，
-没有改变上述训练或推理契约。
+2026-09-07 对 dataset 历史改动、红章增强和训练机制的复核见
+[专项分析](recognition-analysis-2026-09-07.md)。报告区分本次像素/机制测量与尚待完成的
+训练精度对照，没有改变上述训练或推理契约。
