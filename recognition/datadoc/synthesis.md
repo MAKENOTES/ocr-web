@@ -32,14 +32,12 @@
 
 | 产物 | 默认路径或命名 |
 |---|---|
-| 图片目录 | `recognition/data/synthesis_images/` |
-| 图片文件 | `u{Unicode码点:06x}_{字内序号:03d}.png` |
-| 标注文件 | `recognition/data/synthesis_annotation.txt` |
-| 报告目录 | `recognition/data/synthesis_report/` |
+| 图片目录 | `recognition/data/synthesis1_images/` |
+| 图片文件 | `synthesis1_YYYYMMDD_00001.png`、`synthesis1_YYYYMMDD_00002.png`……  |
+| 标注文件 | `recognition/data/synthesis1_annotation.txt` |
+| 报告目录 | `recognition/utils/synthesis/synthesis_report/` |
 
-码点使用至少 6 位小写十六进制，序号按每个目标字分别从 `000` 开始。
-例如“中”的码点是 U+4E2D，前两张为 `u004e2d_000.png`、`u004e2d_001.png`。
-报告中的 `counts` 用于核对每个目标字是否达到本批配额。
+如果synthesis1存在 自动变成synthesis2，如果synthesis2存在 自动变成synthesis3 ，以此类推。
 
 ### 风格要求
 默认从 `recognition/data/train_images/`、`val_images/` 合并抽样最多 **1600 张**参考图，
@@ -63,14 +61,12 @@ python recognition/utils/synthesis/generate.py
 
 
 ### 文件夹和文件命名规则
-
 | 产物 | 默认路径或命名 |
 |---|---|
 | 图片目录 | `recognition/data/synthesis_balanced_YYYYMMDD_images/` |
-| 图片文件 | `YYYYMMDD_00001.png`、`YYYYMMDD_00002.png`…… |
+| 图片文件 | `synthesis_balanced_YYYYMMDD_00001.png`、`synthesis_balanced_YYYYMMDD_00002.png`…… |
 | 标注文件 | `recognition/data/synthesis_balanced_YYYYMMDD_annotation.txt` |
-| 报告目录 | `outputs/synthesis_balanced_YYYYMMDD_report/` |
-
+| 报告目录 | `recognition/utils/synthesis/synthesis_report/` |
 
 
 ### 风格要求
@@ -97,10 +93,10 @@ python recognition/utils/synthesis/generate_balanced.py
 ### 文件夹和文件命名规则
 | 产物 | 默认路径或命名 |
 |---|---|
-| 图片目录 | `recognition/data/synthesis_red_stamp_YYYYMMDD_images/` |
+| 图片目录 | `recognition/data/synthesis_red_YYYYMMDD_images/` |
 | 图片文件 | `YYYYMMDD_00001.png` 至默认批次的 `YYYYMMDD_01000.png` |
-| 标注文件 | `recognition/data/synthesis_red_stamp_YYYYMMDD_annotation.txt` |
-| 报告目录 | `outputs/synthesis_red_stamp_YYYYMMDD_report/` |
+| 标注文件 | `recognition/data/synthesis_red_YYYYMMDD_annotation.txt` |
+| 报告目录 | `recognition/utils/synthesis/synthesis_report/` |
 
 ### 风格要求
 参考清单为 [red_stamp_references.txt](../utils/synthesis/red_stamp_references.txt)，
@@ -110,5 +106,5 @@ python recognition/utils/synthesis/generate_balanced.py
 ### 使用命令
 ```bash
 # 默认生成 1000 张红章干扰样本
-.venv/bin/python recognition/utils/synthesis/generate_red_stamp.py
+python recognition/utils/synthesis/generate_red_stamp.py
 ```
