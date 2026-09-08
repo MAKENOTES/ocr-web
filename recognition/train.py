@@ -26,6 +26,7 @@ TRAIN_ANNOTATION = (
     "recognition/data/train_annotation.txt",
     "recognition/data/synthesis1_annotation.txt",
     "recognition/data/synthesis2_annotation.txt",
+    "recognition/data/synthesis3_annotation.txt",
     "recognition/data/synthesis_red_annotation.txt",
 )
 VALID_ANNOTATION = "recognition/data/val_annotation.txt"
