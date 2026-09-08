@@ -23,7 +23,7 @@ except ModuleNotFoundError:  # 支持直接运行脚本，不依赖 torch
     from convert_annotation_delimiter import atomic_write
 
 
-TARGETS = ("append", "bench1", "bench2", "synthesis")
+TARGETS = ("synthesis")
 DATASETS = ("train", "val", *TARGETS)
 
 
