@@ -4,7 +4,7 @@
 
 **先记住一句话：这个文件把大小不同的 detection 文字框，整理成可以一起送入模型的图片张量，同时保留每张图自己的真实宽度。** 训练与推理共享图片处理逻辑，区别主要是是否增强、返回标签还是路径。
 
-配套阅读：[model.py 分析](model-analysis.md)说明真实宽度如何控制模型，[converter.py 分析](converter-analysis.md)说明标签如何变成 CTC 编号；整体约定见 [Recognition 架构](../recognition.md)。
+配套阅读：[model.py 分析](model-analysis.md)说明真实宽度如何控制模型，[converter.py 分析](converter-analysis.md)说明标签如何变成 CTC 编号；整体约定见 [Recognition 架构](recognition.md)。
 
 ## 1. 先看最终交付给模型的三个东西
 

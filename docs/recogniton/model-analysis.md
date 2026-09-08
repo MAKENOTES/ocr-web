@@ -4,7 +4,7 @@
 
 **先记住一句话：`CRNN` 用 CNN 把图片变成从左到右的特征序列，用双向 GRU 理解上下文，再为每个时间步输出各字符类别的对数概率。** 最终字符串由 converter 解码，训练损失由训练脚本计算。
 
-配套阅读：[dataset.py 分析](dataset-analysis.md)说明图片和真实宽度从哪里来，[converter.py 分析](converter-analysis.md)说明类别编号与 CTC 解码；整体约定见 [Recognition 架构](../recognition.md)。
+配套阅读：[dataset.py 分析](dataset-analysis.md)说明图片和真实宽度从哪里来，[converter.py 分析](converter-analysis.md)说明类别编号与 CTC 解码；整体约定见 [Recognition 架构](recognition.md)。
 
 ## 1. 输入输出：先把四种维度分清
 

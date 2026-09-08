@@ -4,7 +4,7 @@
 
 **先记住一句话：`LabelConverter` 管理“哪个编号代表哪个字”，训练时把标签变成整数，推理时把模型预测的整数路径合并成文字。** 它不读取图片，也不运行神经网络。
 
-配套阅读：[dataset.py 分析](dataset-analysis.md)负责图片与标签，[model.py 分析](model-analysis.md)负责生成预测；整体约定见 [Recognition 架构](../recognition.md)。
+配套阅读：[dataset.py 分析](dataset-analysis.md)负责图片与标签，[model.py 分析](model-analysis.md)负责生成预测；整体约定见 [Recognition 架构](recognition.md)。
 
 ## 1. 在识别链路中的位置
 

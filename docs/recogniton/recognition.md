@@ -14,7 +14,8 @@ flowchart TD
     I[元素图片] --> DS
     DS --> PNG[严格读取标注中的 PNG 路径]
     PNG --> RGB[读取 RGB + 透明通道合成]
-    RGB --> RESIZE[完整 detection 框固定高度32 + 等比宽度]
+    RGB --> SEAL[按局部叠印关系去红章 / 保护同行红字]
+    SEAL --> RESIZE[完整 detection 框固定高度32 + 等比宽度]
     RESIZE --> MINW[窄图按边缘背景色补到宽48]
     MINW --> AUG{训练集?}
     AUG -->|是| TA[颜色/极性/模糊/轻噪声]
@@ -28,16 +29,60 @@ flowchart TD
 
 相关实现：
 
-- `recognition/components/dataset.py`：图片路径校验、PNG 透明通道处理、缩放、增强、桶采样和动态 padding；
-- `recognition/utils/checkpoint.py`：checkpoint 解包以及旧灰度/新 RGB 模型通道识别；
-- `recognition/components/converter.py`：字典编码和显式 TBC/BTC 的 CTC greedy decode。
+- `../../recognition/components/dataset.py`：图片路径校验、PNG 透明通道处理、缩放、增强、桶采样和动态 padding；
+- `../../recognition/utils/checkpoint.py`：checkpoint 解包以及旧灰度/新 RGB 模型通道识别；
+- `../../recognition/components/converter.py`：字典编码和显式 TBC/BTC 的 CTC greedy decode。
 
 训练、验证、PyTorch 推理和多后端推理复用同一套不裁剪基础预处理。训练可额外使用随机增强；验证和测试禁止随机增强。
+
+### 保守去红章与训练增强
+
+`remove_red_seal` 在透明背景合成之后、缩放和随机增强之前统一执行，输入为 RGB。
+现在按**局部红色与正文的交错叠印关系**判断，支持紧框内的断章、章字、星形和局部弧线，
+不再要求每个连通区域都能拟合成完整圆章，也不要求正文墨迹比章墨迹多。
+
+- 颜色候选：R ≥150、R 比 G/B 至少高25、G/B 色差不超过40；红色总面积不超过35%。
+  纸面至少40%、边缘至少50%为近中性浅色，允许灰纸、轻微偏色及扫描颗粒。
+- 正文证据：灰黑像素的 RGB 最大值不超过170、通道色差不超过35，且明确排除红色候选，
+  防止红字被同时计为“黑字”。正文至少16像素，且不少于红像素数量的15%。
+- 局部判定：相距不超过两倍正文行高的红色列分组；按正文列密度检查组内黑字支持率，
+  同时要求红色既进入正文行、又有至少8%越过上边或下边。只剩半个章也可通过。
+- 逐区域保护：分组通过后仍检查每个红色连通区域的黑字支持；完全位于正文行内的小红字
+  保留。只有一个连通区域时，额外检查弧线、椭圆或复杂章形，避免简单边框和折线误触发。
+
+最终只将通过检查的原始红像素替换为纸面中位色，不进行掩码膨胀、闭运算或内容裁剪。
+纯红字、普通同行黑红混排、红底白字及无正文支持的红色内容保留；同组出现一个章也不会
+清空整组红色。与正文完全对齐的章字、极暗的印泥和缺乏正文证据的片段仍可能残留。
+红色标记/合法红字若与黑字交错且越过正文行，也存在误判可能；不透明印泥覆盖的正文无法
+由此恢复。这些阈值属于启发式规则，上线效果仍需用红章及合法红字分组评估。
+已有权重的验证/推理输入也会受这一确定性预处理影响。
+
+2026-09-08 使用用户指定的43张问题图复核：触发从4张提高到42张（val 14/14，train 28/29）；
+`000351-000003.png` 的 R 超出 G/B 较大值的最大色差仅14，没有满足候选条件的红色，保持原样。
+对照376张含候选红色、标签为“删除”或“导入说明”的图片，均未改写。
+43张中的近中性深色像素（RGB 最大值≤170、通道色差<25）改写数为0。
+这批图片用于规则调试，不是独立测试集；触发率不等于去章完整率或 OCR 准确率，
+对照结果也不代表所有合法红字均能保留。逐图统计和前后对比图保存在本地
+`../../outputs/red_seal_audit_20260908`，原图未修改。
+
+训练随机增强保持现有参数，各项作用如下（验证/推理不启用）：
+
+| 类型 | 概率 | 覆盖场景 |
+| --- | --- | --- |
+| ColorJitter | 70% | 曝光变化、扫描反差、彩字浓淡、轻微白平衡偏色 |
+| RandomAutocontrast | 20% | 扫描软件拉伸灰度、截图对比度差异 |
+| RandomInvert | 8% | 深色主题、黑底白字；残留红章也会随之反色 |
+| GaussianBlur | 15% | 轻微失焦、低分辨率截图、缩放造成的模糊 |
+| AddGaussianNoise | 15% | 扫描颗粒、相机传感器轻噪声 |
+| RandomErasing | 5% | 污点、磨损、局部遮挡；面积 0.5%～3%，仍可能遮挡小数点或短文本关键笔画 |
+
+灰度转换用于兼容旧单通道模型，ToTensor 和 Normalize 用于统一张量及数值范围，
+均不是随机增强。完整 detection 框继续等比缩放与动态 padding，不增加旋转、透视或二次裁剪。
 
 ### 初始训练集/验证集划分
 
 当 `all_images/` 和 `all_annotation.txt` 保存全量数据时，使用
-`recognition/split_dataset.py` 做确定性的 80/20 均匀系统抽样。脚本按标注顺序每隔约
+`../../recognition/split_dataset.py` 做确定性的 80/20 均匀系统抽样。脚本按标注顺序每隔约
 5 条抽取一条到验证集，其余进入训练集；总数不能被 5 整除时，会在 4～5 条之间
 均匀调整间隔，使验证集数量等于最接近 20% 的整数。
 
@@ -83,7 +128,7 @@ split 中同名图片后面的识别文字。校对通过返回 0；缺失、多
   --output-dir outputs/recognition_training_character_stats
 ```
 
-只生成 `outputs/recognition_character_stats/character_stats.csv`，不再生成 JSON。
+只生成 `../../outputs/recognition_character_stats/character_stats.csv`，不再生成 JSON。
 CSV 和终端均按未舍入的合计占比倒序输出，同频保持 keys 原顺序，零出现字符也保留；
 只列 keys 中的字符，不修改 keys。占比列在前，次数列统一放在最后。
 默认列顺序为 `字符、train_占比、val_占比、synthesis_占比、合计_占比、
@@ -94,14 +139,14 @@ train_次数、val_次数、synthesis_次数、合计_次数`。
 合计累加本次传入的全部标注记录，不去重，默认包含 val，不能当作训练集总量。
 终端同时提供各文件及合计的文字总字符数，方便核对分母。
 默认运行也会在终端逐行打印全部字符；`--chars` 只限制终端展示，不过滤输出文件。
-`outputs/` 在 `.gitignore` 中，编辑器全局搜索可能排除它；直接打开文件搜索，或显式运行
+`../../outputs` 在 `../../.gitignore` 中，编辑器全局搜索可能排除它；直接打开文件搜索，或显式运行
 `rg -n 王 outputs/recognition_character_stats/character_stats.csv`。
 脚本复用训练的 Tab 解析和首尾空白处理规则，不进行标点、Unicode 或转义归一化；
 空标签按训练规则跳过并计数，格式错误直接报告具体文件与行号。此脚本不检查图片。
 
 ### 按字符统计移除补充数据
 
-`recognition/utils/remove_characters_by_stats.py` 使用上述默认 CSV，并核对当前
+`../../recognition/utils/remove_characters_by_stats.py` 使用上述默认 CSV，并核对当前
 `keys.txt` 和 train、val、synthesis 三份标注中的实际字符次数。
 CSV 缺列、字符集合或次数不一致时停止，需先重新运行 `character_stats.py`。
 
@@ -142,9 +187,9 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 
 ### 移除 train/val 已覆盖字符的合成样本
 
-`recognition/utils/remove_common_synthesis.py` 专门处理
-`recognition/data/synthesis1_annotation.txt` 和 `synthesis2_annotation.txt`。
-读取 `outputs/recognition_character_stats/character_stats.csv` 的 `train_次数`、`val_次数`，
+`../../recognition/utils/remove_common_synthesis.py` 专门处理
+`../../recognition/data/synthesis1_annotation.txt` 和 `synthesis2_annotation.txt`。
+读取 `../../outputs/recognition_character_stats/character_stats.csv` 的 `train_次数`、`val_次数`，
 以 **train + val 合计 >= 100** 判断常见字，包含恰好 100 次；不使用包含 synthesis 的总次数
 来判断是否需要补充。可用 `--threshold` 调整阈值。
 
@@ -175,10 +220,10 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 
 ### 补字合成数据
 
-`recognition/utils/synthesis/generate.py` 使用
+`../../recognition/utils/synthesis/generate.py` 使用
 [oh-my-ocr/text_renderer](https://github.com/oh-my-ocr/text_renderer) 的
-`FontText` 和 `draw_text_on_bg` 字形渲染接口。针对 `recognition/keys-append.txt`
-每个字默认生成 100 张；配字仅取 `recognition/keys.txt` 中**非目标字**且当前字体支持的字符，
+`FontText` 和 `draw_text_on_bg` 字形渲染接口。针对 `../../recognition/keys-append.txt`
+每个字默认生成 100 张；配字仅取 `../../recognition/keys.txt` 中**非目标字**且当前字体支持的字符，
 每张仅包含一个目标字，保证每个目标字的图片数和出现次数都严格等于 100。
 字符文件要求每行一个可见字符、无重复；目标不在 keys 或没有字体支持时直接报错。
 不修改 keys、现有训练/验证数据或训练配置。
@@ -220,11 +265,11 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 不会覆盖或自动清理旧产物。成功后才原子发布正式标注。上述数据均被 Git 忽略。
 默认从 N=1 开始，已有图片目录、标注、未完成标注或当天报告批次占用时自动递增编号。
 使用合成数据训练时，将实际生成的 `recognition/data/synthesisN_annotation.txt` 加入
-`recognition/train.py` 的 `TRAIN_ANNOTATION` 列表，验证集继续使用原来的 val 标注。
+`../../recognition/train.py` 的 `TRAIN_ANNOTATION` 列表，验证集继续使用原来的 val 标注。
 
 ### 红章干扰合成（默认 1000 张）
 
-`recognition/utils/synthesis/generate_red_stamp.py` 默认读取同目录
+`../../recognition/utils/synthesis/generate_red_stamp.py` 默认读取同目录
 `red_stamp_references.txt` 中指定的 43 张参考框（train 29 张、val 14 张），提取正文颜色、
 高度、留白、宽高比，以及红章颜色、相对直径、浓淡和覆盖率。参考图经过共享
 `load_rgb_image` 读取，仅保留数值风格，不复制原图像素，不读取 val 标注。
@@ -266,9 +311,9 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 
 ### 按统计补齐低频字（默认 50000 张）
 
-`recognition/utils/synthesis/generate_balanced.py` 是独立的补齐入口，复用上述字体检查、
+`../../recognition/utils/synthesis/generate_balanced.py` 是独立的补齐入口，复用上述字体检查、
 train/val 风格采样和 RGB 渲染。默认读取
-`outputs/recognition_character_stats/character_stats.csv` 的**第一列字符和最后一列次数**，
+`../../outputs/recognition_character_stats/character_stats.csv` 的**第一列字符和最后一列次数**，
 只选中原次数严格小于 100 的字符（包含零次），新增次数为 `110 - 原次数`。
 可用 `--target-count 100` 到 `120` 调整最终次数；原本已经达到 100 次的字不设补齐配额。
 这里的最终次数是 **CSV 基线 + 本批新增标注中的字符出现次数**，同一图片内重复字也累加，
@@ -351,11 +396,11 @@ flowchart LR
 
 主入口：
 
-- `recognition/train.py`：训练与训练期验证；
-- `recognition/evaluate_val.py`：独立 manifest 的 Accuracy/CER/错误样本；
-- `recognition/inference.py`：PyTorch checkpoint 调试；
-- `recognition_export_onnx.py`：带 `img_widths`、动态 batch/width 的 ONNX；
-- `recognition_inference.py`：ONNX/OpenVINO/PyTorch 部署推理。
+- `../../recognition/train.py`：训练与训练期验证；
+- `../../recognition/evaluate_val.py`：独立 manifest 的 Accuracy/CER/错误样本；
+- `../../recognition/inference.py`：PyTorch checkpoint 调试；
+- `../../recognition_export_onnx.py`：带 `img_widths`、动态 batch/width 的 ONNX；
+- `../../recognition_inference.py`：ONNX/OpenVINO/PyTorch 部署推理。
 
 `train.py` 的 `TRAIN_ANNOTATION` 可配置一个标注路径或多个标注路径；当前训练集按配置顺序
 合并 `train_annotation.txt`、`append_annotation.txt`、`bench1_annotation.txt`、
@@ -409,7 +454,7 @@ python recognition_inference.py \
 - 训练数据与标注统一使用 `.png`；路径或扩展名不一致会直接报错，避免自动回退掩盖数据问题或以 dummy tensor 静默污染训练。
 - recognition 不再做二次裁剪；detection 框质量需要在 detection 环节单独评估。
 - 输入高度目前固定 32；48 高度只能作为同数据、同训练预算的消融实验，不能直接替换现有权重。
-- `recognition_quantize_static.py` 当前不进入发布路径。FP32 ONNX/OpenVINO 是默认优化方向。
+- `../../recognition_quantize_static.py` 当前不进入发布路径。FP32 ONNX/OpenVINO 是默认优化方向。
 - `model_resnet50.py` 和历史说明文档属于实验资产，未通过同一门禁前不替代当前基线。
 
 2026-09-07 对 dataset 历史改动、红章增强和训练机制的复核见

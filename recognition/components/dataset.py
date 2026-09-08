@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import torch
+import cv2
 import numpy as np
 from PIL import Image, ImageFile, ImageOps, ImageStat
 from torch.utils.data import Dataset, DataLoader, Sampler
@@ -90,6 +91,163 @@ def _border_fill_color(image: Image.Image):
         axis=0,
     )
     return tuple(int(value) for value in np.median(border, axis=0))
+
+
+def _is_red_seal_arc(component: np.ndarray, text_height: float) -> bool:
+    """识别 detection 紧框内的连续弯曲章边；直线、短笔画和杂乱红字不通过。"""
+    for oriented in (component, component.T):
+        columns = np.flatnonzero(oriented.any(axis=0))
+        span = columns[-1] - columns[0] + 1
+        if span < 2 * text_height or columns.size < 0.9 * span:
+            continue
+        thickness = oriented[:, columns].sum(axis=0)
+        if np.quantile(thickness, 0.9) > 0.6 * text_height:
+            continue
+        centerline = np.array([
+            np.median(np.flatnonzero(oriented[:, column])) for column in columns
+        ])
+        # 局部圆弧用二次曲线近似；要求明显曲率，排除红色下划线/表格边框。
+        coefficients = np.polyfit(columns, centerline, 2)
+        if abs(coefficients[0]) * (span - 1) ** 2 < 0.5 * text_height:
+            continue
+        residual = np.abs(np.polyval(coefficients, columns) - centerline)
+        if np.quantile(residual, 0.9) <= max(1.5, 0.12 * text_height):
+            return True
+    return False
+
+
+def _is_single_seal_component(component: np.ndarray, text_height: float) -> bool:
+    """单个连通区域需有弧线、椭圆或复杂章形，避免把直线/简单边框当章。"""
+    height, width = component.shape
+    if min(height, width) < 0.8 * text_height:
+        return False
+    if _is_red_seal_arc(component, text_height):
+        return True
+    contours, _ = cv2.findContours(
+        component.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE,
+    )
+    contour = max(contours, key=cv2.contourArea)
+    if len(contour) < 12:
+        return False
+    # 星形、连在一起的章字无需拟合成圆；矩形框和简单折线继续保留。
+    polygon = cv2.approxPolyDP(contour, 0.02 * cv2.arcLength(contour, True), True)
+    if len(polygon) >= 9:
+        return True
+    (cx, cy), (axis_a, axis_b), angle = cv2.fitEllipse(contour)
+    if (
+        not np.isfinite([cx, cy, axis_a, axis_b, angle]).all()
+        or min(axis_a, axis_b) < text_height
+        or max(axis_a, axis_b) > 3 * min(axis_a, axis_b)
+        or component.mean() > 0.45
+    ):
+        return False
+    points = contour[:, 0, :].astype(np.float64) - (cx, cy)
+    radians = np.deg2rad(angle)
+    u = points[:, 0] * np.cos(radians) + points[:, 1] * np.sin(radians)
+    v = -points[:, 0] * np.sin(radians) + points[:, 1] * np.cos(radians)
+    radius = np.sqrt((2 * u / axis_a) ** 2 + (2 * v / axis_b) ** 2)
+    return bool(np.quantile(np.abs(radius - 1), 0.9) <= 0.12)
+
+
+def remove_red_seal(image: Image.Image) -> Image.Image:
+    """去除浅色纸面上与深色正文交错叠印的红章，包括被紧框截断的章字。
+
+    按局部红色区域检查正文穿插和上下错位，不再要求每个碎片都有完整章轮廓。
+    普通同行红字所在列通常没有黑色正文，或与正文行高对齐，因此保留。
+    区域通过后仍逐个检查连通区域的正文支持，避免连带删除附近合法红字。
+    只替换候选区域内的红像素，不膨胀掩码，以保护相邻的深色笔画。
+    输入必须是 load_rgb_image 已完成透明背景合成的 RGB 图片。
+    """
+    if image.mode != "RGB":
+        raise ValueError(f"remove_red_seal requires RGB input, got {image.mode}")
+
+    pixels = np.asarray(image)
+    # 先转有符号整数再求色差，避免 uint8 减法溢出把蓝字误判成红色。
+    rgb = pixels.astype(np.int16)
+    red, green, blue = rgb.transpose(2, 0, 1)
+    red_mask = (
+        (red >= 150) & (red - green >= 25) & (red - blue >= 25)
+        & (np.abs(green - blue) <= 40)
+    )
+    if not red_mask.any() or red_mask.mean() > 0.35:
+        return image
+
+    # 兼容浅灰、轻微偏色和带扫描颗粒的纸面；红底白字、暗底仍不处理。
+    channel_range = rgb.max(axis=2) - rgb.min(axis=2)
+    paper_mask = (rgb.min(axis=2) >= 190) & (channel_range <= 35)
+    paper_border = np.concatenate((
+        paper_mask[0], paper_mask[-1], paper_mask[:, 0], paper_mask[:, -1],
+    ))
+    if paper_mask.mean() < 0.4 or paper_border.mean() < 0.5:
+        return image
+
+    # 灰黑正文也能提供证据，但红色候选不能同时充当“黑字”，避免自证为章。
+    dark_mask = (rgb.max(axis=2) <= 170) & (channel_range <= 35) & ~red_mask
+    dark_y = np.nonzero(dark_mask)[0]
+    # 大章/星形可能比正文墨迹更多，不再要求黑像素数量超过全部红像素。
+    if dark_y.size < max(16, red_mask.sum() * 0.15):
+        return image
+
+    # 用正文墨迹的中间 96% 估计行高，减少孤立噪点影响。
+    text_top, text_bottom = np.quantile(dark_y, [0.02, 0.98])
+    text_height = text_bottom - text_top + 1
+    if text_height < 6:
+        return image
+    _, labels, stats, _ = cv2.connectedComponentsWithStats(
+        red_mask.astype(np.uint8), connectivity=8,
+    )
+    erase_mask = np.zeros(red_mask.shape, dtype=bool)
+    band = slice(int(text_top), int(text_bottom) + 1)
+    dark_columns = dark_mask[band].sum(axis=0) >= max(2, 0.08 * text_height)
+    # 细字体的有墨迹列本来就少，按正文列密度调整最低支持率。
+    # 保留绝对下限，避免几粒黑噪点让整段红字被当作叠印。
+    min_overlap = max(0.12, 0.4 * dark_columns.mean())
+    red_columns = np.flatnonzero(red_mask.any(axis=0))
+    # 章边、章字、中央星形之间常隔着一两个字宽，需作为局部整体判断。
+    # 这里只分组，绝不对待删除像素做闭运算/膨胀；组内仍逐个连通区域复核。
+    groups = np.split(
+        red_columns,
+        np.flatnonzero(np.diff(red_columns) > max(2, 2 * text_height)) + 1,
+    )
+    for columns in groups:
+        left, right = columns[0], columns[-1] + 1
+        region = red_mask[:, left:right]
+        if region.sum() < 16 or right - left < text_height:
+            continue
+        active_columns = columns[red_mask[:, columns].sum(axis=0) >= 2]
+        if active_columns.size == 0 or dark_columns[active_columns].mean() < min_overlap:
+            continue
+        in_band_ratio = region[band].sum() / region.sum()
+        # 同行红字/描边红字与黑字通常对齐；章既进入正文行，又有越界部分。
+        # 允许只越过上边或下边，适配只剩半个章的 detection 框。
+        if not 0.15 <= in_band_ratio <= 0.92:
+            continue
+        component_ids = np.unique(labels[:, left:right][region])
+        component_ids = [
+            int(component_id) for component_id in component_ids
+            if stats[component_id, cv2.CC_STAT_AREA] >= max(4, 0.15 * text_height)
+        ]
+        for component_id in component_ids:
+            x, y, width, height, _ = stats[component_id]
+            component = labels[y:y + height, x:x + width] == component_id
+            # 完全落在正文行内的小红字仍保留，即使它与章被分到同一区域。
+            # 这也会留下部分对齐的章字碎片，优先避免删除合法红色内容。
+            if y >= text_top and y + height - 1 <= text_bottom:
+                continue
+            if len(component_ids) == 1 and not _is_single_seal_component(component, text_height):
+                continue
+            # 区域内的小红字仍须独立检查，不能因旁边有章就整片抹红。
+            component_columns = np.flatnonzero(component.any(axis=0)) + x
+            if dark_columns[component_columns].mean() < 0.15:
+                continue
+            erase_mask[y:y + height, x:x + width] |= component
+
+    if not erase_mask.any():
+        return image
+    result = pixels.copy()
+    # 用纸面中位色替换，避免浅灰底出现纯白斑；不改任何非候选像素。
+    result[erase_mask] = np.median(pixels[paper_mask], axis=0).astype(np.uint8)
+    return Image.fromarray(result)
 
 
 def resize_detection_image(
@@ -224,6 +382,8 @@ def dynamic_padding_collate_fn(batch):
 # ==========================================
 
 class AddGaussianNoise(object):
+    """模拟扫描颗粒和相机传感器轻噪声；截断到 [0, 1]，避免异常亮暗值。"""
+
     def __init__(self, mean=0.0, std=0.02):
         self.mean = mean
         self.std = std
@@ -257,11 +417,13 @@ class BaseTextDataset(Dataset):
         self.image_paths = []  # 子类填充此列表
 
         channel_transform = (
+            # 兼容旧的单通道模型；RGB 模型保留颜色信息。这是通道适配，不是增强。
             [transforms.Grayscale(num_output_channels=1)]
             if num_channels == 1
             else []
         )
         normalize = transforms.Normalize(
+            # 将 [0, 1] 映射到 [-1, 1]，统一训练和推理数值范围，不是随机增强。
             mean=[0.5] * num_channels,
             std=[0.5] * num_channels,
         )
@@ -270,27 +432,35 @@ class BaseTextDataset(Dataset):
             # detection 已经给出文字区域，不再旋转、透视或二次裁剪，避免紧框文字
             # 被切掉。增强集中在颜色、极性、清晰度与轻噪声上。
             train_transforms = [
+                # 颜色扰动（70%）：模拟曝光、纸面反差、印刷浓淡和轻微偏色。
                 transforms.RandomApply(
                     [transforms.ColorJitter(
-                        brightness=0.2,
-                        contrast=0.25,
-                        saturation=0.35,
-                        hue=0.03,
+                        brightness=0.2,  # 明暗变化：不同光照和扫描曝光。
+                        contrast=0.25,  # 反差变化：浅字、褪色打印和灰底扫描。
+                        saturation=0.35,  # 饱和度变化：彩字/背景的颜色浓淡。
+                        hue=0.03,  # 小幅色相变化：拍照白平衡和设备偏色。
                     )],
                     p=0.7,
                 ),
+                # 自动对比度（20%）：覆盖扫描软件拉伸灰度、截图反差差异。
                 transforms.RandomAutocontrast(p=0.2),
+                # 反色（8%）：覆盖深色主题、黑底白字；也会反转残留章的颜色。
                 transforms.RandomInvert(p=0.08),
                 *channel_transform,
+                # 转为 [C, H, W] 的 [0, 1] 浮点张量，供模糊/噪声/擦除使用。
                 transforms.ToTensor(),
+                # 轻度模糊（15%）：模拟轻微失焦、低分辨率截图和缩放损失。
                 transforms.RandomApply(
                     [transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 0.8))],
                     p=0.15,
                 ),
+                # 高斯噪声（15%）：模拟扫描颗粒、拍照暗部噪点，不改变文字位置。
                 transforms.RandomApply(
                     [AddGaussianNoise(0.0, 0.015)],
                     p=0.15,
                 ),
+                # 小块擦除（5%，面积 0.5%～3%）：模拟污点、磨损和局部遮挡。
+                # 仍可能遮住小数点或短文本的关键笔画，因此保持低概率、小面积。
                 transforms.RandomErasing(
                     p=0.05,
                     scale=(0.005, 0.03),
@@ -312,11 +482,13 @@ class BaseTextDataset(Dataset):
 
     def _load_and_process_image(self, index: int) -> torch.Tensor:
         """
-        通用处理：读取/透明通道合成 -> 等比缩放 -> 颜色增强/归一化。
+        通用处理：读取/透明通道合成 -> 保守去章 -> 等比缩放 -> 增强/归一化。
         """
         image_path = self.image_paths[index]
         try:
             image = load_rgb_image(image_path)
+            # 在缩放和随机颜色扰动前判断原始红色；训练、验证、推理共享。
+            image = remove_red_seal(image)
             image = resize_detection_image(
                 image,
                 target_height=self.img_height,

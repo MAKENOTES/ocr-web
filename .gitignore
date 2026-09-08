@@ -21,6 +21,7 @@ recognition/data/*
 !recognition/data/bench2_annotation.txt
 !recognition/data/synthesis1_annotation.txt
 !recognition/data/synthesis2_annotation.txt
+!recognition/data/synthesis3_annotation.txt
 !recognition/data/synthesis_red_annotation.txt
 !recognition/data/train_annotation.txt
 !recognition/data/val_annotation.txt

@@ -11,7 +11,7 @@
 - `detection_inference_640.py`：当前矩形检测推理入口。
 - `recognition_inference.py`：PyTorch、ONNX、OpenVINO 多后端识别入口。
 - `detection_export_onnx.py`、`recognition_export_onnx.py`：模型导出入口。
-- `docs/recognition.md`：Recognition 当前架构和数据契约；`recognition/train.md` 只保存历史训练记录。
+- `docs/recogniton/recognition.md`：Recognition 当前架构和数据契约；`recognition/train.md` 只保存历史训练记录。
 - `tests/`：检测数据划分、矩形检测链路和识别预处理测试。
 
 ## 开发环境
@@ -38,7 +38,7 @@
 
 - Recognition 训练图片和标注路径统一使用 `.png`。标注格式是 `relative/path.png, "文本"`，路径相对于标注文件所在目录。
 - 标注路径必须与磁盘文件精确一致，不要增加扩展名猜测、同名文件回退或缺图 dummy tensor。
-- Recognition 使用完整 detection 文字框；训练、验证和推理共享等比缩放与动态 padding，不做二次文字裁剪或红色像素删除。
+- Recognition 使用完整 detection 文字框；训练、验证和推理共享按局部叠印关系去红章、等比缩放与动态 padding，不做二次文字裁剪；去章联合纸面背景、正文穿插和错位关系判断，逐连通区域保护同行红字及无正文支持的红色内容，禁止全图无差别去红或膨胀删除掩码。
 - 新识别模型默认使用 3 通道 RGB。带透明通道的 PNG 必须通过共享的 `load_rgb_image` 合成背景，避免黑字或白字消失。
 - `img_widths` 表示不含 CNN 右侧保护区和 batch padding 的真实像素宽度。collate 必须为每张图片保留固定的右侧背景保护区，BiGRU 必须通过 `PackedSequence` 跳过 padding；修改 CNN 下采样或 padding 时，必须同步检查 CTC 序列长度和 batch 一致性。
 - `recognition/keys.txt` 的字符内容与顺序属于模型 ABI；修改后必须重新训练、导出并验证模型。

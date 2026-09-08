@@ -1,7 +1,9 @@
 from pathlib import Path
 
 import torch
-from PIL import Image, ImageDraw
+import numpy as np
+import pytest
+from PIL import Image, ImageDraw, ImageFont
 
 from recognition import evaluate_val
 from recognition.components.dataset import (
@@ -10,9 +12,166 @@ from recognition.components.dataset import (
     TextRecognitionDataset,
     dynamic_padding_collate_fn,
     load_rgb_image,
+    remove_red_seal,
     resolve_image_path,
 )
 from recognition.utils.checkpoint import infer_num_channels
+
+
+def _stamp_case(background=(245, 245, 245)):
+    image = Image.new("RGB", (240, 80), background)
+    draw = ImageDraw.Draw(image)
+    for x in range(12, 220, 14):
+        draw.rectangle((x, 29, x + 7, 50), fill=(35, 35, 35))
+    draw.ellipse((74, 7, 145, 72), outline=(220, 35, 45), width=3)
+    return image
+
+
+def test_remove_red_seal_removes_outline_without_touching_other_pixels():
+    image = _stamp_case()
+    # 同一张盖章图中的合法红字必须保留，不能判出一个章就清空全图红色。
+    ImageDraw.Draw(image).text((185, 32), "RED", fill=(220, 35, 45))
+    before = np.asarray(image).copy()
+
+    result = remove_red_seal(image)
+    after = np.asarray(result)
+
+    assert result.mode == "RGB" and result.size == image.size
+    assert np.any(after != before)
+    assert np.array_equal(after[:, 170:], before[:, 170:])
+    neutral = before.max(axis=2) - before.min(axis=2) < 35
+    assert np.array_equal(after[neutral], before[neutral])
+    assert tuple(after[7, 109]) == (245, 245, 245)
+    assert np.array_equal(np.asarray(image), before)  # 不修改调用方图片。
+
+
+def test_remove_red_seal_handles_a_cropped_arc_and_preserves_black_strokes():
+    image = Image.new("RGB", (360, 48), "white")
+    draw = ImageDraw.Draw(image)
+    for x in range(8, 350, 12):
+        draw.rectangle((x, 13, x + 6, 34), fill="black")
+    draw.ellipse((100, 3, 260, 140), outline=(220, 35, 45), width=3)
+    before = np.asarray(image)
+    after = np.asarray(remove_red_seal(image))
+    dark = before.max(axis=2) < 140
+
+    assert np.any(after != before)
+    assert np.array_equal(after[dark], before[dark])
+
+
+@pytest.mark.parametrize("background,ink,stamp", [
+    ((255, 255, 255), (35, 35, 35), (220, 35, 45)),
+    ((205, 210, 220), (155, 155, 155), (240, 195, 200)),
+])
+def test_remove_red_seal_handles_disconnected_stamp_text_on_scanned_paper(background, ink, stamp):
+    image = Image.new("RGB", (320, 48), background)
+    draw = ImageDraw.Draw(image)
+    # 只有错位章字，没有圆弧；对应紧框内只剩文字笔画、且扫描正文偏灰的情况。
+    for x in (90, 120, 150, 180):
+        draw.line([(x, 0), (x + 15, 10), (x - 5, 28)], fill=stamp, width=3)
+    for x in range(8, 310, 12):
+        draw.rectangle((x, 12, x + 3, 34), fill=ink)
+    before = np.asarray(image)
+    after = np.asarray(remove_red_seal(image))
+    stamp_pixels = np.all(before == stamp, axis=2)
+    ink_pixels = np.all(before == ink, axis=2)
+
+    # 碎章进入正文行内的小片段可保留，但主体应被去除。
+    assert np.mean(np.any(after[stamp_pixels] != before[stamp_pixels], axis=1)) > 0.5
+    assert np.array_equal(after[ink_pixels], before[ink_pixels])
+
+
+def test_remove_red_seal_handles_dense_star_with_more_red_than_black():
+    image = Image.new("RGB", (240, 48), "white")
+    draw = ImageDraw.Draw(image)
+    points = [
+        (120 + (54 if i % 2 == 0 else 23) * np.cos(-np.pi / 2 + i * np.pi / 5),
+         25 + (54 if i % 2 == 0 else 23) * np.sin(-np.pi / 2 + i * np.pi / 5))
+        for i in range(10)
+    ]
+    draw.polygon(points, fill=(220, 35, 45))
+    for x in range(6, 230, 12):
+        draw.rectangle((x, 12, x + 1, 34), fill=(35, 35, 35))
+    before = np.asarray(image)
+    red = np.all(before == (220, 35, 45), axis=2)
+    dark = before.max(axis=2) < 140
+    assert red.sum() > dark.sum()
+
+    after = np.asarray(remove_red_seal(image))
+    assert np.mean(np.any(after[red] != before[red], axis=1)) > 0.75
+    assert np.array_equal(after[dark], before[dark])
+
+
+def test_remove_red_seal_preserves_adjacent_red_text_in_the_same_region():
+    image = _stamp_case()
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((147, 0, 239, 79), fill=(245, 245, 245))
+    draw.text((148, 30), "RED", fill=(220, 35, 45), font=ImageFont.load_default(size=22))
+    before = np.asarray(image)
+    after = np.asarray(remove_red_seal(image))
+
+    assert np.any(after[:, :147] != before[:, :147])
+    assert np.array_equal(after[:, 147:], before[:, 147:])
+
+
+def test_remove_red_seal_preserves_aligned_red_text_with_black_outline():
+    image = Image.new("RGB", (240, 48), "white")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=24)
+    draw.text((5, 10), "BLACK", fill="black", font=font)
+    draw.text((110, 10), "RED", fill="red", font=font, stroke_width=1, stroke_fill="black")
+
+    assert np.array_equal(np.asarray(remove_red_seal(image)), np.asarray(image))
+
+
+@pytest.mark.parametrize("case", [
+    "red_text", "mixed_text", "red_background", "blue_background",
+    "no_dark_text", "brown_outline", "orange_outline", "rectangle", "tall_red_text",
+])
+def test_remove_red_seal_preserves_normal_or_uncertain_content(case):
+    if case == "no_dark_text":
+        image = Image.new("RGB", (240, 80), "white")
+        ImageDraw.Draw(image).ellipse((74, 7, 145, 72), outline="red", width=3)
+    elif case in ("red_background", "blue_background"):
+        image = _stamp_case((220, 30, 30) if case == "red_background" else (30, 80, 210))
+    else:
+        image = Image.new("RGB", (240, 80), "white")
+        draw = ImageDraw.Draw(image)
+        for x in range(12, 220, 14):
+            color = "red" if case == "red_text" or (case == "mixed_text" and x > 170) else "black"
+            draw.rectangle((x, 29, x + 7, 50), fill=color)
+        if case in ("brown_outline", "orange_outline"):
+            color = (130, 65, 35) if case == "brown_outline" else (240, 130, 20)
+            draw.ellipse((74, 7, 145, 72), outline=color, width=3)
+        elif case == "rectangle":
+            draw.rectangle((74, 7, 145, 72), outline="red", width=3)
+        elif case == "tall_red_text":
+            draw.line([(85, 72), (108, 7), (131, 72)], fill="red", width=3)
+            draw.line([(96, 45), (120, 45)], fill="red", width=3)
+
+    assert np.array_equal(np.asarray(remove_red_seal(image)), np.asarray(image))
+
+
+@pytest.mark.parametrize("num_channels", [1, 3])
+def test_seal_preprocess_is_shared_by_training_validation_and_inference(tmp_path, num_channels):
+    image = _stamp_case()
+    image_path = tmp_path / "stamp.png"
+    image.save(image_path)
+    annotation_path = tmp_path / "annotations.txt"
+    annotation_path.write_text("stamp.png\t正文\n", encoding="utf-8")
+    expected = remove_red_seal(image)
+    assert not np.array_equal(np.asarray(expected), np.asarray(image))
+
+    # 拦截增强入口，验证训练也在原始 RGB 尺寸完成去章，且发生在随机增强之前。
+    for is_train in (True, False):
+        dataset = TextRecognitionDataset(annotation_path, 80, 240, num_channels, is_train=is_train)
+        dataset.transform = lambda processed: np.asarray(processed)
+        assert np.array_equal(dataset[0][0], np.asarray(expected))
+
+    validation = TextRecognitionDataset(annotation_path, 32, 240, num_channels, is_train=False)
+    inference = InferenceDataset([image_path], 32, num_channels, img_width=240)
+    assert torch.equal(validation[0][0], inference[0][0])
+    assert inference[0][0].shape == (num_channels, 32, 96)
 
 
 def _write_detection_case(tmp_path: Path) -> tuple[Path, Path]:
