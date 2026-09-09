@@ -34,6 +34,10 @@ from recognition.utils.synthesis.style import Style
 from recognition.utils.synthesis.naming import REPORT_ROOT
 
 
+SCENES = ("reference", "top", "bottom", "star", "left_edge", "right_edge",
+          "rim", "faded", "worn", "dense")
+
+
 @dataclass(frozen=True)
 class StampStyle:
     body: Style
@@ -43,6 +47,7 @@ class StampStyle:
     red_fraction: float
     diameter_ratio: float
     red_measured: bool = True
+    red_center_x: float = 0.5
 
 
 def reference_paths(manifest: Path, data_dir: Path) -> list[Path]:
@@ -88,10 +93,10 @@ def measure_style(path: Path) -> StampStyle:
     if red_measured:
         strong = red & (strength >= np.percentile(strength[red], 80))
         color = np.median(pixels[strong], axis=0)
-        color[1:] = np.minimum(color[1:], (25, 45))
+        color[1:] = np.minimum(color[1:], (80, 100))
         observed = np.median(pixels[red], axis=0)
         opacity = float(np.clip((background[1:].mean() - observed[1:].mean())
-                               / max(1, background[1:].mean() - color[1:].mean()), 0.45, 0.98))
+                               / max(1, background[1:].mean() - color[1:].mean()), 0.22, 0.98))
         red_x = np.where(red)[1]
         red_span = np.percentile(red_x, 98) - np.percentile(red_x, 2)
     else:
@@ -101,7 +106,8 @@ def measure_style(path: Path) -> StampStyle:
               int(np.clip(height, 16, 64)), ink_fraction, float(np.clip(side, 0.02, 0.35)),
               max(1, round(width / height / ink_fraction)), str(path)),
         width / height, tuple(int(v) for v in color), opacity,
-        float(red.mean()), float(np.clip(red_span / image.height, 3.5, 12)), red_measured,
+        float(red.mean()), float(np.clip(red_span / image.height, 3.5, 14)), red_measured,
+        float(np.mean(red_x) / max(1, image.width - 1)) if red_measured else 0.5,
     )
 
 
@@ -148,7 +154,8 @@ def load_corpus(path: Path, keys: set[str], fonts: list[FontFace]) -> list[tuple
     return sorted(records)
 
 
-def stamp_mask(diameter: int, face: FontFace, text: str, rng: random.Random) -> Image.Image:
+def stamp_mask(diameter: int, face: FontFace, text: str, rng: random.Random,
+               *, rim_only: bool = False, dense: bool = False) -> Image.Image:
     """程序绘制圆环、沿弧章字和五角星；章字是干扰，不属于正文标注。"""
     if not set(text) <= face.chars:
         raise ValueError(f"Stamp font does not cover text: {face.path}: {text!r}")
@@ -158,11 +165,12 @@ def stamp_mask(diameter: int, face: FontFace, text: str, rng: random.Random) -> 
     margin = max(2, round(diameter * 0.025))
     draw.ellipse((margin, margin, diameter - margin - 1, diameter - margin - 1),
                  outline=255, width=max(1, round(diameter * rng.uniform(0.009, 0.016))))
+    if rim_only:
+        return mask.filter(ImageFilter.GaussianBlur(rng.uniform(0.15, 0.55)))
     font_size = max(10, round(diameter * min(0.115, 1.6 / len(text))))
     font = get_font(face.path, face.index, font_size)
-    rotation = rng.uniform(-25, 25)
     for index, char in enumerate(text):
-        angle = -160 + 140 * index / max(1, len(text) - 1) + rotation
+        angle = -160 + 140 * index / max(1, len(text) - 1)
         radius = diameter * 0.355
         x = center + radius * math.cos(math.radians(angle))
         y = center + radius * math.sin(math.radians(angle))
@@ -172,80 +180,155 @@ def stamp_mask(diameter: int, face: FontFace, text: str, rng: random.Random) -> 
         mask.paste(glyph, (round(x - glyph.width / 2), round(y - glyph.height / 2)), glyph)
     points = []
     for index in range(10):
-        angle = math.radians(-90 + index * 36 + rotation)
+        angle = math.radians(-90 + index * 36)
         radius = diameter * (0.15 if index % 2 == 0 else 0.06)
         points.append((center + radius * math.cos(angle), center + radius * math.sin(angle)))
     draw.polygon(points, fill=255)
     # 下弧增加同一合成章文字，避免中心截面只剩两个圆环边缘。
     bottom_font = get_font(face.path, face.index, max(10, round(diameter * 0.07)))
     draw.text((center, diameter * 0.76), text[-4:], font=bottom_font, fill=255, anchor="mm")
+    if dense:
+        draw.text((center, diameter * 0.65), text[:4], font=bottom_font, fill=255, anchor="mm")
+        mask = mask.filter(ImageFilter.MaxFilter(3))
+    # 整章旋转，保证圆环、章字和星形的方向一致；轻微压扁模拟扫描透视。
+    mask = mask.rotate(rng.uniform(-40, 40), resample=Image.Resampling.BICUBIC)
+    mask = mask.resize((diameter, round(diameter * rng.uniform(0.82, 1.06))),
+                       Image.Resampling.LANCZOS)
     return mask.filter(ImageFilter.GaussianBlur(rng.uniform(0.15, 0.55)))
 
 
+def weather_mask(mask: Image.Image, rng: random.Random, worn: bool) -> Image.Image:
+    """局部印泥压力与缺墨只作用于章层，保留正文笔画。"""
+    noise = np.random.default_rng(rng.getrandbits(64))
+    coarse = noise.uniform(0.15 if worn else 0.85, 1.0, (12, 12))
+    pressure = Image.fromarray((coarse * 255).astype(np.uint8)).resize(
+        mask.size, Image.Resampling.BICUBIC)
+    alpha = np.asarray(mask).astype(np.float32) * np.asarray(pressure) / 255
+    if worn:
+        # 细颗粒缺墨加局部斑驳，区别于全章统一降低透明度。
+        alpha *= noise.random(alpha.shape) > rng.uniform(0.12, 0.30)
+    return Image.fromarray(np.clip(alpha, 0, 255).astype(np.uint8))
+
+
 def overlay_stamp(image: Image.Image, style: StampStyle, face: FontFace, text: str,
-                  rng: random.Random) -> tuple[Image.Image, dict]:
-    """裁出圆章局部叠入正文，有限次搜索覆盖率接近参考且确实与正文相交的位置。"""
+                  rng: random.Random, *, scene: str = "reference") -> tuple[Image.Image, dict]:
+    """按场景选择截面、浓淡和位置，在实际可见红色上检查覆盖及正文交叠。"""
+    if scene not in SCENES:
+        raise ValueError(f"Unknown stamp scene: {scene}")
     pixels = np.asarray(image).astype(np.float32)
     ink = pixels.mean(axis=2) < np.mean(style.body.background) - 35
     if not ink.any():
         raise ValueError("Rendered body has no measurable text ink")
-    diameter = max(48, round(image.height * style.diameter_ratio * rng.uniform(0.85, 1.15)))
-    mask = stamp_mask(diameter, face, text, rng)
-    best = None
-    target = float(np.clip(style.red_fraction * rng.uniform(0.8, 1.2), 0.015, 0.30))
-    # 先固定截面，再优化位置，避免覆盖率打分总选中面积较大的中心星形。
-    section = rng.choices(("top", "middle", "bottom"), weights=(5, 3, 2), k=1)[0]
-    for _ in range(32):
-        x = round(rng.uniform(0.12, 0.88) * image.width - diameter / 2)
-        if section == "top":
-            y = round(-diameter * rng.uniform(0.035, 0.24) + image.height / 2)
-        elif section == "bottom":
-            y = round(-diameter * rng.uniform(0.70, 0.98) + image.height / 2)
-        else:
-            y = round(-diameter * rng.uniform(0.30, 0.65) + image.height / 2)
-        layer = Image.new("L", image.size, 0)
-        layer.paste(mask, (x, y))
-        alpha = np.asarray(layer).astype(np.float32) / 255
-        active = alpha > 0.15
-        overlap = float((active & ink).sum() / ink.sum())
-        coverage = float(active.mean())
-        if overlap < 0.01 or coverage < 0.01 or coverage > 0.45:
-            continue
-        score = abs(coverage - target)
-        if best is None or score < best[0]:
-            best = (score, alpha, coverage, overlap, x, y, section)
-    if best is None:
-        # 极细长行在固定截面的随机位置可能没有足够墨迹；将星形中心对准正文中位位置。
-        ys, xs = np.where(ink)
-        x, y = round(float(np.median(xs)) - diameter / 2), round(float(np.median(ys)) - diameter / 2)
-        layer = Image.new("L", image.size, 0)
-        layer.paste(mask, (x, y))
-        alpha = np.asarray(layer).astype(np.float32) / 255
-        active = alpha > 0.15
-        overlap = float((active & ink).sum() / ink.sum())
-        coverage = float(active.mean())
-        if overlap < 0.01 or not 0.01 <= coverage <= 0.45:
-            raise RuntimeError(f"Could not place a visible overlapping stamp: {image.size}; {style.body.reference}")
-        best = (abs(coverage - target), alpha, coverage, overlap, x, y, "middle")
-    _, alpha, coverage, overlap, x, y, section = best
-    noise = np.random.default_rng(rng.getrandbits(64))
-    alpha *= noise.uniform(0.90, 1.0, alpha.shape).astype(np.float32)
-    opacity = float(np.clip(style.opacity * rng.uniform(0.9, 1.15), 0.40, 0.98))
-    alpha = alpha[..., None] * opacity
+    diameter = max(48, round(image.height * style.diameter_ratio * rng.uniform(0.75, 1.25)))
+    mask = stamp_mask(diameter, face, text, rng, rim_only=scene == "rim", dense=scene == "dense")
+    mask = weather_mask(mask, rng, scene == "worn")
+    opacity = float(np.clip(style.opacity * rng.uniform(0.85, 1.15), 0.22, 0.98))
+    if scene == "faded":
+        opacity = rng.uniform(0.24, 0.42)
+    elif scene == "dense":
+        opacity = rng.uniform(0.82, 0.98)
+    # 浓章增加扫描遮盖，仍以乘色为主，让黑字保留可学习的笔画。
+    mix = rng.uniform(0.18, 0.30) if scene == "dense" else rng.uniform(0.04, 0.16)
     color = np.array(style.color, dtype=np.float32)
-    # 以乘色为主模拟印泥透出黑字，少量普通混合模拟扫描后的遮盖。
-    stamped = 0.85 * pixels * color / 255 + 0.15 * color
-    output = Image.fromarray(np.clip(pixels * (1 - alpha) + stamped * alpha, 0, 255).astype(np.uint8))
-    if red_mask(np.asarray(output)).sum() < 8:
-        raise RuntimeError(f"Stamp is not visibly red after compositing: {style.body.reference}")
-    return output, {"diameter": diameter, "position": [x, y], "section": section,
-                    "opacity": opacity, "mask_fraction": coverage, "body_overlap_fraction": overlap,
-                    "red_fraction": float(red_mask(np.asarray(output)).mean()), "stamp_text": text}
+    if scene == "dense":
+        color[1:] = np.minimum(color[1:], (25, 45))
+    stamped = (1 - mix) * pixels * color / 255 + mix * color
+    target = float(np.clip(style.red_fraction * rng.uniform(0.7, 1.3), 0.004, 0.50))
+    if scene == "rim":
+        target = min(target, 0.025)
+    elif scene == "dense":
+        target = float(np.clip(target * 1.8, 0.12, 0.55))
+    section = {"top": "top", "bottom": "bottom", "star": "middle",
+               "rim": "top"}.get(scene)
+    if section is None:
+        section = rng.choices(("top", "middle", "bottom"), weights=(5, 3, 2), k=1)[0]
+    ys, xs = np.where(ink)
+    minimum_overlap = 0.002 if scene == "rim" else 0.01
+    maximum_coverage = 0.70 if scene == "dense" or image.width < image.height * 4 else 0.50
+    best = None
+
+    def consider(x: int, y: int, actual_section: str, fallback: bool = False) -> None:
+        nonlocal best
+        layer = Image.new("L", image.size, 0)
+        layer.paste(mask, (x, y))
+        alpha = np.asarray(layer).astype(np.float32)[..., None] / 255 * opacity
+        output = np.clip(pixels * (1 - alpha) + stamped * alpha, 0, 255).astype(np.uint8)
+        visible = red_mask(output)
+        # 红色通常落在字间，黑字保持黑色；叠印比例用章 alpha 与正文求交。
+        active = alpha[..., 0] > 0.035
+        overlap = float((active & ink).sum() / ink.sum())
+        coverage = float(active.mean())
+        visible_fraction = float(visible.mean())
+        if overlap < minimum_overlap or visible.sum() < 8 or coverage > maximum_coverage:
+            return
+        center_x = float(np.mean(np.where(visible)[1]) / max(1, image.width - 1))
+        if scene == "left_edge" and center_x > 0.35:
+            return
+        if scene == "right_edge" and center_x < 0.65:
+            return
+        score = abs(visible_fraction - target)
+        if scene == "reference":
+            score += 0.10 * abs(center_x - style.red_center_x)
+        if best is None or score < best[0]:
+            best = (score, output, coverage, overlap, x, y, actual_section,
+                    visible_fraction, center_x, fallback)
+
+    for _ in range(48):
+        if scene == "left_edge":
+            center_x = rng.uniform(-0.15, 0.12) * image.width
+        elif scene == "right_edge":
+            center_x = rng.uniform(0.88, 1.15) * image.width
+        else:
+            center_x = rng.uniform(0.12, 0.88) * image.width
+        x = round(center_x - mask.width / 2)
+        if scene == "star":
+            y = round(float(np.median(ys)) - mask.height * rng.uniform(0.46, 0.54))
+        elif scene == "rim":
+            y = round(image.height * rng.uniform(0.15, 0.85) - mask.height * 0.025)
+        elif section == "top":
+            y = round(-mask.height * rng.uniform(0.035, 0.24) + image.height / 2)
+        elif section == "bottom":
+            y = round(-mask.height * rng.uniform(0.70, 0.98) + image.height / 2)
+        else:
+            y = round(-mask.height * rng.uniform(0.30, 0.65) + image.height / 2)
+        consider(x, y, section)
+    if best is None:
+        # 极短框或细长行可错过随机截面：将真实章墨迹对准正文，有限次兜底。
+        consider(round(float(np.median(xs)) - mask.width / 2),
+                 round(float(np.median(ys)) - mask.height / 2), "middle", True)
+        mask_ys, mask_xs = np.where(np.asarray(mask) > 80)
+        for _ in range(96):
+            if best is not None:
+                break
+            index = rng.randrange(len(mask_xs))
+            if scene == "left_edge":
+                body_indices = np.flatnonzero(xs <= np.quantile(xs, 0.15))
+            elif scene == "right_edge":
+                body_indices = np.flatnonzero(xs >= np.quantile(xs, 0.85))
+            else:
+                body_indices = np.arange(len(xs))
+            body_index = int(rng.choice(body_indices))
+            consider(int(xs[body_index] - mask_xs[index]), int(ys[body_index] - mask_ys[index]),
+                     "fragment", True)
+    if best is None:
+        raise RuntimeError(f"Could not place a visible overlapping stamp: {image.size}; "
+                           f"scene={scene}; {style.body.reference}")
+    _, output, coverage, overlap, x, y, section, red_fraction, center_x, fallback = best
+    return Image.fromarray(output), {
+        "scene": scene, "diameter": diameter, "mask_size": list(mask.size),
+        "position": [x, y], "section": section, "fallback": fallback,
+        "opacity": opacity, "occlusion_mix": mix, "mask_fraction": coverage,
+        "color": [int(value) for value in color],
+        "body_overlap_fraction": overlap, "red_fraction": red_fraction,
+        "red_center_x": center_x, "stamp_text": text,
+    }
 
 
 def generate(args: argparse.Namespace) -> dict:
     if args.images <= 0 or not args.stamp_text.strip():
         raise ValueError("--images must be positive and --stamp-text must be nonempty")
+    if not args.scenes or len(args.scenes) != len(set(args.scenes)) or set(args.scenes) - set(SCENES):
+        raise ValueError(f"--scenes must contain unique known scenes: {SCENES}")
     ensure_empty_outputs(args.output_dir, args.annotation, args.report_dir)
     partial = args.annotation.with_name(args.annotation.name + ".partial")
     if partial.exists():
@@ -263,9 +346,12 @@ def generate(args: argparse.Namespace) -> dict:
     # 均匀使用指定参考，图数足够时保证每张参考至少被采样一次。
     selected_styles = [styles[index % len(styles)] for index in range(args.images)]
     rng.shuffle(selected_styles)
+    selected_scenes = [args.scenes[index % len(args.scenes)] for index in range(args.images)]
+    rng.shuffle(selected_scenes)
     plan = []
     for style in selected_styles:
-        desired = style.aspect / style.body.ink_fraction
+        # 近方形单字框的留白会把宽高比估计抬到两字，单独保留单字采样机会。
+        desired = 1.0 if style.aspect <= 1.5 else style.aspect / style.body.ink_fraction
         low, high = bisect_left(units, desired * 0.80), bisect_right(units, desired * 1.20)
         if low == high:
             closest = min(range(len(units)), key=lambda i: abs(units[i] - desired))
@@ -283,6 +369,8 @@ def generate(args: argparse.Namespace) -> dict:
     lengths: Counter[int] = Counter()
     references: Counter[str] = Counter()
     sections: Counter[str] = Counter()
+    scenes: Counter[str] = Counter()
+    fallback_count = 0
     preview_count = 0
     red_fractions = []
     print(f"Generating {args.images} red-stamp images from {len(styles)} reference styles", flush=True)
@@ -293,7 +381,8 @@ def generate(args: argparse.Namespace) -> dict:
             face = fonts[face_index]
             clean = render_image(text, face, style.body, rng)
             stamp_face = rng.choice(stamp_fonts)
-            image, stamp = overlay_stamp(clean, style, stamp_face, args.stamp_text, rng)
+            image, stamp = overlay_stamp(clean, style, stamp_face, args.stamp_text, rng,
+                                         scene=selected_scenes[number - 1])
             filename = f"{args.date}_{number:05d}.png"
             path = args.output_dir / filename
             with path.open("xb") as handle:
@@ -309,12 +398,15 @@ def generate(args: argparse.Namespace) -> dict:
             lengths[len(text)] += 1
             references[style.body.reference] += 1
             sections[stamp["section"]] += 1
+            scenes[stamp["scene"]] += 1
+            fallback_count += int(stamp["fallback"])
             red_fractions.append(stamp["red_fraction"])
             if (number - 1) % max(1, args.images // 40) == 0 and preview_count < 40:
                 thumbnail = image.copy()
                 thumbnail.thumbnail((1580, 60))
                 y = preview_count * 86
-                preview_draw.text((5, y + 2), f"{filename}  chars={len(text)}  stamp={stamp['section']}", fill="black")
+                preview_draw.text((5, y + 2), f"{filename}  chars={len(text)}  "
+                                  f"scene={stamp['scene']}  section={stamp['section']}", fill="black")
                 preview.paste(thumbnail, (5, y + 22))
                 preview_count += 1
             if number % 100 == 0 or number == args.images:
@@ -330,6 +422,7 @@ def generate(args: argparse.Namespace) -> dict:
         "reference_styles": [asdict(style) for style in styles],
         "font_sha256": {str(face.path): sha256(face.path) for face in fonts},
         "length_histogram": dict(sorted(lengths.items())), "sections": dict(sections),
+        "scenes": dict(scenes), "fallback_count": fallback_count,
         "red_fraction_mean": sum(red_fractions) / len(red_fractions),
     }
     with (args.report_dir / "summary.json").open("x", encoding="utf-8") as handle:
@@ -350,6 +443,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--keys", type=Path, default=ROOT / "recognition/keys.txt")
     parser.add_argument("--fonts", type=Path, nargs="+")
     parser.add_argument("--stamp-text", default="合成样本识别测试专用章", help="红章干扰文字，不加入正文标注")
+    parser.add_argument("--scenes", nargs="+", choices=SCENES, default=list(SCENES),
+                        help="启用的红章场景，默认全部；按场景均分样本，可指定子集")
     parser.add_argument("--seed", type=int, default=20260908)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--annotation", type=Path)

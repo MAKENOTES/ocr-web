@@ -288,20 +288,39 @@ RGB PNG 输出到 `recognition/data/synthesis_lines_YYYYMMDD_images/`；
 ### 红章干扰合成（默认 1000 张）
 
 `../../recognition/utils/synthesis/generate_red_stamp.py` 默认读取同目录
-`red_stamp_references.txt` 中指定的 43 张参考框（train 29 张、val 14 张），提取正文颜色、
-高度、留白、宽高比，以及红章颜色、相对直径、浓淡和覆盖率。参考图经过共享
+`red_stamp_references.txt` 中的 161 张参考框（train 33 张、val 128 张），提取正文颜色、
+高度、留白、宽高比，以及红章颜色、相对直径、浓淡、覆盖率和横向中心位置。
+清单保留原 43 张，追加 `recognition/datadoc/analysisdata/errdata20260909.md` 中确认有红章的
+118 张，包括全部 99 张红章主类及其他分类中的叠印样本，去重后保留相对路径。参考图经过共享
 `load_rgb_image` 读取，仅保留数值风格，不复制原图像素，不读取 val 标注。
 其中 `train_images/000351-000003.png` 未测到明显红色，只提供正文风格，红章参数使用
 其余参考的中位数；终端和报告明确标记 `red_measured=false`。整批参考都无红章时停止。
 
 正文从 `train_annotation.txt` 中选择长度接近参考宽高比的整条文字，复用 `generate.py`
-的字体渲染重新绘制。不是新增随机句子，也不限制到旧补字脚本的 24 字；这些参考主要是长行
-正文，按中英文估计字宽选择整条标签，保留内部空格、标点和全部正文。字典外字符或整条文字
+的字体渲染重新绘制。按中英文估计字宽选择整条标签，覆盖单字、短数字串、中英混排和长行；
+实际文字类型取决于训练语料，不复制参考图标签，不限制到旧补字脚本的 24 字。
+保留内部空格、标点和全部正文。字典外字符或整条文字
 没有字体覆盖时在写入前报错。字体默认偏重宋体常规字重。
 
-红章用程序绘制圆环、弧形章字、五角星，再截取上部、中部或下部局部与正文叠加；随机位置、
-线宽、角度、透明度、轻微印泥不均匀和模糊。以乘色混合为主，模拟红印透出黑字。
-每张都检查红章可见且与正文墨迹相交，不会生成完全未受章影响的样本。
+红章用程序绘制圆环、弧形章字、五角星，整章旋转并轻微压扁，叠加局部印泥压力和模糊。
+默认按以下 10 种场景均分样本（数量之差不超过 1），可用 `--scenes` 选择子集：
+
+| 场景 | 内容 |
+| --- | --- |
+| `reference` | 参考覆盖率和红章横向中心，随机上、中、下截面 |
+| `top` / `bottom` | 上弧章字 / 下弧与底部章字 |
+| `star` | 星形中心对准正文 |
+| `left_edge` / `right_edge` | 红色中心限制在行首 / 行尾 35% 区域，覆盖边缘文字、标点 |
+| `rim` | 仅圆环残弧，低覆盖率，模拟额外点、斜线等局部干扰 |
+| `faded` | 24%～42% 透明度的淡章 |
+| `worn` | 局部压力不均加 12%～30% 颗粒缺墨，正文像素不参与磨损 |
+| `dense` | 加粗章线、增加章字、82%～98% 透明度及较高局部遮盖 |
+
+以乘色混合为主，保留黑字笔画；浓章增加少量普通混合模拟扫描遮盖。
+位置搜索按合成后的实际红色覆盖率打分，同时检查章层与正文墨迹交叠；每图至少 8 个可见红色像素。
+残弧允许 0.2% 正文交叠，其他场景至少 1%；短框、浓章允许较高覆盖率。
+随机搜索失败时有限次将章墨迹对准正文，实际截面和 `fallback` 记入报告；仍不可见则带路径报错。
+短框的兜底可能改变指定截面，按实际 `section` 复核。
 **标注只包含正文，章中文字视作干扰，不加入标签**；这与原普通合成图无额外文字的用途不同。
 
 ```bash
@@ -309,7 +328,7 @@ RGB PNG 输出到 `recognition/data/synthesis_lines_YYYYMMDD_images/`；
 .venv/bin/python recognition/utils/synthesis/generate_red_stamp.py
 
 # 小批量效果预览，使用独立输出路径
-.venv/bin/python recognition/utils/synthesis/generate_red_stamp.py --images 43 \
+.venv/bin/python recognition/utils/synthesis/generate_red_stamp.py --images 161 \
   --output-dir outputs/red_stamp_preview/images \
   --annotation outputs/red_stamp_preview/annotation.txt \
   --report-dir outputs/red_stamp_preview/report
@@ -319,9 +338,10 @@ RGB PNG 输出到 `recognition/data/synthesis_lines_YYYYMMDD_images/`；
 标注为同级 `synthesis_red_YYYYMMDD_annotation.txt`，报告位于
 `recognition/utils/synthesis/synthesis_report/synthesis_red_YYYYMMDD/`，包含 `summary.json`、逐图 `samples.jsonl`
 和最多 40 张抽样的 `preview.png`。记录原 train 文本行号、字体、参考风格、章的位置和正文
-重叠比例，便于复核。每张参考均匀采样；图数不少于参考数时，每张参考至少使用一次。
+重叠比例、场景、实际截面、遮盖比例和兜底状态，汇总 `scenes`、`sections`、`fallback_count`，
+便于复核。参考与场景分别均匀采样并打乱；图数不少于参考数时，每张参考至少使用一次。
 支持 `--images`、`--references`（清单路径，条目相对于 `--data-dir`）、`--corpus`、
-`--fonts`、`--stamp-text`、`--seed` 及三个输出路径参数。
+`--fonts`、`--stamp-text`、`--scenes`、`--seed` 及三个输出路径参数。
 
 输出 RGB PNG 和 Tab 分隔标注，拒绝覆盖已有产物；失败保留 `.partial`，成功后才发布正式标注。
 训练数据和配置不自动修改，使用时将新标注加入 `TRAIN_ANNOTATION`。本脚本是红章干扰增强，

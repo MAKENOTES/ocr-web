@@ -113,13 +113,23 @@ python recognition/utils/synthesis/generate_balanced.py
 
 ### 风格要求
 参考清单为 [red_stamp_references.txt](../utils/synthesis/red_stamp_references.txt)，
-包含指定的 **43 张图：train 29 张、val 14 张**。条目路径相对于 `recognition/data/`；
+包含 **161 张图：train 33 张、val 128 张**。保留原 43 张，追加
+[2026-09-09 错误复核](analysisdata/errdata20260909.md) 中确认有章的 118 张，覆盖全部红章主类及其他分类中的叠印样本；
+混合错标样本也只提取数值风格，不读取 val 标注或复制参考像素。条目路径相对于 `recognition/data/`；
 使用 `--data-dir` 时相对于该目录。`--references` 在本脚本中表示**清单文件**，不是前两组的图片目录列表。
+
+默认均分 10 种场景：参考位置、上弧、下弧、星形、行首、行尾、仅残弧、淡章、磨损、浓章。
+同时变化整章角度、圆章纵横比、局部印泥压力与遮盖程度；新增短框参考使正文长度覆盖单字至长行。
+正文仍为训练语料整条标签，章字不入标注。每张检查可见红色与正文交叠，报告记录场景分布及兜底次数。
+详细参数与数据契约见 [Recognition 当前架构](../../docs/recogniton/recognition.md#红章干扰合成默认-1000-张)。
 
 ### 使用命令
 ```bash
-# 默认生成 1000 张红章干扰样本
-python recognition/utils/synthesis/generate_red_stamp.py
+# 默认生成 1000 张红章干扰样本，每种场景 100 张
+.venv/bin/python recognition/utils/synthesis/generate_red_stamp.py
+
+# 只生成淡章、磨损和行尾残章，仍需使用空的输出目录
+.venv/bin/python recognition/utils/synthesis/generate_red_stamp.py --scenes faded worn right_edge
 ```
 
 ## 4、特殊样本：四个方向的表格边线
