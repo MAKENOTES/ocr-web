@@ -49,6 +49,9 @@ convert_annotation_delimiter
 - 无空格
 - 只有中文括号
 - /home/weiqiang/AI/ocr-web/recognition/data/bench1_annotation.txt   中 做了 ()  和 :   归一化成中文的
+- —  归一化 成 一 ？
+- _  在下划线场景 去掉？
+- ： ；;  这三个符号 错误率高
 
 ### 数据合成
 [synthesis.md](synthesis.md)

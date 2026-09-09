@@ -15,7 +15,7 @@ recognition_export_onnx.py — 将训练好的 CRNN PyTorch 模型导出为 ONNX
   - CNN 宽度下采样公式用 torch 算术替代 Python int 循环
 
 用法:
-    python recognition_export_onnx.py
+    .venv/bin/python recognition_export_onnx.py --model_path recognition/checkpoints/<model>.pth
 
 依赖:
     pip install onnx onnxruntime onnxsim
@@ -26,6 +26,8 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import os
 import numpy as np
+import argparse
+import hashlib
 
 # ---- 路径修正 ----
 import sys
@@ -50,8 +52,11 @@ class OnnxExportWrapper(torch.nn.Module):
        每张图片右侧的 batch padding。
     """
 
-    def __init__(self, crnn_model: CRNN):
+    def __init__(self, crnn_model: CRNN, output_type: str = "log_probs"):
         super().__init__()
+        if output_type not in ("log_probs", "logits"):
+            raise ValueError(f"未知 output_type: {output_type}")
+        self.output_type = output_type
         self.cnn = crnn_model.cnn
         self.cnn_dropout = crnn_model.cnn_dropout
         self.rnn = crnn_model.rnn
@@ -89,7 +94,7 @@ class OnnxExportWrapper(torch.nn.Module):
             input:      [B, C, 32, W] 图像张量（含 padding）
             img_widths: [B] 每张图片 padding 前的真实像素宽度 (int32/int64)
         Returns:
-            output:     [SeqLen, B, NumClasses] log_softmax
+            output:     [SeqLen, B, NumClasses] log_probs 或 logits
         """
         # ---- CNN ----
         conv = self.cnn(input)           # [B, 256, 1, W/4]
@@ -131,11 +136,13 @@ class OnnxExportWrapper(torch.nn.Module):
         neg_inf[:, :, 0] = 0.0  # blank 位保持 0
         output = torch.where(mask_expanded, neg_inf, output)
 
-        return F.log_softmax(output, dim=2)
+        # greedy CTC 的 argmax 不依赖 LogSoftmax，可显式导出 logits 减少 CPU 运算。
+        return output if self.output_type == "logits" else F.log_softmax(output, dim=2)
 
 
 def export_onnx(model_path: str, output_path: str, keys_path: str,
-                img_height: int = 32, img_width: int = 256):
+                img_height: int = 32, img_width: int = 256,
+                output_type: str = "log_probs", num_threads: int = 1):
     """
     将 PyTorch CRNN 模型导出为 ONNX 格式。
     """
@@ -143,6 +150,10 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
     print("CRNN 模型 → ONNX 导出工具 (修复版)")
     print("=" * 60)
 
+    if num_threads < 1:
+        raise ValueError("num_threads 必须大于 0")
+    torch.set_num_threads(num_threads)
+    torch.manual_seed(20260908)
     device = torch.device("cpu")
 
     # 1. 加载模型
@@ -162,7 +173,7 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
 
     # 2. 包装模型
     print(f"[2/5] 包装模型 (OnnxExportWrapper)")
-    wrapper = OnnxExportWrapper(model)
+    wrapper = OnnxExportWrapper(model, output_type=output_type)
     wrapper.eval()
     wrapper.to(device)
 
@@ -206,6 +217,14 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
     )
     print(f"    ✓ 基础 ONNX 导出完成")
 
+    # 图结构检查不能依赖可选的 onnxsim 是否安装。
+    import onnx
+    graph_model = onnx.load(output_path)
+    onnx.checker.check_model(graph_model)
+    gru_nodes = [node for node in graph_model.graph.node if node.op_type == "GRU"]
+    if len(gru_nodes) != 1 or len(gru_nodes[0].input) <= 4 or not gru_nodes[0].input[4]:
+        raise RuntimeError("导出的 ONNX GRU 缺少 sequence_lens 输入")
+
     # 5. onnxsim 简化
     print(f"[5/5] 尝试使用 onnx-simplifier 进行图优化...")
     try:
@@ -239,12 +258,24 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
         print("    ⚠ onnxsim 未安装，跳过简化步骤")
         print("    → 安装命令: pip install onnxsim")
 
+    graph_model = onnx.load(output_path)
+    with open(keys_path, "rb") as keys_file:
+        keys_hash = hashlib.sha256(keys_file.read()).hexdigest()
+    onnx.helper.set_model_props(graph_model, {
+        "output_type": output_type, "output_layout": "TBC",
+        "keys_sha256": keys_hash, "num_channels": str(num_channels),
+        "cnn_right_context": str(CNN_RIGHT_CONTEXT),
+    })
+    onnx.save(graph_model, output_path)
+
     # ---- 验证：对比 PyTorch 与 ONNX 在不同 batch_size 下的输出 ----
     print(f"\n[验证] 对比 PyTorch 与 ONNX 输出...")
     try:
         import onnxruntime as ort
 
         sess_options = ort.SessionOptions()
+        sess_options.intra_op_num_threads = num_threads
+        sess_options.add_session_config_entry("session.intra_op.allow_spinning", "0")
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         ort_session = ort.InferenceSession(output_path, sess_options=sess_options,
                                            providers=["CPUExecutionProvider"])
@@ -258,8 +289,10 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
                 max_valid_width,
             ],
         }
+        # 同时验证不同 batch 和不同实际张量宽度，防止 trace 固化 shape。
         for test_batch, valid_widths in width_cases.items():
-            test_input = torch.randn(test_batch, num_channels, img_height, img_width, device=device)
+            test_width = img_width if test_batch == 1 else img_width + 80
+            test_input = torch.randn(test_batch, num_channels, img_height, test_width, device=device)
             test_widths = torch.tensor(valid_widths, dtype=torch.long)
 
             # PyTorch (原始模型，带 img_widths)
@@ -273,7 +306,10 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
             }
             ort_output = ort_session.run(None, ort_inputs)[0]
 
-            max_err = np.max(np.abs(pt_output - ort_output))
+            comparable_output = ort_output
+            if output_type == "logits":
+                comparable_output = torch.log_softmax(torch.from_numpy(ort_output), dim=2).numpy()
+            max_err = np.max(np.abs(pt_output - comparable_output))
             status = "✓" if max_err < 1e-3 else "⚠"
             print(
                 f"    batch={test_batch}, widths={valid_widths}: "
@@ -295,12 +331,13 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
 
         sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        sess_options.intra_op_num_threads = os.cpu_count()
+        sess_options.intra_op_num_threads = num_threads
+        sess_options.add_session_config_entry("session.intra_op.allow_spinning", "0")
         ort_session = ort.InferenceSession(output_path, sess_options=sess_options,
                                            providers=["CPUExecutionProvider"])
 
         bench_input = torch.randn(1, num_channels, img_height, img_width, device=device)
-        bench_widths = torch.full((1,), img_width, dtype=torch.long)
+        bench_widths = torch.full((1,), img_width - CNN_RIGHT_CONTEXT, dtype=torch.long)
         ort_inputs = {
             "input": bench_input.numpy(),
             "img_widths": bench_widths.numpy(),
@@ -309,11 +346,11 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
         # PyTorch
         for _ in range(5):
             with torch.no_grad():
-                model(bench_input)
+                model(bench_input, img_widths=bench_widths)
         t0 = time.perf_counter()
         for _ in range(20):
             with torch.no_grad():
-                model(bench_input)
+                model(bench_input, img_widths=bench_widths)
         pt_time = (time.perf_counter() - t0) / 20 * 1000
 
         # ONNX
@@ -337,10 +374,14 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
 
 
 if __name__ == "__main__":
-    model_path = "recognition/checkpoints/1788380644best_cer_0.0194_epoch_621.pth"
-    output_path = "best_recognition.onnx"
-    keys_path = "recognition/keys.txt"
-    img_height = 32
-    img_width = 256
-
-    export_onnx(model_path, output_path, keys_path, img_height, img_width)
+    parser = argparse.ArgumentParser(description="导出动态宽度、长度感知的 CRNN ONNX")
+    parser.add_argument("--model_path", required=True)
+    parser.add_argument("--output_path", default="best_recognition.onnx")
+    parser.add_argument("--keys_path", default="recognition/keys.txt")
+    parser.add_argument("--img_height", type=int, default=32)
+    parser.add_argument("--img_width", type=int, default=256, help="trace 样例宽度，不限制部署宽度")
+    parser.add_argument("--output_type", choices=["log_probs", "logits"], default="log_probs",
+                        help="logits 适用于 greedy 解码；需要概率/CTC loss 时保留 log_probs")
+    parser.add_argument("--num_threads", type=int, default=1)
+    args = parser.parse_args()
+    export_onnx(**vars(args))

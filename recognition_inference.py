@@ -10,6 +10,7 @@ import sys
 import time
 import glob
 import argparse
+import hashlib
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -22,7 +23,7 @@ if project_root not in sys.path:
 
 # 强制复用核心模块，保证逻辑一致
 from recognition.components.converter import LabelConverter
-from recognition.components.dataset import InferenceDataset, dynamic_padding_collate_fn
+from recognition.components.dataset import CNN_RIGHT_CONTEXT, InferenceDataset, dynamic_padding_collate_fn
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 # ============================================================
@@ -58,11 +59,16 @@ def normalize_output_to_tbc(output: np.ndarray, batch_size: int) -> np.ndarray:
 
 class ONNXBackend:
     """ONNX Runtime 后端 (修复版: 传入 img_widths)"""
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, num_threads: int = 1, allow_spinning: bool = False):
         import onnxruntime as ort
         opts = ort.SessionOptions()
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        opts.intra_op_num_threads = os.cpu_count()
+        if num_threads < 1:
+            raise ValueError("num_threads 必须大于 0")
+        opts.intra_op_num_threads = num_threads
+        opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        # 预处理在两次 infer 之间执行；空转会抢占这些 CPU 时间，尤其高线程数时。
+        opts.add_session_config_entry("session.intra_op.allow_spinning", "1" if allow_spinning else "0")
         self.session = ort.InferenceSession(model_path, opts, providers=["CPUExecutionProvider"])
 
         # 检测模型是否包含 img_widths 输入
@@ -81,7 +87,7 @@ class ONNXBackend:
 
     def _warmup(self, n: int = 3):
         dummy = np.random.randn(1, self.num_channels, IMG_HEIGHT, 256).astype(np.float32)
-        dummy_widths = np.array([256], dtype=np.int64)
+        dummy_widths = np.array([256 - CNN_RIGHT_CONTEXT], dtype=np.int64)
         for _ in range(n):
             feeds = {"input": dummy}
             if self.has_img_widths:
@@ -99,11 +105,21 @@ class ONNXBackend:
 
 class OpenVINOBackend:
     """OpenVINO 后端 (修复版: 传入 img_widths)"""
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, num_threads: int = 1):
         from openvino import Core
         ie = Core()
         model = ie.read_model(model=model_path)
-        config = {"PERFORMANCE_HINT": "LATENCY"}
+        from recognition.utils.openvino import make_gru_length_safe
+        model = make_gru_length_safe(model)
+        if num_threads < 1:
+            raise ValueError("num_threads 必须大于 0")
+        config = {
+            "PERFORMANCE_HINT": "LATENCY",
+            "INFERENCE_NUM_THREADS": num_threads,
+            "NUM_STREAMS": 1,
+            # 未量化层保持 FP32，避免不同 CPU 默认使用 BF16 带来精度变化。
+            "INFERENCE_PRECISION_HINT": "f32",
+        }
         self.compiled_model = ie.compile_model(model=model, device_name="CPU", config=config)
         self.infer_request = self.compiled_model.create_infer_request()
 
@@ -140,7 +156,7 @@ class OpenVINOBackend:
 
     def _warmup(self, n: int = 3):
         dummy = np.random.randn(1, self.num_channels, IMG_HEIGHT, 256).astype(np.float32)
-        dummy_widths = np.array([256], dtype=np.int64)
+        dummy_widths = np.array([256 - CNN_RIGHT_CONTEXT], dtype=np.int64)
         for _ in range(n):
             feeds = {self.image_input: dummy}
             if self.has_img_widths:
@@ -162,7 +178,10 @@ class OpenVINOBackend:
 
 class PyTorchBackend:
     """原始 PyTorch 后端"""
-    def __init__(self, model_path: str, keys_path: str):
+    def __init__(self, model_path: str, keys_path: str, num_threads: int = 1):
+        if num_threads < 1:
+            raise ValueError("num_threads 必须大于 0")
+        torch.set_num_threads(num_threads)
         from recognition.models.model import CRNN
         converter = LabelConverter(keys_path)
         checkpoint = torch.load(model_path, map_location="cpu")
@@ -178,23 +197,31 @@ class PyTorchBackend:
         print(f"  ✓ PyTorch 后端加载完成")
 
     def infer(self, images: torch.Tensor, img_widths: torch.Tensor):
-        with torch.no_grad():
+        with torch.inference_mode():
             output = self.model(images, img_widths=img_widths)
         return output
 
 
-def load_backend(model_path: str, backend: str, keys_path: str):
+def load_backend(model_path: str, backend: str, keys_path: str, num_threads: int = 1,
+                 allow_spinning: bool = False):
     ext = os.path.splitext(model_path)[1].lower()
     if backend == "auto":
-        backend = "onnx" if ext == ".onnx" else "pytorch"
+        backend = {".onnx": "onnx", ".xml": "openvino"}.get(ext, "pytorch")
 
     print(f"\n[后端] 使用: {backend.upper()}")
     if backend == "onnx":
-        return ONNXBackend(model_path)
+        result = ONNXBackend(model_path, num_threads, allow_spinning)
+        metadata = result.session.get_modelmeta().custom_metadata_map
+        if "keys_sha256" in metadata:
+            with open(keys_path, "rb") as keys_file:
+                keys_hash = hashlib.sha256(keys_file.read()).hexdigest()
+            if keys_hash != metadata["keys_sha256"]:
+                raise ValueError(f"字典与导出模型不一致: {keys_path}；请使用导出时的 keys 文件")
+        return result
     elif backend == "openvino":
-        return OpenVINOBackend(model_path)
+        return OpenVINOBackend(model_path, num_threads)
     elif backend == "pytorch":
-        return PyTorchBackend(model_path, keys_path)
+        return PyTorchBackend(model_path, keys_path, num_threads)
     else:
         raise ValueError(f"未知后端: {backend}")
 
@@ -214,10 +241,19 @@ def main():
     parser.add_argument("--output_file", type=str,
                         default=None)
     parser.add_argument("--backend",     type=str, choices=["auto", "onnx", "openvino", "pytorch"],
-                        default="onnx")
+                        default="auto")
     parser.add_argument("--batch_size",  type=int,
                         default=1, help="批量大小")
+    parser.add_argument("--num_threads", type=int, default=1, help="CPU 推理线程数，建议实测 1/2/4")
+    parser.add_argument("--num_workers", type=int, default=0, help="预处理进程数；单图用 0")
+    parser.add_argument("--allow_spinning", action="store_true", help="ONNX 线程空转；需实测完整流水线是否更快")
+    parser.add_argument("--sort_by_width", action="store_true", help="按宽高比组 batch，结果仍按原文件顺序输出")
     args = parser.parse_args()
+    if args.batch_size < 1 or args.num_threads < 1 or args.num_workers < 0:
+        parser.error("batch_size/num_threads 必须大于 0，num_workers 不能为负")
+    # ONNX/OpenVINO 自己管理推理线程；小张量预处理/解码用单线程避免两个线程池竞争。
+    # PyTorchBackend 会单独设置自身需要的推理线程数。
+    torch.set_num_threads(1)
 
     print("=" * 60)
     print("CRNN 优化推理 (修复版 - 支持 batch>1)")
@@ -233,17 +269,23 @@ def main():
         image_paths = [args.image_path]
 
     if not image_paths:
-        print("✗ 未找到图像文件")
-        return
+        raise FileNotFoundError(f"未找到图像文件: {args.image_path}")
 
     image_paths = sorted(set(image_paths))
+    output_order = {path: index for index, path in enumerate(image_paths)}
+    if args.sort_by_width:
+        from PIL import Image
+        def aspect_ratio(path):
+            with Image.open(path) as image:
+                return image.width / image.height
+        image_paths.sort(key=aspect_ratio)
     print(f"发现 {len(image_paths)} 张待处理图片")
 
     # 2. 初始化核心组件
     converter = LabelConverter(args.keys_path)
-    backend = load_backend(args.model_path, args.backend, args.keys_path)
+    backend = load_backend(args.model_path, args.backend, args.keys_path, args.num_threads, args.allow_spinning)
 
-    # detection 输出已经是文字框，直接识别，不做二次裁剪或按颜色删除像素。
+    # 完整 detection 框复用共享的透明合成、保守去章和动态 padding。
     dataset = InferenceDataset(
         image_paths=image_paths,
         img_height=IMG_HEIGHT,
@@ -253,7 +295,7 @@ def main():
         dataset,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=2,
+        num_workers=args.num_workers,
         collate_fn=dynamic_padding_collate_fn
     )
 
@@ -273,9 +315,11 @@ def main():
         total_ms += infer_ms
 
         for path, text in zip(paths, pred_texts):
-            results.append((os.path.basename(path), text))
+            results.append((path, text))
 
     t_wall = time.perf_counter() - t_wall_start
+    results.sort(key=lambda item: output_order[item[0]])
+    results = [(os.path.basename(path), text) for path, text in results]
 
     # 5. 输出结果
     print(f"\n{'-'*60}")
@@ -292,7 +336,7 @@ def main():
     print(f"\n{'='*60}")
     print(f"推理完成")
     print(f"  图像数:         {len(image_paths)} 张")
-    print(f"  纯推理耗时:     {total_ms:.1f} ms")
+    print(f"  推理+解码耗时:  {total_ms:.1f} ms")
     print(f"  总耗时(含预处理): {t_wall*1000:.0f} ms")
     print(f"  吞吐量:         {len(image_paths)/t_wall:.2f} 张/秒")
     print(f"{'='*60}")

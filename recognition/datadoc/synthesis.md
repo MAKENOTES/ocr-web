@@ -2,7 +2,7 @@
 
 ## 字体和渲染
 
-三个脚本共用 [generate.py](../utils/synthesis/generate.py) 中的字体加载和正文渲染逻辑。
+合成脚本共用 [generate.py](../utils/synthesis/generate.py) 中的字体加载和正文渲染逻辑。
 默认从本机以下字体中选择，未安装的默认字体不加入候选：
 
 | 字体 | 字重 | 默认字体文件位置 |
@@ -121,3 +121,34 @@ python recognition/utils/synthesis/generate_balanced.py
 # 默认生成 1000 张红章干扰样本
 python recognition/utils/synthesis/generate_red_stamp.py
 ```
+
+## 4、特殊样本：四个方向的表格边线
+
+脚本：[generate_lines.py](../utils/synthesis/generate_lines.py)，默认生成 **1000 张**。
+上横线、下横线、左竖线、右竖线、四边框各 **200 张**。其他数量也按五种类型均分，差值不超过 1。
+参考清单 [line_references.txt](../utils/synthesis/line_references.txt) 包含指定的 15 张 val 图片。
+仅提取纸面颜色、正文颜色、字号和长度统计；统计正文时排除长边线，不复制参考像素或标签。
+
+字符从实际字典 `recognition/keys.txt` 随机采样（仓库没有 `keys.py`），排除空白及不可打印字符，
+整行由同一字体完整覆盖。字体以常规宋体为主，文字长度为 2～24，保留完整字形和原有轻微噪声、模糊。
+在正文画布外增加 1～2 像素边线，边线距正文画布 1～3 像素；左右边线为竖线。
+线条不属于正文标注，不承诺 1000 张覆盖全部字典或逐字配额。
+
+```bash
+.venv/bin/python recognition/utils/synthesis/generate_lines.py --images 1000
+```
+
+默认产物（日期为运行当天）：
+
+| 产物 | 路径 |
+|---|---|
+| RGB PNG | `recognition/data/synthesis_lines_YYYYMMDD_images/synthesis_lines_YYYYMMDD_00001.png` 起 |
+| 逗号加引号标注 | `recognition/data/synthesis_lines_YYYYMMDD_annotation.txt` |
+| 当前训练加载器使用的 Tab 标注 | `recognition/data/synthesis_lines_YYYYMMDD_annotation_training.txt` |
+| 报告及预览 | `recognition/utils/synthesis/synthesis_report/synthesis_lines_YYYYMMDD/` |
+
+两份标注的图片路径和文字完全一致，路径均相对于标注所在目录；正文中的双引号在逗号格式中按 CSV 规则转义。
+**加入训练时使用 `_annotation_training.txt`**，当前加载器只接受 Tab 分隔格式。
+`summary.json` 保存方向计数、参考计数、字符次数和输入校验和；`samples.jsonl` 保存逐图字体、风格及边线参数。
+可用 `--keys`、`--references`、`--fonts`、`--seed`、`--output-dir`、`--annotation`、`--report-dir` 修改输入输出。
+已有非空产物拒绝覆盖；生成失败保留 `.partial` 排查，不发布完整标注。不会自动合并进 train/val。

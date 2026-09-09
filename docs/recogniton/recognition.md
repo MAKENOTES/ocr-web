@@ -267,6 +267,24 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 使用合成数据训练时，将实际生成的 `recognition/data/synthesisN_annotation.txt` 加入
 `../../recognition/train.py` 的 `TRAIN_ANNOTATION` 列表，验证集继续使用原来的 val 标注。
 
+### 表格边线干扰合成（默认 1000 张）
+
+`../../recognition/utils/synthesis/generate_lines.py` 从 `recognition/keys.txt` 随机取可见字符，
+参考 `line_references.txt` 中指定的 15 张 val 框的颜色、字号和文字长度，以细宋体为主重绘正文。
+只使用参考风格统计，不复制参考正文。上横线、下横线、左竖线、右竖线、四边框各 200 张，
+边线在完整正文画布外绘制，保留字形。字符须由所选字体完整覆盖；不做逐字数量保证。
+
+```bash
+.venv/bin/python recognition/utils/synthesis/generate_lines.py --images 1000
+```
+
+RGB PNG 输出到 `recognition/data/synthesis_lines_YYYYMMDD_images/`；
+同级 `synthesis_lines_YYYYMMDD_annotation.txt` 使用仓库指南的逗号引号格式，
+`synthesis_lines_YYYYMMDD_annotation_training.txt` 使用当前加载器需要的 Tab 格式，**训练请使用后者**。
+两份标注路径均相对于各自所在目录，标签只含正文；已有输出拒绝覆盖，不自动修改 train/val。
+报告和预览在 `recognition/utils/synthesis/synthesis_report/synthesis_lines_YYYYMMDD/`。
+具体参数和产物说明见 `../../recognition/datadoc/synthesis.md`。
+
 ### 红章干扰合成（默认 1000 张）
 
 `../../recognition/utils/synthesis/generate_red_stamp.py` 默认读取同目录
@@ -401,6 +419,8 @@ flowchart LR
 - `../../recognition/inference.py`：PyTorch checkpoint 调试；
 - `../../recognition_export_onnx.py`：带 `img_widths`、动态 batch/width 的 ONNX；
 - `../../recognition_inference.py`：ONNX/OpenVINO/PyTorch 部署推理。
+- `../../recognition_benchmark_cpu.py`：带标注的 CPU CER、整行准确率、耗时和逐图预测报告；
+- `../../recognition_quantize_static.py`：共享预处理的 NNCF 静态量化，以及基于真实 CER 的精度恢复。
 
 `train.py` 的 `TRAIN_ANNOTATION` 可配置一个标注路径或多个标注路径；当前训练集按配置顺序
 合并 `train_annotation.txt`、`append_annotation.txt`、`bench1_annotation.txt`、
@@ -431,6 +451,59 @@ python recognition_inference.py \
   --batch_size 32
 ```
 
+### CPU 部署与静态量化
+
+导出支持 `--output_type logits` 省略 LogSoftmax，仍返回 `[T,B,C]` 并将 padding
+位置设为 blank。它适用于当前 greedy CTC 解码；需要概率、置信度或 CTC loss 时，
+保留默认的 `log_probs`，或先对 logits 做 LogSoftmax。导出会校验动态 batch/width、
+GRU 的 sequence_lens 和 PyTorch 数值一致性，并写入字典 SHA256；ONNX 推理会核对字典。
+`--img_width` 仅是导出样例宽度，不限制实际文字框宽度。
+
+推理 `--backend auto` 按 `.pth/.onnx/.xml` 选择后端。`--num_threads` 默认为 1，
+可在目标机器实测 1/2/4/6；不能把逻辑 CPU 总数当成最优线程数。
+ONNX 默认关闭线程空转，避免等待下一张图时抢占预处理 CPU；`--allow_spinning`
+只应在完整流水线实测获益时开启。非 PyTorch 后端的张量预处理/解码固定用一个
+PyTorch 线程，推理线程由后端管理，避免线程池互相竞争。
+OpenVINO 使用单 stream、LATENCY 和 FP32 浮点计算提示，INT8 层仍按量化图执行。
+本机 OpenVINO 2026.0 CPU 的双向 GRU 在实测中仍遍历 padding，造成大量末字丢失。
+`../../recognition/utils/openvino.py` 在加载/量化前将其改为两个正向 GRU，并用
+batch Gather 按各样本真实长度显式反转反向分支的输入、输出；最终沿用 blank mask。
+这样保留完整 CNN 背景保护区，又使有效反向状态不受 padding 污染。该处理仅面向
+当前不消费最终 hidden state、有效长度大于零的 CRNN；已修复 IR 再次加载时不重复改图。
+回归测试同时要求 OpenVINO 跨 batch 一致和对齐 PyTorch，不能仅比较两个 OpenVINO 结果。
+单图默认 `--num_workers 0` 避免创建进程开销；离线批处理可开启 `--sort_by_width`
+减少无效 padding，输出恢复原文件排序。显示的后端耗时包含解码，总耗时还包含预处理。
+
+```bash
+.venv/bin/python recognition_benchmark_cpu.py \
+  --model_path outputs/recognition/model.onnx \
+  --annotation recognition/data/val_annotation.txt \
+  --num_threads 4 --output outputs/recognition/evaluation.json
+
+.venv/bin/python recognition_quantize_static.py \
+  --onnx_model outputs/recognition/model.onnx \
+  --calibration_dir recognition/data/train_images \
+  --validation_annotation recognition/data/val_annotation.txt \
+  --output_dir outputs/recognition/int8 --subset_size 300
+```
+
+量化从模型读取 RGB/灰度通道，复用 InferenceDataset 和 dynamic_padding_collate_fn，
+包含透明合成、保守去章、`[-1,1]` 归一化、动态宽度及 32px 右侧保护区；禁止单独将校准
+长图压到 256。排序后按固定种子抽取训练图片，保存校准名单。默认保留 GRU 和分类层
+FP32；`--quantize_head` 是需另行评估的实验选项，不承诺必然提高速度或保持准确率。
+
+`--accuracy_control --max_drop 0.001` 使用 NNCF 的 `1-CER` 指标恢复敏感层精度，
+保存前再次要求 CER 增幅不超过 0.1 个百分点；必须提供真实文字标注，禁止用输出余弦
+相似度替代 OCR 精度。精度控制集与校准集不能路径重叠，调参数据不能作为独立发布测试集。
+`--validation_size 0`、评估脚本 `--limit 0` 表示全量；非零时按固定种子随机抽样。
+未开启精度控制的量化只是生成候选模型，需要根据独立数据的 CER 与速度决定是否使用。
+`--also_onnx` 可另生成 ONNX INT8，但不能与 OpenVINO 精度恢复同时启用。
+该 ONNX 路径固定使用逐张量激活量化，避免 ORT CPU 的 QLinearConv 不支持逐通道
+激活零点；保存后实际执行若干不同宽度输入，验证运行时兼容性。
+
+本次指定 epoch 120 权重的全量准确率、CPU 性能、OpenVINO 修复与部署命令见
+[CPU 测试报告（2026-09-09）](recognition-cpu-report-2026-09-09.md)。
+
 初次准备数据时，应先从 `all` 使用上述划分脚本建立图片与标注一一对应的独立训练集
 和验证集，并运行三份标注校对；划分完成前，不应将训练集评估结果作为发布精度。
 
@@ -454,7 +527,7 @@ python recognition_inference.py \
 - 训练数据与标注统一使用 `.png`；路径或扩展名不一致会直接报错，避免自动回退掩盖数据问题或以 dummy tensor 静默污染训练。
 - recognition 不再做二次裁剪；detection 框质量需要在 detection 环节单独评估。
 - 输入高度目前固定 32；48 高度只能作为同数据、同训练预算的消融实验，不能直接替换现有权重。
-- `../../recognition_quantize_static.py` 当前不进入发布路径。FP32 ONNX/OpenVINO 是默认优化方向。
+- FP32 ONNX/OpenVINO 是准确率优先的默认优化方向；INT8 只有通过带标注精度和目标 CPU 速度对照后才可替代。
 - `model_resnet50.py` 和历史说明文档属于实验资产，未通过同一门禁前不替代当前基线。
 
 2026-09-07 对 dataset 历史改动、红章增强和训练机制的复核见

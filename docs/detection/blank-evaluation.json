@@ -1,0 +1,622 @@
+{
+  "created_utc": "2026-09-08T14:50:21.986414+00:00",
+  "environment": {
+    "python": "3.10.16",
+    "torch": "2.9.0+cu130",
+    "numpy": "2.2.6",
+    "opencv": "4.12.0",
+    "device": "cpu"
+  },
+  "input_size": [
+    256,
+    768
+  ],
+  "seed": 20260908,
+  "source_sha256": {
+    "docs/detection/evaluate_blank.py": "e5678641db0a755aef5e056728589ff0b301daf9d65511728be77af4521435e5",
+    "recognition/components/converter.py": "2f7493a1a7ec0c2de8f459ddb5f0f9c5797e5e0cd36923f17e6f095e095d6fcc",
+    "recognition/train.py": "b1a0be80c68d78d13f6a93a166bb7c06460a4997a23b9ab1819fb500c80d24fe",
+    "recognition/models/model.py": "632ce9eacf1d4e057be04153a7882cbe5bcee1c8f36736025953f7f2f945c073",
+    "detection/models/east_model.py": "dd089f3c307a3f39d7952d3e1275d96ed684f26ba61879c0a93cb9f294f6091c",
+    "detection/components/dataset.py": "328e2c30655108ee04f3c60156e079ebf99f7c02d37c373bcc7e9b459065f442",
+    "detection/components/ground_truth.py": "dfd30e0dfd21a2beea7abd4814da3e05903a09061f01e3c398a243f611a1ec8e",
+    "detection/components/transforms.py": "96f45fa43039d45f631e3f735d6f3085afac5ddbb31627ebf88e97e6e3e9908a",
+    "detection/components/loss.py": "8b88351df9d134bb06c341fe08df6986043d5a1ed3a41971cfe2ae8a3537437c",
+    "detection/train_resnet.py": "b1965e3c6059cbd1095fc4636f5df927ea9c07f1350d45eabe7c398c7edb813c",
+    "detection_inference_640.py": "ce0982aef4adc9c3bfe478c744555c3a20e15807aa2d4a5e108c55f430cc0fea"
+  },
+  "ctc": {
+    "cases": [
+      {
+        "tokens": [
+          2,
+          2,
+          2
+        ],
+        "decoded": "A"
+      },
+      {
+        "tokens": [
+          2,
+          0,
+          2
+        ],
+        "decoded": "AA"
+      },
+      {
+        "tokens": [
+          0,
+          0,
+          0
+        ],
+        "decoded": ""
+      },
+      {
+        "tokens": [
+          2,
+          3,
+          2
+        ],
+        "decoded": "A A"
+      }
+    ],
+    "target": "AA",
+    "time_steps": 3,
+    "valid_paths_with_blank": 1,
+    "valid_paths_without_blank": 0,
+    "ctc_loss_with_blank": 1.0728833785833558e-06,
+    "ctc_loss_without_blank": "infinity",
+    "encoded_targets": [
+      2,
+      2
+    ],
+    "target_contains_blank": false
+  },
+  "head": {
+    "weights": "random initialization; shapes only",
+    "score_shape": [
+      1,
+      1,
+      64,
+      192
+    ],
+    "geometry_shape": [
+      1,
+      4,
+      64,
+      192
+    ],
+    "score_head_parameters": 33,
+    "binary_softmax_sigmoid_max_error": 1.6653345369377348e-16
+  },
+  "background": {
+    "map_pixels": 12288,
+    "positive_pixels": 1536,
+    "mixed_score_loss": 0.800000011920929,
+    "mixed_geo_loss": 2.098149299621582,
+    "mixed_background_score_gradient_mean": 2.604166729724966e-05,
+    "mixed_foreground_score_gradient_mean": -0.00023437500931322575,
+    "mixed_background_geo_gradient_max": 0.0,
+    "positive_only_background_score_gradient_max": 0.0,
+    "empty_batch_score_loss": 1.0,
+    "empty_batch_geo_loss": 0.0,
+    "empty_batch_dice_gradient_mean": 2.649095949113639e-13,
+    "empty_batch_bce_loss": 0.6931473612785339,
+    "empty_batch_bce_gradient_mean": 0.00016276042151730508,
+    "gradient_variable": "score probability p, not model weights or logits"
+  },
+  "postprocess": {
+    "ground_truth_boxes": [
+      [
+        76.80000305175781,
+        51.20000076293945,
+        307.20001220703125,
+        204.8000030517578
+      ],
+      [
+        460.79998779296875,
+        51.20000076293945,
+        691.2000122070312,
+        204.8000030517578
+      ]
+    ],
+    "cases": {
+      "correct_background": {
+        "connected_regions": 2,
+        "box_count": 2,
+        "boxes": [
+          [
+            76.79999923706055,
+            51.20000076293945,
+            307.20001220703125,
+            204.80000495910645
+          ],
+          [
+            460.79998779296875,
+            51.20000076293945,
+            691.2000122070312,
+            204.80000495910645
+          ]
+        ]
+      },
+      "all_text": {
+        "connected_regions": 1,
+        "box_count": 1,
+        "boxes": [
+          [
+            10.0,
+            6.0,
+            758.0,
+            250.0
+          ]
+        ]
+      },
+      "all_background": {
+        "connected_regions": 0,
+        "box_count": 0,
+        "boxes": []
+      }
+    },
+    "scope": "synthetic GT geometry held fixed; score intervention, not trained-model ablation"
+  },
+  "dataset": {
+    "scope": "directory sample; no manifest/split independence or model accuracy verified",
+    "available_png_images": 5920,
+    "sampled_images": 64,
+    "seed": 20260908,
+    "positive_pixels": 53450,
+    "map_pixels": 786432,
+    "background_fraction": 0.9320348103841146,
+    "zero_positive_maps": 0,
+    "records": [
+      {
+        "image": "detection/data/val_images/du20260828-000101.png",
+        "label": "detection/data/val_labels/gt_du20260828-000101.txt",
+        "label_sha256": "04a1762c666244603e342db749f4a4961267d739aa5949b17a883d77dc687d80",
+        "positive_pixels": 750,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-000187.png",
+        "label": "detection/data/val_labels/gt_du20260828-000187.txt",
+        "label_sha256": "168f03ae6ea9be3d849a4905ae39437e0cd7f98fc6750d5b22a1814fda4511c0",
+        "positive_pixels": 441,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-000323.png",
+        "label": "detection/data/val_labels/gt_du20260828-000323.txt",
+        "label_sha256": "5c99ba615a85fbf78a6d87ba0f832166d9201d43bc00d14f1a10f4dad73a94d9",
+        "positive_pixels": 1599,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-000364.png",
+        "label": "detection/data/val_labels/gt_du20260828-000364.txt",
+        "label_sha256": "7dc869b526f6938840ec67fa05961d1d121cb507648179678d3335598888fb33",
+        "positive_pixels": 1512,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-000448.png",
+        "label": "detection/data/val_labels/gt_du20260828-000448.txt",
+        "label_sha256": "7e2455da952a11811e75a1eb9a1fd42651a09d1ec5f06150aa9f64e7f7060416",
+        "positive_pixels": 330,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-000643.png",
+        "label": "detection/data/val_labels/gt_du20260828-000643.txt",
+        "label_sha256": "b0278f02578e1c25fcd64cff5443f9dddb23a3ff8307ac8eb9191f69c6acb709",
+        "positive_pixels": 396,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-000685.png",
+        "label": "detection/data/val_labels/gt_du20260828-000685.txt",
+        "label_sha256": "3ab4dfe555b75a0452b37cdbb3730af97b21a40ba8a846fd229e443f1f9595a1",
+        "positive_pixels": 948,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-000697.png",
+        "label": "detection/data/val_labels/gt_du20260828-000697.txt",
+        "label_sha256": "8de2ecf5791387864421befa1fb2285d5e85285a91288b7b1904ddb149d63222",
+        "positive_pixels": 153,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-000755.png",
+        "label": "detection/data/val_labels/gt_du20260828-000755.txt",
+        "label_sha256": "e687239d865196c7859bf729ce20533760ae21943eb2a3f9ab0f51c06b0e1d7e",
+        "positive_pixels": 504,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-000949.png",
+        "label": "detection/data/val_labels/gt_du20260828-000949.txt",
+        "label_sha256": "94b7d0802bc8918008c0c0dd4cec764d105a49665304613a124b3aeaad9fad09",
+        "positive_pixels": 988,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-000959.png",
+        "label": "detection/data/val_labels/gt_du20260828-000959.txt",
+        "label_sha256": "9c1eebc3557b21d099526548654446caa4fdf2d99c30bb0ef79161b8943ab67b",
+        "positive_pixels": 988,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001006.png",
+        "label": "detection/data/val_labels/gt_du20260828-001006.txt",
+        "label_sha256": "03801639b71893a9dd30c2fe8c5638952ce9a29ccdbd4722e22e39e6da2ef589",
+        "positive_pixels": 1014,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001071.png",
+        "label": "detection/data/val_labels/gt_du20260828-001071.txt",
+        "label_sha256": "bf052dc2429039a10f989eccaff5ee4eb8ba5ddcc76d08e291fd9c3e34e88fca",
+        "positive_pixels": 1920,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001360.png",
+        "label": "detection/data/val_labels/gt_du20260828-001360.txt",
+        "label_sha256": "e1cad4c1e97284d54a84180c3686f2248ab953c7a9ff59b2609b00deeb4c09bd",
+        "positive_pixels": 1174,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001472.png",
+        "label": "detection/data/val_labels/gt_du20260828-001472.txt",
+        "label_sha256": "2996c541152553d652adb42c74850206d15fe6bfb1bd0f5de850cc140a95e1a5",
+        "positive_pixels": 672,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001574.png",
+        "label": "detection/data/val_labels/gt_du20260828-001574.txt",
+        "label_sha256": "8143c50cdcb118914d8f3cf9d91008d86764ca7bfd3e124c6543e1681327c5e5",
+        "positive_pixels": 330,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001609.png",
+        "label": "detection/data/val_labels/gt_du20260828-001609.txt",
+        "label_sha256": "eb6a6eb2d3f74ccefa2e8c93f9afd373e4d0263e21cec1328d02806d09b515f4",
+        "positive_pixels": 1332,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001616.png",
+        "label": "detection/data/val_labels/gt_du20260828-001616.txt",
+        "label_sha256": "0714d89d2f8ee0c5e8db3e05958ae1eef2e6d74286453610c04740df6fef25ae",
+        "positive_pixels": 1263,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001620.png",
+        "label": "detection/data/val_labels/gt_du20260828-001620.txt",
+        "label_sha256": "2b26daa6b73c722657e6c39d92f1cd63ebf139093afdd30b73b50a66739b21a6",
+        "positive_pixels": 1152,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001656.png",
+        "label": "detection/data/val_labels/gt_du20260828-001656.txt",
+        "label_sha256": "be6d5ac8c0585c2ebce1dc9d288a1a2b786c685047541a9eb322697fe0fbd4b7",
+        "positive_pixels": 364,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001674.png",
+        "label": "detection/data/val_labels/gt_du20260828-001674.txt",
+        "label_sha256": "a902c7f1a2817f9972e6bc6e106f07c8a7400dc95d643e64f134b030e6380c4d",
+        "positive_pixels": 1168,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001791.png",
+        "label": "detection/data/val_labels/gt_du20260828-001791.txt",
+        "label_sha256": "d649062dbef4b266a56a6affab873d8a6f57c8e0ae2b99861856f49ede605ae7",
+        "positive_pixels": 910,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001885.png",
+        "label": "detection/data/val_labels/gt_du20260828-001885.txt",
+        "label_sha256": "f36597f924409fb8fd23ebdef8f6b7cb005ba5523734b3cbfc416c5543113f3f",
+        "positive_pixels": 855,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-001913.png",
+        "label": "detection/data/val_labels/gt_du20260828-001913.txt",
+        "label_sha256": "9a211650a2be29bf0b58a54eb6d8baef038f7488cf6c3778372981aa7660c8a9",
+        "positive_pixels": 1014,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002024.png",
+        "label": "detection/data/val_labels/gt_du20260828-002024.txt",
+        "label_sha256": "a60508fe796333dc15fdc517c48cd0d757f8e33eb5e646dcfea22f085f1b54f5",
+        "positive_pixels": 1651,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002055.png",
+        "label": "detection/data/val_labels/gt_du20260828-002055.txt",
+        "label_sha256": "13a188586766d74c04099d9a42420b39924fe0402fdd98dbee936a864b0a05b2",
+        "positive_pixels": 616,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002109.png",
+        "label": "detection/data/val_labels/gt_du20260828-002109.txt",
+        "label_sha256": "06de48ba259b547a092dce8f739abf66839e70123a748d86d1d9e5e1cd12eac6",
+        "positive_pixels": 420,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002232.png",
+        "label": "detection/data/val_labels/gt_du20260828-002232.txt",
+        "label_sha256": "c0a72bcee7090c958b36b2168bb33f59ba583db102257b0639f5a8022a1a45aa",
+        "positive_pixels": 1638,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002254.png",
+        "label": "detection/data/val_labels/gt_du20260828-002254.txt",
+        "label_sha256": "b78d18ea13cc45915c8a821201a79e2816ba915a6d9b147fc722c69097f845f4",
+        "positive_pixels": 360,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002303.png",
+        "label": "detection/data/val_labels/gt_du20260828-002303.txt",
+        "label_sha256": "691c2523f79aecba230029fb83886ed22a0635fa1dfe2da2386f72eb4abc5fa6",
+        "positive_pixels": 322,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002321.png",
+        "label": "detection/data/val_labels/gt_du20260828-002321.txt",
+        "label_sha256": "b3ef3c02ddfd4952948e2d49027aebb31f3abe0d36f36b7aa84eea3cebb87f20",
+        "positive_pixels": 700,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002396.png",
+        "label": "detection/data/val_labels/gt_du20260828-002396.txt",
+        "label_sha256": "0694dc3a0eb6cf1ada20a983453fac254b8bf5eaabfac296f2fecd1cb4f3a1d9",
+        "positive_pixels": 1276,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002497.png",
+        "label": "detection/data/val_labels/gt_du20260828-002497.txt",
+        "label_sha256": "13c092f4177d59620fba7f0b34e562044532767759e6a5497134a9935bd24a9e",
+        "positive_pixels": 363,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002504.png",
+        "label": "detection/data/val_labels/gt_du20260828-002504.txt",
+        "label_sha256": "24a56a341ed287ed6888ddb1553f6dd204b5ad7354cc8999a20726da66a97317",
+        "positive_pixels": 912,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002671.png",
+        "label": "detection/data/val_labels/gt_du20260828-002671.txt",
+        "label_sha256": "b9c6fda1425f77a264803e4910856bd5bb20cb8ed00f2496ea46a5b5e71a7da6",
+        "positive_pixels": 632,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002863.png",
+        "label": "detection/data/val_labels/gt_du20260828-002863.txt",
+        "label_sha256": "763090957bb3c231594d257bf34ce69ea078befe7242d882879eaa5c70a0e3e0",
+        "positive_pixels": 1000,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002878.png",
+        "label": "detection/data/val_labels/gt_du20260828-002878.txt",
+        "label_sha256": "9c18e4c9163efe943024fe16eb9608e2c512867622f0abaea43688dfaf6de688",
+        "positive_pixels": 960,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002917.png",
+        "label": "detection/data/val_labels/gt_du20260828-002917.txt",
+        "label_sha256": "630cad8399a8ed8b53063f6b6f9e5e7af1d93d5b7bb03696388b7a9bc95fcb08",
+        "positive_pixels": 840,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002955.png",
+        "label": "detection/data/val_labels/gt_du20260828-002955.txt",
+        "label_sha256": "ac4069b197b1bf33d0ef50e97f18c2409ddbfa2100e85067708d6c4931c5ca5a",
+        "positive_pixels": 448,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002969.png",
+        "label": "detection/data/val_labels/gt_du20260828-002969.txt",
+        "label_sha256": "5ce363a2ec397679b334d8eb0b5e27ef8ed38c115d2d7e4bea03349969689550",
+        "positive_pixels": 940,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-002974.png",
+        "label": "detection/data/val_labels/gt_du20260828-002974.txt",
+        "label_sha256": "acbb2214efc9cfa1a702088b5cd845cecd2ead065d71fc77a013d21c2ce2740c",
+        "positive_pixels": 1056,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-003084.png",
+        "label": "detection/data/val_labels/gt_du20260828-003084.txt",
+        "label_sha256": "a0b944896b7902700bb6d2e0d0097209ca86505976e5069ee73ced095404759a",
+        "positive_pixels": 455,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-003086.png",
+        "label": "detection/data/val_labels/gt_du20260828-003086.txt",
+        "label_sha256": "5c69dba483ba8ea540fa6ce06bab35949f4c170164c5897eb8afbb652a4ac6b4",
+        "positive_pixels": 400,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-003344.png",
+        "label": "detection/data/val_labels/gt_du20260828-003344.txt",
+        "label_sha256": "6033d508987c80ba81b2cbdb15bca6f696d729f052da4d55ddbee150b9e4b578",
+        "positive_pixels": 1380,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-003453.png",
+        "label": "detection/data/val_labels/gt_du20260828-003453.txt",
+        "label_sha256": "ce34ead571d4afb8a24a447ae13bb5b0616c8a93084d51fb7de40084f3da8c97",
+        "positive_pixels": 970,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-003487.png",
+        "label": "detection/data/val_labels/gt_du20260828-003487.txt",
+        "label_sha256": "bdad2e4a9eedf43bbccb82dfc00ec37044d8e3419911197586c4c633de7d4c04",
+        "positive_pixels": 950,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-003534.png",
+        "label": "detection/data/val_labels/gt_du20260828-003534.txt",
+        "label_sha256": "b56d58c3d9dd6ec8d7ba80e54af522223ffea5faa90bf362e0c797f7e8e826ce",
+        "positive_pixels": 448,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-003544.png",
+        "label": "detection/data/val_labels/gt_du20260828-003544.txt",
+        "label_sha256": "2ccb3963848c8ba1d171ba1a9363d042281caaee3eee21a1706d93fd1bce05e4",
+        "positive_pixels": 837,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-003680.png",
+        "label": "detection/data/val_labels/gt_du20260828-003680.txt",
+        "label_sha256": "b0c546079e16c0dba78a97ce4378cf9f2e7dfdd07073f0d77f35d115fe340c42",
+        "positive_pixels": 392,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-003910.png",
+        "label": "detection/data/val_labels/gt_du20260828-003910.txt",
+        "label_sha256": "277f7eb8faa7133e2aecfc7af8535398e2b0131510e7f63d7d9114d79fa7d456",
+        "positive_pixels": 920,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-003941.png",
+        "label": "detection/data/val_labels/gt_du20260828-003941.txt",
+        "label_sha256": "f82a93be3b2b7c829dab3d47ffe9a194af2d717177b38cb463d548b2946795db",
+        "positive_pixels": 119,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-003966.png",
+        "label": "detection/data/val_labels/gt_du20260828-003966.txt",
+        "label_sha256": "4e141ff77add978b4b2a116e893043451f97bdb6a9e4d8ee7372582240ff73f9",
+        "positive_pixels": 614,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-004028.png",
+        "label": "detection/data/val_labels/gt_du20260828-004028.txt",
+        "label_sha256": "7ad562a72e1f4b5136b9ecfdf363ddc20822cfec57225eed744b89d1d881ea1c",
+        "positive_pixels": 1013,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-004108.png",
+        "label": "detection/data/val_labels/gt_du20260828-004108.txt",
+        "label_sha256": "672e84df23ae2afe5d89d92e0405e518b7288478d9c2f22c435fef0231e3cf93",
+        "positive_pixels": 374,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-004198.png",
+        "label": "detection/data/val_labels/gt_du20260828-004198.txt",
+        "label_sha256": "99735dde4d934ccaf976f027d9e6322e2143af454c73c0c0d7955cacb402a98b",
+        "positive_pixels": 1173,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-004261.png",
+        "label": "detection/data/val_labels/gt_du20260828-004261.txt",
+        "label_sha256": "5fa2e251771c5e9dc9234488bb03bf800aadde1cbe13fa438daefa7fbeaf1bcb",
+        "positive_pixels": 1086,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-004276.png",
+        "label": "detection/data/val_labels/gt_du20260828-004276.txt",
+        "label_sha256": "3ddaddd211a6e1e456166eb5451f356a6bc6965bed708a93b3fe10b2ea5e1a92",
+        "positive_pixels": 864,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-004486.png",
+        "label": "detection/data/val_labels/gt_du20260828-004486.txt",
+        "label_sha256": "f50d003cef611a9288963ae1d6e27e4c25fc94f805c2a99916de1bf6e0046092",
+        "positive_pixels": 1048,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260828-004492.png",
+        "label": "detection/data/val_labels/gt_du20260828-004492.txt",
+        "label_sha256": "f3e46b8f306661d69af81fa017959e8ca4945e32b7cf597eb225cdbc435b5354",
+        "positive_pixels": 929,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260829-003678.png",
+        "label": "detection/data/val_labels/gt_du20260829-003678.txt",
+        "label_sha256": "2cbdae154c20aab66d8b1e2a1b10d13e066b854045a734af34a525d867e6c8cb",
+        "positive_pixels": 960,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260829-003718.png",
+        "label": "detection/data/val_labels/gt_du20260829-003718.txt",
+        "label_sha256": "16964ab82f9fc4718d1ea201d69f960da77e35caaa4ae1ec55eaeef99acf280b",
+        "positive_pixels": 474,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260829-003916.png",
+        "label": "detection/data/val_labels/gt_du20260829-003916.txt",
+        "label_sha256": "8290b4da879145d23d5f15ab498d0fd60cd1d365617b78d13a99f814f41a3c4f",
+        "positive_pixels": 873,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260829-004611.png",
+        "label": "detection/data/val_labels/gt_du20260829-004611.txt",
+        "label_sha256": "bac26e05b01094236288c76d29b8465ce222be6801211ee89d45465feef297e8",
+        "positive_pixels": 1001,
+        "map_pixels": 12288
+      },
+      {
+        "image": "detection/data/val_images/du20260829-004737.png",
+        "label": "detection/data/val_labels/gt_du20260829-004737.txt",
+        "label_sha256": "245934908bfaed7c61c331dbbbf5b974bed0fe461355af59f11a030ca671a85f",
+        "positive_pixels": 259,
+        "map_pixels": 12288
+      }
+    ]
+  }
+}

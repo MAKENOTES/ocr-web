@@ -1,0 +1,16 @@
+# 路径相对于 recognition/data；只测量风格，不复制参考正文。
+val_images/001132-00657.png
+val_images/001132-00864.png
+val_images/001132-03769.png
+val_images/001132-06015.png
+val_images/001132-06092.png
+val_images/001133-00075.png
+val_images/001133-00201.png
+val_images/001133-00227.png
+val_images/001133-00353.png
+val_images/001133-00917.png
+val_images/001133-01165.png
+val_images/001133-01413.png
+val_images/001133-01496.png
+val_images/001133-02160.png
+val_images/001133-02165.png

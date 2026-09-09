@@ -193,6 +193,12 @@ def test_openvino_backend_finds_renamed_lengths_input_and_is_batch_invariant(tmp
         single_output[:valid_steps].argmax(dim=1),
         mixed_output[:valid_steps].argmax(dim=1),
     )
+    # 跨 batch 一致不代表正确：两个结果都可能错误地遍历右侧 padding。
+    # 必须同时对齐 PyTorch 的有效输出，才能发现 OpenVINO 反向 GRU 长度问题。
+    with torch.inference_mode():
+        reference = model(mixed_images, mixed_widths)
+    actual = backend.infer(mixed_images, mixed_widths)
+    torch.testing.assert_close(actual, reference, rtol=1e-4, atol=1e-5)
 
 
 def test_output_layout_normalization_uses_known_batch_dimension():
