@@ -2,7 +2,7 @@
 """找出 Recognition 训练集与验证集中相同的识别文字。
 
 默认读取 ``recognition/data/train_annotation.txt`` 和
-``recognition/data/val_annotation.txt``，并将相同文字写入
+``recognition/data/val_annotation.txt``，并将相同文字及两组对应图片路径写入
 ``recognition/data/train_val_same_text.txt``。脚本不检查或修改图片。
 """
 
@@ -20,7 +20,7 @@ except ModuleNotFoundError:  # 支持直接运行当前脚本
     from annotation import split_annotation_fields
 
 
-DATA_DIR = Path(__file__).resolve().parent / "data"
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 OUTPUT_PATH = DATA_DIR / "train_val_same_text.txt"
 
 
@@ -104,12 +104,23 @@ def find_common_texts(
     return sorted(set(train_by_text) & set(val_by_text))
 
 
-def format_common_texts(common_texts: list[str]) -> str:
-    """每行只输出序号和一条相同文字。"""
-    return "".join(
-        f"[{index}] 文字: {text!r}\n"
-        for index, text in enumerate(common_texts, start=1)
-    )
+def format_common_texts(
+    common_texts: list[str],
+    train_records: list[AnnotationRecord],
+    val_records: list[AnnotationRecord],
+) -> str:
+    """按相同文字分组，列出两组全部图片路径，保留标注顺序与相对路径。"""
+    train_by_text = group_by_text(train_records)
+    val_by_text = group_by_text(val_records)
+
+    lines: list[str] = []
+    for index, text in enumerate(common_texts, start=1):
+        lines.append(f"[{index}] 文字: {text!r}\n")
+        for name, grouped in (("train", train_by_text), ("val", val_by_text)):
+            lines.append(f"  {name}:\n")
+            lines.extend(f"    {record.image_path}\n" for record in grouped[text])
+        lines.append("\n")
+    return "".join(lines)
 
 
 def main() -> int:
@@ -118,7 +129,10 @@ def main() -> int:
         train_records = load_annotations(args.train_annotation)
         val_records = load_annotations(args.val_annotation)
         common_texts = find_common_texts(train_records, val_records)
-        OUTPUT_PATH.write_text(format_common_texts(common_texts), encoding="utf-8")
+        OUTPUT_PATH.write_text(
+            format_common_texts(common_texts, train_records, val_records),
+            encoding="utf-8",
+        )
     except (OSError, ValueError) as exc:
         print(f"错误: {exc}", file=sys.stderr)
         return 1

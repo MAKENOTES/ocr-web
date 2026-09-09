@@ -47,9 +47,9 @@ NUM_WORKERS = 4
 
 # 4. 保存与验证策略
 SAVE_INTERVAL = 5        # 每隔多少轮强制保存一次
-START_VALID_EPOCH = 1    # 【建议】从第1轮就开始验证，以便 Scheduler 正常工作
+START_VALID_EPOCH = 1    # 从第1轮开始验证，学习率调度优先使用验证集 CER
 START_SAVE_EPOCH = 100    # 从第100轮才开始保存模型 (跳过前期不稳定阶段)
-KEEP_TOP_K = 3           # 只保留 Loss 最小的 3 个最佳模型
+KEEP_TOP_K = 3           # 保留保存阶段内验证集 CER 最低的 3 个最佳模型
 
 # 5. 硬件
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -57,7 +57,8 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def evaluate(model, dataloader, converter, criterion):
     """
-    验证函数：计算 准确率(Accuracy) 和 验证集损失(Loss)
+    验证函数：计算整条文本准确率、字符错误率 CER 和平均 CTC Loss。
+    CER 用于学习率调度和最佳模型筛选；Accuracy 与 Loss 仅展示和记录。
     """
     model.eval()
     correct_predictions = 0
@@ -75,7 +76,7 @@ def evaluate(model, dataloader, converter, criterion):
             # 1. 前向传播（传入真实宽度，mask padding 区域）
             preds = model(images, img_widths=img_widths)  # Shape: [SeqLen, Batch, NumClasses]
 
-            # 2. 计算验证 Loss (用于 Scheduler)
+            # 2. 计算验证 CTC Loss（仅展示和记录，不用于学习率调度）
             text, length = converter.encode(labels)
             text = text.to(DEVICE)
             length = length.to(DEVICE)
@@ -158,7 +159,8 @@ def train():
     # 4. 优化器与调度器
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
 
-    # 学习率调度器：监控 'min' 模式（Loss越小越好）
+    # 学习率调度器：验证集 CER 越小越好；未执行验证时回退到训练平均 Loss。
+    # 连续 21 轮未达到改善阈值时学习率乘以 0.8，最低为 1e-6。
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.8, patience=20, min_lr=1e-6
     )
@@ -195,7 +197,8 @@ def train():
     print(f"  - 保存开始: Epoch {START_SAVE_EPOCH}")
 
     global_step = 0
-    # 用于存储最佳模型记录: [{'path': str, 'loss': float, 'epoch': int}, ...]
+    # 最佳模型记录：metric 使用调度指标，当前配置下为验证集 CER。
+    # 结构：[{'path': str, 'metric': float, 'epoch': int}, ...]
     best_checkpoints = []
 
     for epoch in range(1, EPOCHS + 1):
@@ -252,7 +255,7 @@ def train():
         writer.add_scalar('Train/Epoch_Loss', train_avg_loss, epoch)
 
         # ================= 验证与调度阶段 =================
-        # 决定使用哪个 Loss 来更新 Scheduler
+        # 默认用训练平均 Loss 调度；本轮执行验证后改用验证集 CER。
         scheduler_metric = train_avg_loss
 
         if valid_loader and epoch >= START_VALID_EPOCH:
@@ -265,7 +268,7 @@ def train():
 
             scheduler_metric = val_cer
 
-        # 更新学习率
+        # 本轮结束时更新学习率，从下一轮训练开始生效。
         scheduler.step(scheduler_metric)
 
         # ================= 保存模型阶段 =================
@@ -277,7 +280,7 @@ def train():
                 torch.save(model.state_dict(), ckpt_path)
                 print(f"  [保存] 周期性备份: {ckpt_path}")
 
-            # 策略 2: Top-K 最佳模型 (基于 Valid Loss)
+            # 策略 2：按调度指标保留 Top-K；当前从第1轮验证，指标为验证集 CER。
             if valid_loader:
                 # 判断是否应该保存为“最佳模型”
                 should_save_best = False
@@ -285,7 +288,7 @@ def train():
                 if len(best_checkpoints) < KEEP_TOP_K:
                     should_save_best = True
                 elif scheduler_metric < best_checkpoints[-1]['metric']:
-                    # 当前 Loss 小于列表中最差的一个
+                    # 当前指标小于已保留模型中最大的指标（当前配置下为 CER）。
                     should_save_best = True
 
                 if should_save_best:
@@ -302,7 +305,7 @@ def train():
 
                     # 移除多余的旧模型
                     if len(best_checkpoints) > KEEP_TOP_K:
-                        worst_ckpt = best_checkpoints.pop() # 弹出最后一个(Loss最大的)
+                        worst_ckpt = best_checkpoints.pop() # 移除指标最大的模型（当前配置下为 CER）
                         if os.path.exists(worst_ckpt['path']):
                             try:
                                 os.remove(worst_ckpt['path'])

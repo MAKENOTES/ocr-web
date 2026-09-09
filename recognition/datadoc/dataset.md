@@ -36,7 +36,7 @@ python recognition/utils/remove_characters_by_stats.py --apply
 
 ### 数据集核对工具
 1、recognition/utils/check_val_annotation_keys.py   得到对应数据集中字符， 不在keys.txt ， 并可以移动到 unknown 中
-2、recognition/utils/compare_train_val_same_text.py  对比 训练集和验证集 中 重复的样本。
+2、recognition/utils/compare_train_val_same_text.py  对比训练集与验证集中完全相同的识别文字。
 3、recognition/utils/character_stats.py  统计字符占比
 4、recognition/utils/remove_characters_by_stats.py 移除非目标keys中字符
 
@@ -60,3 +60,5 @@ convert_annotation_delimiter
 
 ### 20260906
 [errdata20260906.md](analysisdata/errdata20260906.md)
+
+[errdata20260909.md](analysisdata/errdata20260909.md)
