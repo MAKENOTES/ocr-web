@@ -72,7 +72,7 @@ def load_rgb_image(image_path: str | os.PathLike) -> Image.Image:
 
 
 def _border_fill_color(image: Image.Image):
-    """估计 detection 框的背景色，用于给窄图补边。"""
+    """用四周边缘的通道中位数估计背景色，供窄图补边和几何增强填充。"""
     pixels = np.asarray(image)
     if pixels.ndim == 2:
         border = np.concatenate(
@@ -381,6 +381,25 @@ def dynamic_padding_collate_fn(batch):
 # 2. 基础数据集类 (封装通用逻辑)
 # ==========================================
 
+class RandomBackgroundGeometry:
+    """轻微旋转和透视；每张图片共用扰动前估计的背景色，避免人工黑白边。"""
+
+    def __init__(self, degrees=2, distortion_scale=0.1, p=0.3):
+        self.degrees = degrees
+        self.distortion_scale = distortion_scale
+        self.p = p
+
+    def __call__(self, image: Image.Image) -> Image.Image:
+        fill = _border_fill_color(image)
+        # 使用本次调用的局部 transform，不把当前图片背景写入共享状态。
+        image = transforms.RandomRotation(degrees=self.degrees, fill=fill)(image)
+        return transforms.RandomPerspective(
+            distortion_scale=self.distortion_scale,
+            p=self.p,
+            fill=fill,
+        )(image)
+
+
 class AddGaussianNoise(object):
     """模拟扫描颗粒和相机传感器轻噪声；截断到 [0, 1]，避免异常亮暗值。"""
 
@@ -429,9 +448,14 @@ class BaseTextDataset(Dataset):
         )
 
         if is_train:
-            # detection 已经给出文字区域，不再旋转、透视或二次裁剪，避免紧框文字
-            # 被切掉。增强集中在颜色、极性、清晰度与轻噪声上。
+            # 训练使用轻微几何扰动，再模拟颜色、极性、清晰度与轻噪声变化。
             train_transforms = [
+                # 旋转 ±2°、透视扰动 30%；按当前图片背景填充新增边缘。
+                RandomBackgroundGeometry(
+                    degrees=2,
+                    distortion_scale=0.1,
+                    p=0.3,
+                ),
                 # 颜色扰动（70%）：模拟曝光、纸面反差、印刷浓淡和轻微偏色。
                 transforms.RandomApply(
                     [transforms.ColorJitter(

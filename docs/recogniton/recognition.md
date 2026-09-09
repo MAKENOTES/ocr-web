@@ -18,7 +18,7 @@ flowchart TD
     SEAL --> RESIZE[完整 detection 框固定高度32 + 等比宽度]
     RESIZE --> MINW[窄图按边缘背景色补到宽48]
     MINW --> AUG{训练集?}
-    AUG -->|是| TA[颜色/极性/模糊/轻噪声]
+    AUG -->|是| TA[轻微旋转/透视/颜色/极性/模糊/轻噪声]
     AUG -->|否| NORM[仅 Normalize]
     TA --> BUCKET[按宽高比桶采样]
     NORM --> CTX[右侧至少32px CNN背景保护区]
@@ -65,10 +65,12 @@ flowchart TD
 对照结果也不代表所有合法红字均能保留。逐图统计和前后对比图保存在本地
 `../../outputs/red_seal_audit_20260908`，原图未修改。
 
-训练随机增强保持现有参数，各项作用如下（验证/推理不启用）：
+训练随机增强在等比缩放后执行，先做轻微旋转和透视，再应用其他增强（验证/推理不启用）：
 
 | 类型 | 概率 | 覆盖场景 |
 | --- | --- | --- |
+| RandomRotation | 100% | 随机旋转 ±2°，按当前图片估计的背景色填充 |
+| RandomPerspective | 30% | 轻微拍摄视角变化，distortion_scale=0.1，按当前图片估计的背景色填充 |
 | ColorJitter | 70% | 曝光变化、扫描反差、彩字浓淡、轻微白平衡偏色 |
 | RandomAutocontrast | 20% | 扫描软件拉伸灰度、截图对比度差异 |
 | RandomInvert | 8% | 深色主题、黑底白字；残留红章也会随之反色 |
@@ -77,7 +79,11 @@ flowchart TD
 | RandomErasing | 5% | 污点、磨损、局部遮挡；面积 0.5%～3%，仍可能遮挡小数点或短文本关键笔画 |
 
 灰度转换用于兼容旧单通道模型，ToTensor 和 Normalize 用于统一张量及数值范围，
-均不是随机增强。完整 detection 框继续等比缩放与动态 padding，不增加旋转、透视或二次裁剪。
+均不是随机增强。完整 detection 框继续等比缩放与动态 padding，不做二次内容裁剪。
+`RandomBackgroundGeometry` 复用 `_border_fill_color`，在几何扰动前取图片四周边缘的
+逐通道中位数，供旋转和透视共同填充，兼容白底、深色底和彩色底。边缘被文字大量占据
+或背景存在渐变时，这个单色估计仍可能与局部背景有差异。
+训练旋转使用默认固定画布（expand=False），紧贴边缘的文字仍可能在旋转后超出画布。
 
 ### 初始训练集/验证集划分
 
@@ -312,7 +318,7 @@ RGB PNG 输出到 `recognition/data/synthesis_lines_YYYYMMDD_images/`；
 | `star` | 星形中心对准正文 |
 | `left_edge` / `right_edge` | 红色中心限制在行首 / 行尾 35% 区域，覆盖边缘文字、标点 |
 | `rim` | 仅圆环残弧，低覆盖率，模拟额外点、斜线等局部干扰 |
-| `faded` | 24%～42% 透明度的淡章 |
+| `faded` | 24%～42% 透明度的淡章；偏色纸面按背景色差在此范围内校准，保证章色可见 |
 | `worn` | 局部压力不均加 12%～30% 颗粒缺墨，正文像素不参与磨损 |
 | `dense` | 加粗章线、增加章字、82%～98% 透明度及较高局部遮盖 |
 
@@ -334,7 +340,7 @@ RGB PNG 输出到 `recognition/data/synthesis_lines_YYYYMMDD_images/`；
   --report-dir outputs/red_stamp_preview/report
 ```
 
-默认输出图片为 `recognition/data/synthesis_red_YYYYMMDD_images/YYYYMMDD_00001.png`，
+默认输出图片为 `recognition/data/synthesis_red_YYYYMMDD_images/synthesis_red_YYYYMMDD_00001.png`，
 标注为同级 `synthesis_red_YYYYMMDD_annotation.txt`，报告位于
 `recognition/utils/synthesis/synthesis_report/synthesis_red_YYYYMMDD/`，包含 `summary.json`、逐图 `samples.jsonl`
 和最多 40 张抽样的 `preview.png`。记录原 train 文本行号、字体、参考风格、章的位置和正文
@@ -486,6 +492,26 @@ ONNX 导出包装器直接生成带 `sequence_lens` 和动态 `initial_h` 的标
 `PackedSequence` 路径，模型参数、checkpoint 格式、CTC 长度和预处理契约均不变，
 已有权重无需重新训练。当前专用映射支持单层、带 bias 的双向 GRU；其他配置明确报错。
 仍使用 `dynamo=False` 导出器，其弃用提示与批次一致性无关，未作全局警告屏蔽。
+
+独立的新版入口是 `../../recognition_export_onnx_dynamo.py`，需要 PyTorch >= 2.9、
+onnx、onnxscript 和 onnxruntime，默认生成 `best_recognition_dynamo.onnx`：
+
+```bash
+.venv/bin/python recognition_export_onnx_dynamo.py \
+  --model_path recognition/checkpoints/<model>.pth \
+  --output_path best_recognition_dynamo.onnx
+```
+
+新版固定使用 `dynamo=True`、opset 18 和 `dynamic_shapes`，不回退到 TorchScript。
+通过官方 [torch.onnx.ops.symbolic](https://docs.pytorch.org/docs/2.9/onnx_ops.html)
+生成标准 GRU、MaxPool 和输出形状转换，避免按样例的宽度奇偶性或 batch=1 特化；
+运行端不需要自定义算子插件。导出约束范围为 batch 1～256、输入张量宽度 80～16384，
+高度固定 32；`--img_width` 只选择范围内的样例宽度。沿用 `img_widths`、TBC 输出和
+字典 SHA256 元数据，支持 `--output_type logits`，可直接使用现有 ONNX/OpenVINO 推理入口。
+新版对源模型制作独立推理快照，不改变训练模式或参数，不需要重新训练。
+文件通过图检查、原始 PyTorch 数值对照和跨 batch 检查后才写入目标路径；
+使用新版自带图优化，不依赖 onnx-simplifier。当前环境可能打印 torchvision ROI 算子
+注册的类型标注提示，这与本模型无关；旧导出器弃用提示不会由新版入口产生。
 
 推理 `--backend auto` 按 `.pth/.onnx/.xml` 选择后端。`--num_threads` 默认为 1，
 可在目标机器实测 1/2/4/6；不能把逻辑 CPU 总数当成最优线程数。

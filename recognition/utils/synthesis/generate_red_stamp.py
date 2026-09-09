@@ -232,6 +232,17 @@ def overlay_stamp(image: Image.Image, style: StampStyle, face: FontFace, text: s
     color = np.array(style.color, dtype=np.float32)
     if scene == "dense":
         color[1:] = np.minimum(color[1:], (25, 45))
+    elif scene == "faded":
+        # 偏蓝纸面会抵消淡章色差；先保证印泥色相，再在淡章范围内校准透明度。
+        color[0] = max(200, color[0])
+        color[1:] = np.minimum(color[1:], (25, 45))
+        paper = np.asarray(style.body.background, dtype=np.float32)
+        paper_stamped = (1 - mix) * paper * color / 255 + mix * color
+        base_difference = paper[0] - paper[1:]
+        stamp_difference = paper_stamped[0] - paper_stamped[1:]
+        required_alpha = np.max((25 - base_difference)
+                                / np.maximum(1, stamp_difference - base_difference))
+        opacity = float(np.clip(max(opacity, required_alpha / 0.85), 0.24, 0.42))
     stamped = (1 - mix) * pixels * color / 255 + mix * color
     target = float(np.clip(style.red_fraction * rng.uniform(0.7, 1.3), 0.004, 0.50))
     if scene == "rim":
@@ -383,7 +394,7 @@ def generate(args: argparse.Namespace) -> dict:
             stamp_face = rng.choice(stamp_fonts)
             image, stamp = overlay_stamp(clean, style, stamp_face, args.stamp_text, rng,
                                          scene=selected_scenes[number - 1])
-            filename = f"{args.date}_{number:05d}.png"
+            filename = f"synthesis_red_{args.date}_{number:05d}.png"
             path = args.output_dir / filename
             with path.open("xb") as handle:
                 image.save(handle, format="PNG")

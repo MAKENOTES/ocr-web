@@ -107,7 +107,7 @@ python recognition/utils/synthesis/generate_balanced.py
 | 产物 | 默认路径或命名 |
 |---|---|
 | 图片目录 | `recognition/data/synthesis_red_YYYYMMDD_images/` |
-| 图片文件 | `YYYYMMDD_00001.png` 至默认批次的 `YYYYMMDD_01000.png` |
+| 图片文件 | `synthesis_red_YYYYMMDD_00001.png` 至默认批次的 `synthesis_red_YYYYMMDD_01000.png` |
 | 标注文件 | `recognition/data/synthesis_red_YYYYMMDD_annotation.txt` |
 | 报告目录 | `recognition/utils/synthesis/synthesis_report/` |
 

@@ -102,7 +102,7 @@ def test_generation_labels_only_body_rgb_date_names_and_reports(setup):
         relative, text = split_annotation_fields(line, args.annotation, number)
         assert text == "ABab ABab ABab"
         assert args.stamp_text not in text
-        assert Path(relative).name == f"{args.date}_{number:05d}.png"
+        assert Path(relative).name == f"synthesis_red_{args.date}_{number:05d}.png"
         assert not Path(relative).is_absolute()
         with Image.open(args.annotation.parent / relative) as image:
             assert image.mode == "RGB"
@@ -110,6 +110,10 @@ def test_generation_labels_only_body_rgb_date_names_and_reports(setup):
             assert stamp.red_mask(np.asarray(image)).sum() >= 8
     records = [json.loads(line) for line in (args.report_dir / "samples.jsonl").read_text().splitlines()]
     assert len(records) == args.images
+    assert [row["file"] for row in records] == [
+        split_annotation_fields(line, args.annotation, number)[0]
+        for number, line in enumerate(args.annotation.read_text().splitlines(), 1)
+    ]
     assert all(row["stamp"]["body_overlap_fraction"] >= 0.002 for row in records)
     assert (args.report_dir / "preview.png").is_file()
     assert (args.report_dir / "summary.json").is_file()
@@ -221,3 +225,25 @@ def test_nearly_square_reference_selects_single_character_corpus(setup, monkeypa
     relative, text = split_annotation_fields(setup.annotation.read_text(), setup.annotation, 1)
     assert text == "A"
     assert (setup.annotation.parent / relative).is_file()
+
+
+def test_faded_stamp_stays_visible_on_cool_scanned_paper(setup):
+    from dataclasses import replace
+    style = stamp.measure_style(setup.data_dir / "red.png")
+    style = replace(style, color=(191, 80, 100),
+                    body=replace(style.body, background=(233, 242, 254), foreground=(102, 107, 116)))
+    face = stamp.load_fonts(setup.fonts, list("ABab "))[0]
+    clean = Image.new("RGB", (900, 59), style.body.background)
+    ImageDraw.Draw(clean).text((5, 3), "ABab " * 10,
+                              font=ImageFont.truetype(str(setup.fonts[0]), 42),
+                              fill=style.body.foreground)
+    class FaintRandom(random.Random):
+        def uniform(self, low, high):
+            if (low, high) == (0.24, 0.42):
+                return 0.24
+            return super().uniform(low, high)
+    output, metadata = stamp.overlay_stamp(clean, style, face, setup.stamp_text,
+                                          FaintRandom(12), scene="faded")
+    assert stamp.red_mask(np.asarray(output)).sum() >= 8
+    assert 0.24 <= metadata["opacity"] <= 0.42
+    assert metadata["body_overlap_fraction"] >= 0.01

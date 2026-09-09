@@ -4,11 +4,13 @@ import torch
 import numpy as np
 import pytest
 from PIL import Image, ImageDraw, ImageFont
+from torchvision import transforms
 
 from recognition import evaluate_val
 from recognition.components.dataset import (
     CNN_RIGHT_CONTEXT,
     InferenceDataset,
+    RandomBackgroundGeometry,
     TextRecognitionDataset,
     dynamic_padding_collate_fn,
     load_rgb_image,
@@ -16,6 +18,44 @@ from recognition.components.dataset import (
     resolve_image_path,
 )
 from recognition.utils.checkpoint import infer_num_channels
+
+
+@pytest.mark.parametrize("operation", ["rotation", "perspective"])
+@pytest.mark.parametrize("mode,background,ink", [
+    ("RGB", (255, 255, 255), (0, 0, 0)),
+    ("RGB", (0, 0, 0), (255, 255, 255)),
+    ("RGB", (20, 110, 180), (255, 255, 255)),
+    ("L", 40, 255),
+])
+def test_geometry_fills_new_edges_with_image_background(monkeypatch, operation, mode, background, ink):
+    image = Image.new(mode, (160, 32), background)
+    ImageDraw.Draw(image).rectangle((40, 8, 110, 23), fill=ink)
+    before = np.asarray(image).copy()
+    monkeypatch.setattr(
+        transforms.RandomRotation, "get_params",
+        staticmethod(lambda degrees: 2.0 if operation == "rotation" else 0.0),
+    )
+    monkeypatch.setattr(
+        transforms.RandomPerspective, "get_params",
+        staticmethod(lambda width, height, distortion_scale: (
+            [[0, 0], [159, 0], [159, 31], [0, 31]],
+            [[4, 1], [155, 1], [155, 30], [4, 30]],
+        )),
+    )
+    geometry = RandomBackgroundGeometry(p=1.0 if operation == "perspective" else 0.0)
+
+    result = geometry(image)
+
+    assert result.mode == mode and result.size == image.size
+    assert result.getpixel((0, 0)) == background
+    assert result.getpixel((159, 31)) == background
+    assert result.getpixel((75, 16)) == ink
+    assert not np.array_equal(np.asarray(result), before)
+    assert np.array_equal(np.asarray(image), before)
+    # 同一个增强实例处理下一张图片时，必须重新估计背景。
+    next_background = (80, 60, 30) if mode == "RGB" else 120
+    next_result = geometry(Image.new(mode, image.size, next_background))
+    assert next_result.getpixel((0, 0)) == next_background
 
 
 def _stamp_case(background=(245, 245, 245)):
