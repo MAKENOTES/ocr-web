@@ -479,6 +479,14 @@ python recognition_inference.py \
 GRU 的 sequence_lens 和 PyTorch 数值一致性，并写入字典 SHA256；ONNX 推理会核对字典。
 `--img_width` 仅是导出样例宽度，不限制实际文字框宽度。
 
+ONNX 导出包装器直接生成带 `sequence_lens` 和动态 `initial_h` 的标准双向 GRU，
+按 ONNX 门顺序转换权重，并设置 `linear_before_reset=1` 对齐 PyTorch 的 GRU 公式。
+导出过程不再经过 `prim::PackPadded/PadPacked`，避免中间节点形状推断和通用 GRU
+批次警告。此转换仅在 ONNX 导出时启用；训练、验证和普通 PyTorch 推理仍使用原有
+`PackedSequence` 路径，模型参数、checkpoint 格式、CTC 长度和预处理契约均不变，
+已有权重无需重新训练。当前专用映射支持单层、带 bias 的双向 GRU；其他配置明确报错。
+仍使用 `dynamo=False` 导出器，其弃用提示与批次一致性无关，未作全局警告屏蔽。
+
 推理 `--backend auto` 按 `.pth/.onnx/.xml` 选择后端。`--num_threads` 默认为 1，
 可在目标机器实测 1/2/4/6；不能把逻辑 CPU 总数当成最优线程数。
 ONNX 默认关闭线程空转，避免等待下一张图时抢占预处理 CPU；`--allow_spinning`

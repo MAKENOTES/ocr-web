@@ -39,6 +39,63 @@ from recognition.components.dataset import CNN_RIGHT_CONTEXT, MIN_IMAGE_WIDTH
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 
+class _OnnxLengthAwareGRU(torch.autograd.Function):
+    """仅供导出：将完整的长度感知 BiGRU 映射到标准 ONNX GRU。
+
+    trace 的前向仍执行原始 GRU；symbolic 直接写入 sequence_lens，避免
+    PackPadded/PadPacked 中间节点和通用 RNN 导出器的 batch 警告。
+    不注册全局 symbolic，也不参与训练模型的前向或反向传播。
+    """
+
+    @staticmethod
+    def forward(ctx, conv, lengths, h0, hidden_size, *weights):
+        packed = pack_padded_sequence(conv, lengths.cpu(), enforce_sorted=False)
+        # 与 nn.GRU 的 PackedSequence 路径使用相同 ATen 算子，显式传入权重，
+        # 避免在 autograd.Function 中捕获模块参数或 trace Python 形状检查。
+        sorted_h0 = h0.index_select(1, packed.sorted_indices)
+        packed_output, _ = torch.ops.aten.gru.data(
+            packed.data, packed.batch_sizes, sorted_h0, list(weights),
+            True, 1, 0.0, False, True,
+        )
+        output, _ = torch.ops.aten._pad_packed_sequence.default(
+            packed_output, packed.batch_sizes, False, 0.0, conv.size(0),
+        )
+        return output.index_select(1, packed.unsorted_indices)
+
+    @staticmethod
+    def symbolic(g, conv, lengths, h0, hidden_size, *weights):
+        def constant(values):
+            return g.op("Constant", value_t=torch.tensor(values, dtype=torch.long))
+
+        def reorder(weight):
+            # PyTorch: reset/update/new；ONNX: update/reset/new。
+            gates = [
+                g.op("Slice", weight, constant([start * hidden_size]),
+                     constant([end * hidden_size]), constant([0]))
+                for start, end in ((1, 2), (0, 1), (2, 3))
+            ]
+            return g.op("Concat", *gates, axis_i=0)
+
+        directions = []
+        for offset in (0, 4):
+            w_ih, w_hh, b_ih, b_hh = [reorder(w) for w in weights[offset:offset + 4]]
+            bias = g.op("Concat", b_ih, b_hh, axis_i=0)
+            directions.append([
+                g.op("Unsqueeze", value, constant([0]))
+                for value in (w_ih, w_hh, bias)
+            ])
+        w, r, bias = [g.op("Concat", forward, reverse, axis_i=0)
+                      for forward, reverse in zip(*directions)]
+        output, _ = g.op(
+            "GRU", conv, w, r, bias, g.op("Cast", lengths, to_i=6), h0,
+            hidden_size_i=hidden_size, direction_s="bidirectional",
+            linear_before_reset_i=1, outputs=2,
+        )
+        # ONNX [T,2,B,H] → CRNN [T,B,2H]，保留动态 T/B。
+        output = g.op("Transpose", output, perm_i=[0, 2, 1, 3])
+        return g.op("Reshape", output, constant([0, 0, -1]), allowzero_i=0)
+
+
 class OnnxExportWrapper(torch.nn.Module):
     """
     ONNX 导出专用包装器。
@@ -48,8 +105,8 @@ class OnnxExportWrapper(torch.nn.Module):
        避免 trace 时 batch 维度被烧死为常量。
     2. img_widths 支持: 将 _calc_cnn_output_width 的 Python 循环
        替换为纯 tensor 算术，使 padding mask 对 ONNX 可见。
-    3. 使用 PackedSequence 把有效长度传给双向 GRU，使反向 GRU 不再遍历
-       每张图片右侧的 batch padding。
+    3. 导出时直接生成带 sequence_lens 的 ONNX GRU；普通 PyTorch 前向
+       仍使用 PackedSequence，正反向均跳过每张图片右侧的 batch padding。
     """
 
     def __init__(self, crnn_model: CRNN, output_type: str = "log_probs"):
@@ -60,6 +117,9 @@ class OnnxExportWrapper(torch.nn.Module):
         self.cnn = crnn_model.cnn
         self.cnn_dropout = crnn_model.cnn_dropout
         self.rnn = crnn_model.rnn
+        if (self.rnn.num_layers != 1 or not self.rnn.bidirectional
+                or not self.rnn.bias or self.rnn.batch_first):
+            raise ValueError("ONNX 导出需要单层、带 bias、batch_first=False 的双向 GRU")
         self.rnn_dropout = crnn_model.rnn_dropout
         self.embedding = crnn_model.embedding
 
@@ -114,16 +174,21 @@ class OnnxExportWrapper(torch.nn.Module):
         real_seq_lens = real_seq_lens.clamp(min=1, max=seq_len)
 
         # ---- 长度感知 GRU ----
-        packed_conv = pack_padded_sequence(
-            conv,
-            real_seq_lens.detach().cpu(),
-            enforce_sorted=False,
-        )
-        packed_rnn_out, _ = self.rnn(packed_conv, h0)
-        rnn_out, _ = pad_packed_sequence(
-            packed_rnn_out,
-            total_length=seq_len,
-        )
+        if torch.onnx.is_in_onnx_export():
+            weights = [
+                getattr(self.rnn, f"{name}_l0{suffix}")
+                for suffix in ("", "_reverse")
+                for name in ("weight_ih", "weight_hh", "bias_ih", "bias_hh")
+            ]
+            rnn_out = _OnnxLengthAwareGRU.apply(
+                conv, real_seq_lens, h0, self.rnn.hidden_size, *weights,
+            )
+        else:
+            packed_conv = pack_padded_sequence(
+                conv, real_seq_lens.detach().cpu(), enforce_sorted=False,
+            )
+            packed_rnn_out, _ = self.rnn(packed_conv, h0)
+            rnn_out, _ = pad_packed_sequence(packed_rnn_out, total_length=seq_len)
         rnn_out = self.rnn_dropout(rnn_out)
         output = self.embedding(rnn_out)  # [SeqLen, B, n_class]
 

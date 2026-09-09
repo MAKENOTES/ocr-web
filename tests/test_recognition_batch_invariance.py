@@ -1,6 +1,7 @@
 import numpy as np
 import onnx
 import onnxruntime as ort
+import pytest
 import torch
 
 from recognition.components.dataset import (
@@ -77,11 +78,15 @@ def test_length_aware_crnn_supports_training_backward_pass():
     assert torch.isfinite(model.rnn.weight_ih_l0.grad).all()
 
 
-def test_exported_onnx_uses_sequence_lengths_and_is_batch_invariant(tmp_path):
+@pytest.mark.parametrize("output_type", ["log_probs", "logits"])
+def test_exported_onnx_uses_sequence_lengths_and_is_batch_invariant(
+    tmp_path, capfd, recwarn, output_type,
+):
     """ONNX 的 GRU 也必须跳过 padding，不能只修复 PyTorch。"""
     model = _make_model()
     model.eval()
-    wrapper = OnnxExportWrapper(model).eval()
+    wrapper = OnnxExportWrapper(model, output_type=output_type).eval()
+    original_state = {key: value.clone() for key, value in model.state_dict().items()}
 
     short = torch.rand(3, 32, 64)
     long = torch.rand(3, 32, 256)
@@ -104,11 +109,21 @@ def test_exported_onnx_uses_sequence_lengths_and_is_batch_invariant(tmp_path):
         },
     )
 
+    # C++ 形状推断警告写入 stderr；Python GRU/trace 警告由 recwarn 捕获。
+    export_stderr = capfd.readouterr().err
+    assert "PackPadded" not in export_stderr
+    assert "PadPacked" not in export_stderr
+    assert not any("batch_size other than 1" in str(w.message) for w in recwarn)
+    assert not any(issubclass(w.category, torch.jit.TracerWarning) for w in recwarn)
+    for key, value in model.state_dict().items():
+        torch.testing.assert_close(value, original_state[key], rtol=0, atol=0)
+
     graph = onnx.load(str(model_path)).graph
     gru_nodes = [node for node in graph.node if node.op_type == "GRU"]
     assert len(gru_nodes) == 1
     assert len(gru_nodes[0].input) > 4
     assert gru_nodes[0].input[4]  # ONNX GRU 的 sequence_lens 输入
+    assert all(node.domain in ("", "ai.onnx") for node in graph.node)
 
     session = ort.InferenceSession(
         str(model_path),
@@ -146,7 +161,21 @@ def test_exported_onnx_uses_sequence_lengths_and_is_batch_invariant(tmp_path):
             "img_widths": mixed_widths.numpy().astype(np.int64),
         },
     )[0]
+    if output_type == "logits":
+        onnx_mixed = torch.from_numpy(onnx_mixed).log_softmax(2).numpy()
     np.testing.assert_allclose(pytorch_mixed, onnx_mixed, rtol=1e-5, atol=1e-6)
+
+    # 改变 batch、奇数宽度、长度顺序及重复长度，检查动态 h0 和门权重转换。
+    for valid_widths in ([13], [97, 13, 53], [17, 161, 64, 17]):
+        images, _, widths = _collate(*[torch.rand(3, 32, width) for width in valid_widths])
+        actual = session.run(None, {
+            "input": images.numpy(), "img_widths": widths.numpy().astype(np.int64),
+        })[0]
+        if output_type == "logits":
+            actual = torch.from_numpy(actual).log_softmax(2).numpy()
+        with torch.no_grad():
+            expected = model(images, img_widths=widths).numpy()
+        np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)
 
 
 def test_openvino_backend_finds_renamed_lengths_input_and_is_batch_invariant(tmp_path):
