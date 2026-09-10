@@ -29,6 +29,9 @@ TRAIN_ANNOTATION = (
     "recognition/data/synthesis3_annotation.txt",
     "recognition/data/synthesis_red_annotation.txt",
     "recognition/data/synthesis_lines_annotation.txt",
+    "recognition/data/synthesis_confusable_annotation.txt",
+    "recognition/data/synthesis_degraded_annotation.txt",
+    "recognition/data/synthesis_edge_annotation.txt",
 )
 VALID_ANNOTATION = "recognition/data/val_annotation.txt"
 KEYS_PATH = "recognition/keys.txt"

@@ -162,3 +162,75 @@ python recognition/utils/synthesis/generate_balanced.py
 `summary.json` 保存方向计数、参考计数、字符次数和输入校验和；`samples.jsonl` 保存逐图字体、风格及边线参数。
 可用 `--keys`、`--references`、`--fonts`、`--seed`、`--output-dir`、`--annotation`、`--report-dir` 修改输入输出。
 已有非空产物拒绝覆盖；生成失败保留 `.partial` 排查，不发布完整标注。不会自动合并进 train/val。
+
+## 5、裁切、低清和汉字形近错误定向合成
+
+三个独立入口默认各生成 **1000 张 RGB PNG**，参考
+[2026-09-09 错误分析](analysisdata/errdata20260909.md) 对应分类的全部图片：
+裁切或边缘残字 37 张、低清或笔画粘连 18 张、汉字形近误识 43 张。
+只测量参考图的纸面色、墨色、字号和留白，按参考文本长度抽样训练语料；不复制验证图片中的文字像素。
+字体沿用公共字体候选，以宋体为主、黑体为辅；粘连模式提高粗体采样权重。
+字号沿用公共渲染器的 16～64 像素图片高度范围，不保证与每张原图逐像素一致。
+
+```bash
+.venv/bin/python recognition/utils/synthesis/generate_edge.py
+.venv/bin/python recognition/utils/synthesis/generate_degraded.py
+.venv/bin/python recognition/utils/synthesis/generate_confusable.py
+```
+
+| 入口 | 合成规则 | 默认 1000 张的分配 |
+|---|---|---|
+| [generate_edge.py](../utils/synthesis/generate_edge.py) | 贴边、轻裁、相邻字一列残片 | 右贴边 400、右轻裁 200、左贴边 100、左轻裁 100、上下轻裁 100、残片 100 |
+| [generate_degraded.py](../utils/synthesis/generate_degraded.py) | 缩小放大并模糊、笔画粘连、局部笔画减淡、灰色扫描带 | 四种各 250 |
+| [generate_confusable.py](../utils/synthesis/generate_confusable.py) | 从分析表替换段提取汉字目标，覆盖真实字及误识字，保留正常清晰度 | 按目标字均分指定目标图片数，余数依目标顺序分配 |
+
+### 正文和标注边界
+
+- 正文默认读取 `recognition/data/train_annotation.txt`，按长度选取并重新渲染。
+  形近字类会替换其中一个汉字为本张目标字，得到新组合；标签始终使用实际渲染文字。
+  这些组合不保证语义通顺。排除与三类参考图完整文本相同的候选（比较时去普通空格）。
+- 裁切最多进入正文一像素；左右轻裁仅用于正文高度至少 20 像素的汉字边界，上下至少 24 像素。
+  若受影响字区墨迹损失超过 10%，或上下裁切墨迹损失超过 5%，退回贴边。
+  窄标点只贴边。模式配额包含退回贴边的样本，实际裁入像素数见 `cut_ink_pixels`。
+  残片模式保留完整正文，在左右边缘加入相邻合成字的一列墨迹，**残片不加入标签**。
+  本批不模拟严重缺字或需要猜测框外文字的情况。
+- 低清模式缩放比例为 0.65～0.85；粘连只混入部分扩展墨迹；破碎减淡少量墨迹，不整块抹字。
+- 形近字从文本对齐的差异段提取，不将分类内所有差异都断言为严格的一对一形近字。
+  汉字误识成符号时仍补真实汉字；符号不作为本类目标。每张目标至少出现一次，
+  语料内可能另含目标字，因此指定目标图片数与字符总出现次数不同。
+
+### 参数、产物与复现
+
+三个入口共用 `error_common.py` 的参数、输入校验和产物写出，各自显式传入 `make_sample` 实现类别算法。
+复用现有 `generate.py` 的字体和正文渲染、`generate_lines.py` 的正文风格测量、
+`generate_red_stamp.py` 的训练文本加载；不改变训练、评估和推理预处理。
+
+支持 `--images`（默认 1000）、`--seed`（默认 20260910）、`--analysis`、`--corpus`、
+`--keys`、`--fonts`、`--data-dir`、`--output-dir`、`--annotation`、`--report-dir`。
+`--dry-run` 校验输入并测量风格，不写产物；参考文件缺失、字典或字体不覆盖时带具体输入报错。
+`--data-dir` 控制默认输出根目录，输入语料另用 `--corpus` 指定。
+
+将下表中的 `类别` 替换为 `edge`、`degraded` 或 `confusable`；日期在启动时取本机日期。
+
+| 产物 | 默认位置 |
+|---|---|
+| 图片 | `recognition/data/synthesis_类别_YYYYMMDD_images/synthesis_类别_YYYYMMDD_00001.png` 起 |
+| **训练用 Tab 标注** | `recognition/data/synthesis_类别_YYYYMMDD_annotation.txt` |
+| 报告和预览 | `recognition/utils/synthesis/synthesis_report/synthesis_类别_YYYYMMDD/` |
+
+每类只生成 **`_annotation.txt`**，格式为 `relative/path.png<TAB>文字`，可直接用于训练。
+不额外生成 `_annotation_training.txt`。图片路径相对于标注文件所在目录，现有训练清单不自动修改。
+报告含 `summary.json`、逐图 `samples.jsonl` 和 `preview.png`，记录参考图、字体、语料行号、目标字及退化参数，
+并保存分析文档、语料、字典、参考图和字体的 SHA-256。预览长行会缩小，原图保留完整尺寸。
+已有输出拒绝覆盖；中断时保留 `.partial`，不发布未完成的标注。重新生成请指定新的输出和报告路径。
+
+### 2026-09-10 生成记录
+
+三类各 1000 张，合计 3000 张，已逐张验证 PNG 可读、RGB 模式、字典覆盖、两版标注一致及路径存在，
+并抽查最终预览。37、18、43 张参考图均被采样且文件校验和保持不变。
+边缘类实际裁入正文一像素的样本为 234 张，其余为贴边或残片；
+低清四种模式各 250 张；形近字覆盖 84 个目标汉字，每字指定 11～12 张。
+相关合成及识别预处理测试 123 项通过；尚未进行模型训练或评估识别收益。
+
+本批标注已按后续要求统一为单个 `_annotation.txt`，内容沿用原训练版的 Tab 格式；
+已核对三类各 1000 条并移除冗余 `_annotation_training.txt`，图片与文字内容不变。

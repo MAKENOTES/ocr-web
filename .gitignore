@@ -24,6 +24,9 @@ recognition/data/*
 !recognition/data/synthesis3_annotation.txt
 !recognition/data/synthesis_red_annotation.txt
 !recognition/data/synthesis_lines_annotation.txt
+!recognition/data/synthesis_confusable_annotation.txt
+!recognition/data/synthesis_degraded_annotation.txt
+!recognition/data/synthesis_edge_annotation.txt
 !recognition/data/train_annotation.txt
 !recognition/data/val_annotation.txt
 !recognition/data/val_unknown.txt

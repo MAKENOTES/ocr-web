@@ -9041,7 +9041,7 @@ val_images/du20260902-003214.png	下合成申请
 val_images/du20260902-003219.png	下合成申请
 val_images/du20260902-003224.png	下合成申请
 val_images/du20260902-003229.png	交付形式：
-val_images/du20260902-003234.png	申请日期：
+val_images/du20260902-003234.png	申购日期：
 val_images/du20260902-003239.png	PR_20260608004
 val_images/du20260902-003244.png	PR_20260609005
 val_images/du20260902-003249.png	PR_20260608002

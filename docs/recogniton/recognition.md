@@ -587,3 +587,15 @@ FP32；`--quantize_head` 是需另行评估的实验选项，不承诺必然提�
 2026-09-07 对 dataset 历史改动、红章增强和训练机制的复核见
 [专项分析](recognition-analysis-2026-09-07.md)。报告区分本次像素/机制测量与尚待完成的
 训练精度对照，没有改变上述训练或推理契约。
+
+### 裁切、低清与汉字形近定向合成
+
+`recognition/utils/synthesis/generate_edge.py`、`generate_degraded.py`、`generate_confusable.py`
+分别参考 2026-09-09 错误分析中的 37、18、43 张对应图片，默认各生成 1000 张 RGB PNG。
+只提取验证图风格，正文从训练语料重新渲染；形近字类按差异目标字均分配额。
+裁切只保留贴边或经墨迹损失检查的轻裁，残片不计入正文；低清分辨率、粘连、破碎、扫描带分别控制。
+这些规则只用于离线合成，不修改共享识别预处理。
+
+训练使用 `recognition/data/synthesis_{edge,degraded,confusable}_YYYYMMDD_annotation.txt`
+中的实际对应文件，格式为 `relative/path.png<TAB>文字`；每类只输出这一份标注。
+运行命令、参数、参考方式和标注边界见 [数据合成说明](../../recognition/datadoc/synthesis.md)。
