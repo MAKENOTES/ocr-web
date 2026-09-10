@@ -459,14 +459,54 @@ flowchart LR
 - `../../recognition_quantize_static.py`：共享预处理的 NNCF 静态量化，以及基于真实 CER 的精度恢复。
 
 `train.py` 的 `TRAIN_ANNOTATION` 可配置一个标注路径或多个标注路径；当前训练集按配置顺序
-合并 `train_annotation.txt`、`append_annotation.txt`、`bench1_annotation.txt`、
-`bench2_annotation.txt` 和 `synthesis_annotation.txt`，各文件内的图片路径分别相对于
+合并 `train_annotation.txt` 与 synthesis1、synthesis2、synthesis3、red、lines、
+confusable、degraded、edge 共八份合成标注，各文件内的图片路径分别相对于
 自身所在目录解析。
+
+### 训练与续训
+
+`recognition/train.py` 保留训练、验证循环，并显式传入顶部配置。
+`recognition/utils/training_run.py` 负责命令行参数、配置核对、运行目录、状态恢复和保存策略；
+`recognition/utils/training_checkpoint.py` 负责检查点序列化、原子读写与字典兼容检查。
+
+每个完整 epoch 在验证、学习率调度后原子保存 `last.pth`，从第一轮生效；
+第 100 轮起另存每 5 轮备份与 CER 最低的 Top-3。三类文件均包含模型、AdamW、
+ReduceLROnPlateau、已完成轮次、global_step、随机状态、字典与配置，均可用于续训。
+推理和导出通过现有 `extract_state_dict` 读取其中的模型权重。
+
+```bash
+# 新训练；输出路径在启动时打印
+.venv/bin/python recognition/train.py --epochs 680
+
+# 从检查点下一轮继续，680 是总目标轮数，不是追加轮数
+.venv/bin/python recognition/train.py \
+  --resume recognition/checkpoints/<run>/last.pth --epochs 680
+
+# 旧纯权重只能初始化新训练，必须提供该权重训练时使用的原始字典
+.venv/bin/python recognition/train.py \
+  --weights recognition/checkpoints/<old-model>.pth \
+  --weights-keys /path/to/original/keys.txt --lr 0.00003 --epochs 100
+```
+
+`--resume` 恢复学习率和调度等待计数，不接受 `--lr`；`--weights` 重置优化器、
+调度器和轮次。两者均要求字典内容及顺序一致，不自动迁移输出层；删字符前的旧模型
+不能直接用于删字符后的新字典。旧纯权重未保存优化器等状态，无法补成完整续训。
+
+续训核对标注文件内容摘要、模型/数据加载/字符转换实现和关键配置，差异时报错。
+图片内容不逐张计算摘要，原地替换图片后应使用 `--weights` 启动新实验。
+随机状态恢复覆盖 Python、NumPy、PyTorch 与 CUDA，续训从完整轮次边界开始；
+中断轮次会重跑，不承诺跨硬件或依赖版本的逐位一致性。
+
+每次启动（包括续训）默认在 `recognition/checkpoints/ocr_exp_<时间戳>/` 和
+`recognition/runs/ocr_exp_<时间戳>/` 新建独立目录；可用 `--checkpoint-dir`、
+`--log-dir` 指定空目录。TensorBoard 的轮次和步数继续递增。续训继承原 Top-K
+排名，但只清理本次输出目录中的淘汰文件，保留原运行产物。完整检查点包含优化器，
+磁盘占用高于旧纯权重文件。
 
 示例：
 
 ```bash
-python recognition/train.py
+.venv/bin/python recognition/train.py
 
 # evaluate_val.py 当前仍使用文件顶部常量，不支持命令行参数。
 # 先配置 MODEL_PATH、启用一个 VAL_ANNOTATION，并为本次评估设置 ERROR_OUTPUT_FILE。
@@ -587,7 +627,7 @@ FP32；`--quantize_head` 是需另行评估的实验选项，不承诺必然提�
 
 ## 6. 已知问题与演进边界
 
-- `train.py` 仍以脚本常量为主，需迁移为可序列化配置与 run manifest。
+- `train.py` 的数据路径和模型超参数仍以顶部常量配置；续训配置与标注摘要已随检查点保存，尚未逐张校验图片内容。
 - 训练数据与标注统一使用 `.png`；路径或扩展名不一致会直接报错，避免自动回退掩盖数据问题或以 dummy tensor 静默污染训练。
 - recognition 不再做二次裁剪；detection 框质量需要在 detection 环节单独评估。
 - 输入高度目前固定 32；48 高度只能作为同数据、同训练预算的消融实验，不能直接替换现有权重。

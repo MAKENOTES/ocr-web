@@ -1,10 +1,8 @@
 import os
 import sys
-import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 # -- 动态添加项目根目录到 sys.path ---
@@ -18,6 +16,7 @@ if project_root not in sys.path:
 from recognition.components.converter import LabelConverter
 from recognition.components.dataset import create_dataloader
 from recognition.models.model import CRNN
+from recognition.utils.training_run import TrainingRun, build_training_config, parse_args
 import Levenshtein
 
 # ================= 配置区域 =================
@@ -51,7 +50,7 @@ NUM_WORKERS = 4
 # 4. 保存与验证策略
 SAVE_INTERVAL = 5        # 每隔多少轮强制保存一次
 START_VALID_EPOCH = 1    # 从第1轮开始验证，学习率调度优先使用验证集 CER
-START_SAVE_EPOCH = 100    # 从第100轮才开始保存模型 (跳过前期不稳定阶段)
+START_SAVE_EPOCH = 100    # 周期备份和 Top-K 从第100轮开始；last.pth 每轮保存
 KEEP_TOP_K = 3           # 保留保存阶段内验证集 CER 最低的 3 个最佳模型
 
 # 5. 硬件
@@ -131,19 +130,24 @@ def log_gradient_norms(model, writer, global_step):
     writer.add_scalar("Grad/Max_Abs_Grad", max_grad, global_step)
 
 
-def train():
+def train(argv=None):
+    args = parse_args(argv if argv is not None else [], epochs=EPOCHS,
+                      learning_rate=LEARNING_RATE, checkpoint_dir=CHECKPOINT_DIR)
     print(f"当前使用的计算设备: {DEVICE}")
     print(f"输入预处理: 完整 detection 框 / {'RGB' if NUM_CHANNELS == 3 else '灰度'} / 不裁剪")
     print("序列处理: CNN 右侧背景保护区 / 长度感知 BiGRU / batch padding 不参与识别")
 
-    if not os.path.exists(CHECKPOINT_DIR):
-        os.makedirs(CHECKPOINT_DIR)
-
-    # TensorBoard 日志
-    writer = SummaryWriter(log_dir=f"recognition/runs/ocr_exp_{int(time.time())}")
-
     # 1. 初始化 Converter
     converter = LabelConverter(KEYS_PATH)
+    config = build_training_config(
+        train_annotation=TRAIN_ANNOTATION, valid_annotation=VALID_ANNOTATION,
+        img_height=IMG_HEIGHT, img_width=IMG_WIDTH, num_channels=NUM_CHANNELS,
+        batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, start_valid_epoch=START_VALID_EPOCH,
+        start_save_epoch=START_SAVE_EPOCH, save_interval=SAVE_INTERVAL, keep_top_k=KEEP_TOP_K,
+    )
+    run = TrainingRun(args, config, converter.keys, CHECKPOINT_DIR)
+    if run.complete:
+        return
     num_classes = converter.num_classes
     print(f"字典加载完成，类别数量: {num_classes} (含 blank/unk)")
 
@@ -160,13 +164,14 @@ def train():
     criterion = nn.CTCLoss(blank=0, zero_infinity=True).to(DEVICE)
 
     # 4. 优化器与调度器
-    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr if args.lr is not None else LEARNING_RATE, weight_decay=1e-4)
 
     # 学习率调度器：验证集 CER 越小越好；未执行验证时回退到训练平均 Loss。
     # 连续 21 轮未达到改善阈值时学习率乘以 0.8，最低为 1e-6。
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.8, patience=20, min_lr=1e-6
     )
+    run.restore(model, optimizer, scheduler)
 
     # 5. 数据加载器
     print("正在加载训练集...")
@@ -195,130 +200,88 @@ def train():
     else:
         print("⚠️ 警告: 未找到验证集标注文件，将无法评估 Accuracy 和进行最佳模型保存。")
 
-    print(f"准备开始训练 - 总 Epochs: {EPOCHS}")
-    print(f"  - 验证开始: Epoch {START_VALID_EPOCH}")
-    print(f"  - 保存开始: Epoch {START_SAVE_EPOCH}")
+    writer = run.open_writer()
+    global_step = run.global_step
+    try:
+        run.restore_random_state(optimizer)
+        for epoch in range(run.start_epoch, args.epochs + 1):
+            # ================= 训练阶段 =================
+            model.train()
+            total_train_loss = 0
+            train_batch_count = 0
 
-    global_step = 0
-    # 最佳模型记录：metric 使用调度指标，当前配置下为验证集 CER。
-    # 结构：[{'path': str, 'metric': float, 'epoch': int}, ...]
-    best_checkpoints = []
+            pbar = tqdm(train_loader, desc=f"Epoch [{epoch}/{args.epochs}]", unit="batch")
 
-    for epoch in range(1, EPOCHS + 1):
-        # ================= 训练阶段 =================
-        model.train()
-        total_train_loss = 0
-        train_batch_count = 0
+            for i, (images, labels, img_widths) in enumerate(pbar):
+                images = images.to(DEVICE)
+                img_widths = img_widths.to(DEVICE)
 
-        pbar = tqdm(train_loader, desc=f"Epoch [{epoch}/{EPOCHS}]", unit="batch")
+                # 1. Forward（真实宽度控制 PackedSequence，BiGRU 不读取 batch padding）
+                preds = model(images, img_widths=img_widths)  # [SeqLen, Batch, NumClasses]
 
-        for i, (images, labels, img_widths) in enumerate(pbar):
-            images = images.to(DEVICE)
-            img_widths = img_widths.to(DEVICE)
+                # 2. Encode Labels
+                text, length = converter.encode(labels)
+                text = text.to(DEVICE)
+                length = length.to(DEVICE)
 
-            # 1. Forward（真实宽度控制 PackedSequence，BiGRU 不读取 batch padding）
-            preds = model(images, img_widths=img_widths)  # [SeqLen, Batch, NumClasses]
+                # 与模型 PackedSequence 使用完全相同的有效长度公式。
+                preds_size = model._calc_cnn_output_widths(img_widths).clamp(min=1).int()
 
-            # 2. Encode Labels
-            text, length = converter.encode(labels)
-            text = text.to(DEVICE)
-            length = length.to(DEVICE)
+                # 3. Compute Loss
+                loss = criterion(preds, text, preds_size, length)
 
-            # 与模型 PackedSequence 使用完全相同的有效长度公式。
-            preds_size = model._calc_cnn_output_widths(img_widths).clamp(min=1).int()
+                # 4. Backward
+                optimizer.zero_grad()
+                loss.backward()
+                # 梯度裁剪，防止梯度爆炸  max_norm 由5降到2  比较稳定，常见推荐值
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
 
-            # 3. Compute Loss
-            loss = criterion(preds, text, preds_size, length)
+                # 🔍 梯度监控（每 N step 记录一次，防止 TB 太大）
+                if global_step % 50 == 0:
+                    log_gradient_norms(model, writer, global_step)
 
-            # 4. Backward
-            optimizer.zero_grad()
-            loss.backward()
-            # 梯度裁剪，防止梯度爆炸  max_norm 由5降到2  比较稳定，常见推荐值
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
+                optimizer.step()
 
-            # 🔍 梯度监控（每 N step 记录一次，防止 TB 太大）
-            if global_step % 50 == 0:
-                log_gradient_norms(model, writer, global_step)
+                # Logging
+                if torch.isfinite(loss):
+                    current_loss = loss.item()
+                    total_train_loss += current_loss
+                    train_batch_count += 1
 
-            optimizer.step()
+                    pbar.set_postfix(loss=f"{current_loss:.4f}", lr=optimizer.param_groups[0]['lr'])
+                    writer.add_scalar('Train/Batch_Loss', current_loss, global_step)
 
-            # Logging
-            if torch.isfinite(loss):
-                current_loss = loss.item()
-                total_train_loss += current_loss
-                train_batch_count += 1
+                global_step += 1
 
-                pbar.set_postfix(loss=f"{current_loss:.4f}", lr=optimizer.param_groups[0]['lr'])
-                writer.add_scalar('Train/Batch_Loss', current_loss, global_step)
+            train_avg_loss = total_train_loss / train_batch_count if train_batch_count > 0 else float('inf')
+            print(f"Epoch {epoch} | Train Loss: {train_avg_loss:.4f}")
+            writer.add_scalar('Train/Epoch_Loss', train_avg_loss, epoch)
 
-            global_step += 1
+            # ================= 验证与调度阶段 =================
+            # 默认用训练平均 Loss 调度；本轮执行验证后改用验证集 CER。
+            scheduler_metric = train_avg_loss
 
-        train_avg_loss = total_train_loss / train_batch_count if train_batch_count > 0 else float('inf')
-        print(f"Epoch {epoch} | Train Loss: {train_avg_loss:.4f}")
-        writer.add_scalar('Train/Epoch_Loss', train_avg_loss, epoch)
+            if valid_loader and epoch >= START_VALID_EPOCH:
+                val_acc, val_cer, val_loss = evaluate(model, valid_loader, converter, criterion)
 
-        # ================= 验证与调度阶段 =================
-        # 默认用训练平均 Loss 调度；本轮执行验证后改用验证集 CER。
-        scheduler_metric = train_avg_loss
+                print(f"Epoch {epoch} | Valid Acc: {val_acc:.4f} | Valid CER: {val_cer:.4f} | Valid Loss: {val_loss:.4f}")
+                writer.add_scalar('Validation/Accuracy', val_acc, epoch)
+                writer.add_scalar('Validation/CER', val_cer, epoch)
+                writer.add_scalar('Validation/Loss', val_loss, epoch)
 
-        if valid_loader and epoch >= START_VALID_EPOCH:
-            val_acc, val_cer, val_loss = evaluate(model, valid_loader, converter, criterion)
+                scheduler_metric = val_cer
 
-            print(f"Epoch {epoch} | Valid Acc: {val_acc:.4f} | Valid CER: {val_cer:.4f} | Valid Loss: {val_loss:.4f}")
-            writer.add_scalar('Validation/Accuracy', val_acc, epoch)
-            writer.add_scalar('Validation/CER', val_cer, epoch)
-            writer.add_scalar('Validation/Loss', val_loss, epoch)
+            # 本轮结束时更新学习率，从下一轮训练开始生效。
+            scheduler.step(scheduler_metric)
 
-            scheduler_metric = val_cer
+            writer.add_scalar("Train/Learning_Rate", optimizer.param_groups[0]["lr"], epoch)
+            run.save_epoch(model, optimizer, scheduler, epoch, global_step,
+                           scheduler_metric, valid_loader is not None)
+            writer.flush()
 
-        # 本轮结束时更新学习率，从下一轮训练开始生效。
-        scheduler.step(scheduler_metric)
-
-        # ================= 保存模型阶段 =================
-        if epoch >= START_SAVE_EPOCH:
-
-            # 策略 1: 周期性保存 (Backup)
-            if epoch % SAVE_INTERVAL == 0:
-                ckpt_path = os.path.join(CHECKPOINT_DIR, f"epoch_{epoch}.pth")
-                torch.save(model.state_dict(), ckpt_path)
-                print(f"  [保存] 周期性备份: {ckpt_path}")
-
-            # 策略 2：按调度指标保留 Top-K；当前从第1轮验证，指标为验证集 CER。
-            if valid_loader:
-                # 判断是否应该保存为“最佳模型”
-                should_save_best = False
-
-                if len(best_checkpoints) < KEEP_TOP_K:
-                    should_save_best = True
-                elif scheduler_metric < best_checkpoints[-1]['metric']:
-                    # 当前指标小于已保留模型中最大的指标（当前配置下为 CER）。
-                    should_save_best = True
-
-                if should_save_best:
-                    best_name = f"{int(time.time())}best_cer_{scheduler_metric:.4f}_epoch_{epoch}.pth"
-                    best_path = os.path.join(CHECKPOINT_DIR, best_name)
-
-                    torch.save(model.state_dict(), best_path)
-                    print(f"  [保存] 🌟 发现新最佳模型 ({scheduler_metric:.4f}) -> {best_path}")
-
-                    # 更新列表
-                    best_checkpoints.append({'path': best_path, 'metric': scheduler_metric, 'epoch': epoch})
-                    # 按 metric 从小到大排序
-                    best_checkpoints.sort(key=lambda x: x['metric'])
-
-                    # 移除多余的旧模型
-                    if len(best_checkpoints) > KEEP_TOP_K:
-                        worst_ckpt = best_checkpoints.pop() # 移除指标最大的模型（当前配置下为 CER）
-                        if os.path.exists(worst_ckpt['path']):
-                            try:
-                                os.remove(worst_ckpt['path'])
-                                print(f"  [清理] 已移除旧模型: {worst_ckpt['path']}")
-                            except OSError as e:
-                                print(f"  [警告] 移除文件失败: {e}")
-
-    # 训练结束
-    writer.close()
+    finally:
+        writer.close()
     print("训练完成。")
 
 if __name__ == "__main__":
-    train()
+    train(sys.argv[1:])
