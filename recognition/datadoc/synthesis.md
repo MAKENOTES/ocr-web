@@ -1,5 +1,51 @@
 # Recognition 数据合成
 
+## 按原标注补回已删除的图片
+
+图片已删除、同批次 `samples.jsonl` 仍在时，使用 `restore.py` 按 txt 中的原路径逐条重建。
+正文和文件名必须与生成记录一致；只允许目录前缀变化。脚本不改写标注和字典，
+默认只校验，`--apply` 才生成，目标图片已存在时拒绝覆盖。
+
+```bash
+.venv/bin/python recognition/utils/synthesis/restore.py \
+  --annotation recognition/data/synthesis_red_annotation.txt \
+  --records outputs/recognition_symbol_normalization_20260910_132714/reports/synthesis_red/samples.jsonl \
+  --report-dir outputs/synthesis_red_restored
+# 检查完成后，在同一命令末尾加 --apply 执行。
+```
+
+字体、颜色、字号和效果类别来自逐图记录，正文渲染复用 `generate.py`；
+红章调用 `overlay_stamp`，边线调用 `add_lines`，低清调用 `degrade`，边缘调用 `apply_edge`。
+细节随机参数重新采样，不承诺与已删除图片逐像素相同。每行使用 `--seed + 行号`
+作为独立种子，新报告记录图片 SHA-256、实际效果参数和标注/字典哈希。
+生成失败会保留已经成功写入的图片与记录，须核对失败原因后处理该批产物，不能直接覆盖重跑。
+
+## 按已有文本重新渲染
+
+`regenerate.py` 用于保留已整理的样本条数和文本覆盖、重新生成图片的情况，
+复用 `generate.py` 的字体、渲染器和风格采样。输入必须先完成标注校对；脚本不猜测
+下划线语义、不静默删除字典外字符，也不读取旧合成图片作为底图。
+默认只检查文本、字典、字体与参考风格，传入 `--apply` 才生成。输出路径必须全新。
+
+```bash
+.venv/bin/python recognition/utils/synthesis/regenerate.py \
+  --source-annotation recognition/data/synthesis1_annotation.txt \
+  --prefix synthesis1 \
+  --output-dir recognition/data/synthesis1_regenerated_images \
+  --annotation recognition/data/synthesis1_regenerated_annotation.txt \
+  --report-dir outputs/synthesis1_regenerated
+# 检查完成后，在同一命令末尾加 --apply 执行。
+```
+
+默认只从 `train_images/` 抽取 1,600 张风格参考，支持 `--references`、`--fonts`、
+`--style-samples`、`--seed` 和 `--keys` 覆盖。报告保存输入/字典/字体哈希和每张图的
+正文、源行号、字体与风格；全部成功后才发布 Tab 标注，失败保留 `.partial` 供排查。
+红章、边线、形近字、低清和边缘效果仍使用各自的专项入口，避免普通重渲染丢失专项效果。
+
+分号和逗号的当前标注规范分别为 `；`、`，`；字典仍保留正文字符 `_`。
+填空线或文字装饰线不应作为 `_` 写入标签，文件名、邮箱、引物名等实际包含的下划线保留。
+更新字典后须重新训练和导出；旧 checkpoint 应绑定其原字典。
+
 ## 字体和渲染
 
 合成脚本共用 [generate.py](../utils/synthesis/generate.py) 中的字体加载和正文渲染逻辑。
