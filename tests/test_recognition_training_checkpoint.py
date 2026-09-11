@@ -1,5 +1,6 @@
 """验证整轮续训与连续训练等价，以及不兼容权重的明确拒绝。"""
 import random
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -38,6 +39,7 @@ def tiny_training(monkeypatch, tmp_path):
     keys.write_text("甲\n乙\n", encoding="utf-8")
     annotation = tmp_path / "train.txt"
     annotation.write_text('image.png, "甲"\n', encoding="utf-8")
+    monkeypatch.setattr(training, "LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setattr(training, "KEYS_PATH", str(keys))
     monkeypatch.setattr(training, "TRAIN_ANNOTATION", str(annotation))
     monkeypatch.setattr(training, "VALID_ANNOTATION", str(annotation))
@@ -50,11 +52,11 @@ def tiny_training(monkeypatch, tmp_path):
 
 
 def run_training(root, name, epochs, resume=None):
-    argv = ["--epochs", str(epochs), "--checkpoint-dir", str(root / name),
-            "--log-dir", str(root / f"{name}_logs")]
+    argv = ["--checkpoint-dir", str(root / name)]
     if resume is not None:
         argv += ["--resume", str(resume)]
-    training.train(argv)
+    with patch.object(training, "EPOCHS", epochs), patch.object(training, "LOG_DIR", str(root / f"{name}_logs")):
+        training.train(argv)
     return root / name / "last.pth"
 
 
@@ -144,20 +146,20 @@ def test_top_k_resume_preserves_source_files(tiny_training, monkeypatch):
 
 @pytest.mark.parametrize("argv", [
     ["--resume", "a", "--weights", "b"], ["--resume", "a", "--lr", "0.001"],
-    ["--weights-keys", "keys.txt"], ["--epochs", "0"], ["--lr", "-1"], ["--lr", "nan"],
+    ["--weights-keys", "keys.txt"], ["--epochs", "10"], ["--lr", "0.001"],
+    ["--seed", "42"], ["--log-dir", "logs"],
 ])
 def test_invalid_arguments(argv):
     with pytest.raises(SystemExit):
-        training_run.parse_args(argv, epochs=680, learning_rate=3e-4, checkpoint_dir="unused")
+        training_run.parse_args(argv)
 
 
 def test_output_directory_rejects_existing_files(tmp_path):
     path = tmp_path / "last.pth"
     path.write_text("keep")
-    args = training_run.parse_args(["--checkpoint-dir", str(tmp_path)],
-                                   epochs=680, learning_rate=3e-4, checkpoint_dir="unused")
+    args = training_run.parse_args(["--checkpoint-dir", str(tmp_path)])
     with pytest.raises(ValueError, match="Output directory must be empty"):
-        training_run.prepare_run_directories(args, "unused")
+        training_run.prepare_run_directories(args, "unused", tmp_path / "logs")
     assert path.read_text() == "keep"
 
 
@@ -178,13 +180,12 @@ def test_periodic_checkpoint_supports_resume(tiny_training, monkeypatch):
     assert checkpoint["global_step"] == 12
 
 
-def test_weights_start_a_new_training_schedule(tiny_training):
+def test_weights_start_a_new_training_schedule(tiny_training, monkeypatch):
     root = tiny_training
     source = run_training(root, "first", 2)
-    training.train([
-        "--weights", str(source), "--epochs", "1", "--lr", "0.001",
-        "--checkpoint-dir", str(root / "fresh"), "--log-dir", str(root / "fresh_logs"),
-    ])
+    monkeypatch.setattr(training, "EPOCHS", 1)
+    monkeypatch.setattr(training, "LEARNING_RATE", 0.001)
+    training.train(["--weights", str(source), "--checkpoint-dir", str(root / "fresh")])
     checkpoint = torch.load(root / "fresh" / "last.pth", weights_only=True)
     assert checkpoint["epoch"] == 1
     assert checkpoint["global_step"] == 2
@@ -196,7 +197,7 @@ def test_defaults_follow_training_script_constants(tiny_training, monkeypatch):
     monkeypatch.setattr(training, "EPOCHS", 1)
     monkeypatch.setattr(training, "LEARNING_RATE", 0.002)
     monkeypatch.setattr(training, "CHECKPOINT_DIR", str(root / "checkpoints"))
-    training.train(["--log-dir", str(root / "logs")])
+    training.train([])
     path, = (root / "checkpoints").glob("ocr_exp_*/last.pth")
     checkpoint = torch.load(path, weights_only=True)
     assert checkpoint["epoch"] == 1

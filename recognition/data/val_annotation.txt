@@ -591,7 +591,7 @@ val_images/000121-000005.png	求乙方支付合同总金额[20%]的违约金，�
 val_images/000121-000010.png	甲方造成的所有损失。
 val_images/000121-000015.png	并赔偿因此给甲方造成的所有损失。
 val_images/000121-000020.png	际发生的费用，给乙方造成其他损失的，还应赔偿乙方其他损失。
-val_images/000121-000025.png	15
+val_images/000121-000025.png	1S
 val_images/000122-000005.png	9.如因甲方原因导致合同执行中止时，甲方应按照乙方实际执行的工作
 val_images/000122-000010.png	2.甲乙双方共同约定，因履行本合同的往来函件和司法文书送达地址为：
 val_images/000122-000015.png	包括在争议进入仲裁、民事诉讼程序的一审、二审、再审和执行程序。如一
@@ -2579,8 +2579,8 @@ val_images/001043-000024.png	3.交互式云分析数据交付：自云平台结�
 val_images/001043-000029.png	周期为甲方免费保存结果文件，若甲方未在届满期前向乙方书面提出申请继续保存结果文件，乙方将在届满期后
 val_images/001043-000034.png	（1）数据传输方式
 val_images/001043-000039.png	存储量
-val_images/001043-000044.png	-
-val_images/001043-000049.png	-
+val_images/001043-000044.png	—
+val_images/001043-000049.png	—
 val_images/001044-000001.png	（2）硬盘购买
 val_images/001044-000006.png	数据传输形式
 val_images/001044-000011.png	580元/个
@@ -2954,7 +2954,7 @@ val_images/001088-000116.png	PE250/PE300
 val_images/001088-000121.png	~180bp
 val_images/001089-000001.png	799F
 val_images/001089-000006.png	5´-ACGGGCGGTGTGTRC-3´
-val_images/001089-000011.png	301
+val_images/001089-000011.png	30]
 val_images/001089-000016.png	5´-ACGTCATCCCCACCTTCC-3´
 val_images/001089-000021.png	AGATCAGCCTGTTATCC
 val_images/001089-000026.png	CARAAAGACCCTATGMAGCT

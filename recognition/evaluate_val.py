@@ -21,7 +21,7 @@ from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 from recognition.utils.annotation import split_annotation_fields
 
 # ================= 配置区域 =================
-MODEL_PATH = "recognition/checkpoints/1789016080best_cer_0.0044_epoch_491.pth"  # 修改为你的最佳模型路径
+MODEL_PATH = "recognition/checkpoints/best_cer_0.003755_epoch_666.pth"  # 修改为你的最佳模型路径
 KEYS_PATH = "recognition/keys.txt"
 # VAL_ANNOTATION = "recognition/data/train_annotation.txt"
 VAL_ANNOTATION = "recognition/data/val_annotation.txt"
@@ -29,6 +29,10 @@ VAL_ANNOTATION = "recognition/data/val_annotation.txt"
 # VAL_ANNOTATION = "recognition/data/synthesis2_annotation.txt"
 # VAL_ANNOTATION = "recognition/data/synthesis3_annotation.txt"
 # VAL_ANNOTATION = "recognition/data/synthesis_red_annotation.txt"
+# VAL_ANNOTATION = "recognition/data/synthesis_lines_annotation.txt"
+# VAL_ANNOTATION = "recognition/data/synthesis_confusable_annotation.txt"
+# VAL_ANNOTATION = "recognition/data/synthesis_degraded_annotation.txt"
+# VAL_ANNOTATION = "recognition/data/synthesis_edge_annotation.txt"
 
 ERROR_OUTPUT_FILE = "recognition/error_cases.txt"  # 错误案例保存文件（可设为 None）
 

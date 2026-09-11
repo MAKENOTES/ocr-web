@@ -2,15 +2,17 @@
 
 ## 项目范围
 
-这是一个两阶段 OCR 项目：`detection` 定位文字区域，`recognition` 将文字框识别为 Unicode 文本。根目录中的脚本负责主要的推理、导出和量化入口。
+这是一个两阶段 OCR 项目：`detection` 定位 UI 小图文字，`detection_larger` 定位 PDF 页面和网页表格文字，`recognition` 将文字框识别为 Unicode 文本。根目录中的脚本负责主要的推理、导出和量化入口。
 
 ## 目录与入口
 
 - `detection/`：EAST 风格检测模型、数据集、损失、训练和历史推理实现。
+- `detection_larger/`：大图文字检测，使用同名的 `components/`、`models/` 包，以及 `train_resnet.py`、`inference.py` 入口，直接读取已准备好的训练与验证目录。
 - `recognition/`：CRNN 识别模型、统一图片预处理、训练、评估和历史记录。
 - `detection_inference_640.py`：当前矩形检测推理入口。
 - `recognition_inference.py`：PyTorch、ONNX、OpenVINO 多后端识别入口。
 - `detection_export_onnx.py`、`recognition_export_onnx.py`：模型导出入口。
+- `detection_larger_export_onnx.py`：大图检测模型导出入口。
 - `docs/recogniton/recognition.md`：Recognition 当前架构和数据契约；`recognition/train.md` 只保存历史训练记录。
 - `tests/`：检测数据划分、矩形检测链路和识别预处理测试。
 
@@ -29,6 +31,7 @@
 .venv/bin/python -m pytest tests/test_recognition_batch_invariance.py -q
 .venv/bin/python -m pytest tests/test_detection_rectangular_pipeline.py -q
 .venv/bin/python -m pytest tests/test_detection_split_dataset.py -q
+.venv/bin/python -m pytest tests/test_detection_larger.py -q
 .venv/bin/python -m py_compile recognition/components/dataset.py recognition/models/model.py recognition/train.py recognition/evaluate_val.py recognition_export_onnx.py recognition_inference.py
 ```
 
@@ -42,7 +45,7 @@
 - 新识别模型默认使用 3 通道 RGB。带透明通道的 PNG 必须通过共享的 `load_rgb_image` 合成背景，避免黑字或白字消失。
 - `img_widths` 表示不含 CNN 右侧保护区和 batch padding 的真实像素宽度。collate 必须为每张图片保留固定的右侧背景保护区，BiGRU 必须通过 `PackedSequence` 跳过 padding；修改 CNN 下采样或 padding 时，必须同步检查 CTC 序列长度和 batch 一致性。
 - `recognition/keys.txt` 的字符内容与顺序属于模型 ABI；修改后必须重新训练、导出并验证模型。
-- Detection 图片与标签按 stem 配对，标签可以是 `gt_<stem>.txt` 或 `<stem>.txt`。数据划分以 manifest 为准，不能让同一样本同时进入 train 和 val。
+- Detection 图片与标签按 stem 配对，标签可以是 `gt_<stem>.txt` 或 `<stem>.txt`。`detection/` 数据划分以已有 manifest 为准；`detection_larger/` 直接使用已准备好的独立训练、验证目录，不依赖划分文件。不能让同一样本同时进入 train 和 val。
 
 ## 修改原则
 
@@ -68,7 +71,9 @@
 - **抽象必须可追踪**：优先显式调用和清晰的数据传递。使用注册表、动态导入、反射、回调分发等编辑器难以直接追踪的机制时，在入口简要说明选择规则、实际实现位置和调用关系；不为尚不存在的需求搭建通用框架。
 - **同类功能保持一致**：新增实现前先查找已有同类代码，沿用命名、参数顺序、返回结构、错误处理和配置方式。相同规则复用公共实现；确有差异时明确原因，避免无理由并存多套写法。
 - **常量集中且就近**：重复使用且含义相同的路径、字段名、状态字符串和阈值提为具名常量，同一规则只保留一个定义。专属常量放所属模块，跨模块共享的才放公共位置；不要仅因字面值相同就合并不同含义的常量。
-- **脚本开箱可用**：常用路径和参数提供合理默认值，并允许通过命令行覆盖；帮助文本写清用途、单位和默认值。无法合理推断的参数明确要求输入，涉及数据删除或覆盖的操作默认只预览。
+- **常量必须有中文注释**：新增或修改常量时，每个常量都应有同行或紧邻的中文注释，说明用途；涉及数值时写清单位或计数口径，布尔开关写清启用行为。存在覆盖关系、适用条件或容易误解的边界时一并说明，不能只写分组标题代替逐项注释。修改常量值时同步更新注释和相关文档。
+- **命令行保持精简**：已有常量控制的配置直接使用常量，不再提供同义命令行覆盖；只有一个有效选择或由当前流程固定的选项不暴露为参数。仅保留每次运行确有必要指定的输入，例如续训检查点、初始权重及其原始字典、本次输出目录。区分固定的输出根目录常量与本次运行目录，不为固定配置再建立一套参数映射。删减参数时同步入口调用、帮助文本、测试和文档。
+- **脚本开箱可用**：常用路径和配置提供合理默认值，遵循上述命令行精简规则；保留的参数写清用途、单位和默认行为。无法合理推断的必要输入明确要求提供，涉及数据删除或覆盖的操作默认只预览。
 - **必要测试必须补齐**：新增或修改行为时，覆盖正常路径、关键边界和错误输入；修复缺陷时补能复现问题的回归测试。共享预处理和多后端契约需验证一致性，重构需确认行为不变；测试断言可观察结果，避免绑定内部实现或重复覆盖同一行为。
 - **提交前核对**：检查改动是否易读、分块是否清晰、同类风格是否一致、说明是否同步，并运行上方要求的相关测试。未完成的验证要说明原因和可执行的后续步骤，不能宣称已通过。
 

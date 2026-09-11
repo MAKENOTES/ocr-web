@@ -476,20 +476,22 @@ ReduceLROnPlateau、已完成轮次、global_step、随机状态、字典与配�
 
 ```bash
 # 新训练；输出路径在启动时打印
-.venv/bin/python recognition/train.py --epochs 680
+.venv/bin/python recognition/train.py
 
-# 从检查点下一轮继续，680 是总目标轮数，不是追加轮数
+# 从检查点下一轮继续，目标总轮数使用 train.py 中的 EPOCHS 常量
 .venv/bin/python recognition/train.py \
-  --resume recognition/checkpoints/<run>/last.pth --epochs 680
+  --resume recognition/checkpoints/<run>/last.pth
 
 # 旧纯权重只能初始化新训练，必须提供该权重训练时使用的原始字典
 .venv/bin/python recognition/train.py \
   --weights recognition/checkpoints/<old-model>.pth \
-  --weights-keys /path/to/original/keys.txt --lr 0.00003 --epochs 100
+  --weights-keys /path/to/original/keys.txt
 ```
 
-`--resume` 恢复学习率和调度等待计数，不接受 `--lr`；`--weights` 重置优化器、
-调度器和轮次。两者均要求字典内容及顺序一致，不自动迁移输出层；删字符前的旧模型
+训练轮数、初始学习率、随机种子和日志根目录统一使用 `train.py` 的 `EPOCHS`、
+`LEARNING_RATE`、`RANDOM_SEED`、`LOG_DIR` 常量，不再提供对应命令行参数。
+`--resume` 恢复检查点的学习率、调度等待计数和随机状态；`--weights` 按当前常量
+初始化优化器、调度器和轮次。两者均要求字典内容及顺序一致，不自动迁移输出层；删字符前的旧模型
 不能直接用于删字符后的新字典。旧纯权重未保存优化器等状态，无法补成完整续训。
 
 续训核对标注文件内容摘要、模型/数据加载/字符转换实现和关键配置，差异时报错。
@@ -498,8 +500,8 @@ ReduceLROnPlateau、已完成轮次、global_step、随机状态、字典与配�
 中断轮次会重跑，不承诺跨硬件或依赖版本的逐位一致性。
 
 每次启动（包括续训）默认在 `recognition/checkpoints/ocr_exp_<时间戳>/` 和
-`recognition/runs/ocr_exp_<时间戳>/` 新建独立目录；可用 `--checkpoint-dir`、
-`--log-dir` 指定空目录。TensorBoard 的轮次和步数继续递增。续训继承原 Top-K
+`recognition/runs/ocr_exp_<时间戳>/` 新建独立目录；可用 `--checkpoint-dir`
+指定本次检查点空目录，日志目录在 `LOG_DIR` 下自动新建。TensorBoard 的轮次和步数继续递增。续训继承原 Top-K
 排名，但只清理本次输出目录中的淘汰文件，保留原运行产物。完整检查点包含优化器，
 磁盘占用高于旧纯权重文件。
 

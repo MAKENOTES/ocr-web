@@ -1,4 +1,5 @@
 import os
+import math
 import sys
 import torch
 import torch.nn as nn
@@ -35,6 +36,7 @@ TRAIN_ANNOTATION = (
 VALID_ANNOTATION = "recognition/data/val_annotation.txt"
 KEYS_PATH = "recognition/keys.txt"
 CHECKPOINT_DIR = "recognition/checkpoints/"
+LOG_DIR = "recognition/runs"
 
 # 2. 数据与模型参数
 IMG_HEIGHT = 32
@@ -46,6 +48,7 @@ BATCH_SIZE = 64     # 适当调整
 EPOCHS = 680
 LEARNING_RATE = 3e-4
 NUM_WORKERS = 4
+RANDOM_SEED = 42
 
 # 4. 保存与验证策略
 SAVE_INTERVAL = 5        # 每隔多少轮强制保存一次
@@ -131,8 +134,9 @@ def log_gradient_norms(model, writer, global_step):
 
 
 def train(argv=None):
-    args = parse_args(argv if argv is not None else [], epochs=EPOCHS,
-                      learning_rate=LEARNING_RATE, checkpoint_dir=CHECKPOINT_DIR)
+    args = parse_args(argv if argv is not None else [])
+    if EPOCHS < 1 or not math.isfinite(LEARNING_RATE) or LEARNING_RATE <= 0:
+        raise ValueError("EPOCHS and LEARNING_RATE must be positive")
     print(f"当前使用的计算设备: {DEVICE}")
     print(f"输入预处理: 完整 detection 框 / {'RGB' if NUM_CHANNELS == 3 else '灰度'} / 不裁剪")
     print("序列处理: CNN 右侧背景保护区 / 长度感知 BiGRU / batch padding 不参与识别")
@@ -145,7 +149,8 @@ def train(argv=None):
         batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, start_valid_epoch=START_VALID_EPOCH,
         start_save_epoch=START_SAVE_EPOCH, save_interval=SAVE_INTERVAL, keep_top_k=KEEP_TOP_K,
     )
-    run = TrainingRun(args, config, converter.keys, CHECKPOINT_DIR)
+    run = TrainingRun(args, config, converter.keys, CHECKPOINT_DIR,
+                      epochs=EPOCHS, seed=RANDOM_SEED, log_root=LOG_DIR)
     if run.complete:
         return
     num_classes = converter.num_classes
@@ -164,7 +169,7 @@ def train(argv=None):
     criterion = nn.CTCLoss(blank=0, zero_infinity=True).to(DEVICE)
 
     # 4. 优化器与调度器
-    optimizer = optim.AdamW(model.parameters(), lr=args.lr if args.lr is not None else LEARNING_RATE, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
 
     # 学习率调度器：验证集 CER 越小越好；未执行验证时回退到训练平均 Loss。
     # 连续 21 轮未达到改善阈值时学习率乘以 0.8，最低为 1e-6。
@@ -204,13 +209,13 @@ def train(argv=None):
     global_step = run.global_step
     try:
         run.restore_random_state(optimizer)
-        for epoch in range(run.start_epoch, args.epochs + 1):
+        for epoch in range(run.start_epoch, EPOCHS + 1):
             # ================= 训练阶段 =================
             model.train()
             total_train_loss = 0
             train_batch_count = 0
 
-            pbar = tqdm(train_loader, desc=f"Epoch [{epoch}/{args.epochs}]", unit="batch")
+            pbar = tqdm(train_loader, desc=f"Epoch [{epoch}/{EPOCHS}]", unit="batch")
 
             for i, (images, labels, img_widths) in enumerate(pbar):
                 images = images.to(DEVICE)

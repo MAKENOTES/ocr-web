@@ -44,3 +44,9 @@ best_recognition.onnx
 best_recognition.onnx.data
 best_recognition.pth
 
+# 文档检测数据、模型和运行产物独立存放，不提交到仓库。
+detection_larger/data/
+detection_larger/checkpoints/
+detection_larger/outputs/
+detection_larger/artifacts/
+detection_larger/runs/

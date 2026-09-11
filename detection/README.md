@@ -1,3 +1,8 @@
+当前目录用于 UI 小图文字检测。PDF 页面与网页表格大图使用同级的 [detection_larger](../detection_larger/README.md)，尺寸判断见[文档检测评估](../docs/detection/detection-larger-assessment.md)。
+
+以下为早期目录结构记录：
+
+```text
 /home/weiqiang/AI/ocr-majorbio/
 |-- data/                  # 存放你的数据集
 |   |-- train_images/      # 训练图片
@@ -12,6 +17,7 @@
 |-- train.py               # 训练脚本
 |-- eval.py                # 评估脚本
 |-- requirements.txt       # 项目依赖
+```
 
 ## 稳定划分训练集和验证集
 

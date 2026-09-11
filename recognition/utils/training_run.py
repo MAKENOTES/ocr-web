@@ -1,6 +1,5 @@
 """管理训练运行的参数、续训状态和保存策略，由 train.py 显式传入配置。"""
 import argparse
-import math
 import os
 from pathlib import Path
 import random
@@ -16,22 +15,14 @@ from recognition.utils.training_checkpoint import (
 )
 
 
-def parse_args(argv=None, *, epochs, learning_rate, checkpoint_dir):
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="OCR 训练：完整检查点续训或旧权重微调")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--resume", help="完整检查点路径，从已完成轮次的下一轮继续")
     source.add_argument("--weights", help="仅加载模型权重，重新初始化优化器、轮次和调度器")
     parser.add_argument("--weights-keys", help="旧纯权重训练时使用的原始字典；必须与当前字典一致")
-    parser.add_argument("--epochs", type=int, default=epochs, help=f"总目标轮次，非追加轮数，默认 {epochs}")
-    parser.add_argument("--lr", type=float, help=f"新训练的初始学习率，默认 {learning_rate}；续训恢复原学习率")
-    parser.add_argument("--seed", type=int, default=42, help="新训练随机种子，默认 42；续训恢复随机状态")
-    parser.add_argument("--checkpoint-dir", help=f"本次保存目录，必须为空；默认在 {checkpoint_dir} 下新建独立目录")
-    parser.add_argument("--log-dir", help="本次 TensorBoard 目录，必须为空；默认在 recognition/runs 下新建")
+    parser.add_argument("--checkpoint-dir", help="本次检查点空目录；默认在训练入口配置的根目录下自动新建")
     args = parser.parse_args(argv)
-    if args.epochs < 1 or (args.lr is not None and (not math.isfinite(args.lr) or args.lr <= 0)):
-        parser.error("--epochs and --lr must be positive")
-    if args.resume and args.lr is not None:
-        parser.error("--resume restores the learning rate; use --weights to start with a new --lr")
     if args.weights_keys and not args.weights:
         parser.error("--weights-keys requires --weights")
     return args
@@ -62,11 +53,11 @@ def build_training_config(*, train_annotation, valid_annotation, img_height, img
     }
 
 
-def prepare_run_directories(args, checkpoint_root):
+def prepare_run_directories(args, checkpoint_root, log_root):
     """续训也创建独立输出，避免覆盖原检查点及 TensorBoard 历史。"""
     run_name = f"ocr_exp_{time.time_ns()}"
     checkpoint_dir = Path(args.checkpoint_dir or Path(checkpoint_root) / run_name).resolve()
-    log_dir = Path(args.log_dir or Path("recognition/runs") / run_name).resolve()
+    log_dir = (Path(log_root) / run_name).resolve()
     for path in (checkpoint_dir, log_dir):
         if path.exists() and (not path.is_dir() or any(path.iterdir())):
             raise ValueError(f"Output directory must be empty: {path}")
@@ -78,8 +69,10 @@ def prepare_run_directories(args, checkpoint_root):
 class TrainingRun:
     """持有一次运行的恢复状态；模型前向、反向和验证仍由 train.py 负责。"""
 
-    def __init__(self, args, config, keys, checkpoint_root):
+    def __init__(self, args, config, keys, checkpoint_root, *, epochs, seed, log_root):
         self.args = args
+        self.epochs = epochs
+        self.log_root = log_root
         self.config = config
         self.keys = list(keys)
         self.checkpoint_root = checkpoint_root
@@ -88,13 +81,13 @@ class TrainingRun:
         self.start_epoch = self.checkpoint["epoch"] + 1 if self.checkpoint else 1
         self.global_step = self.checkpoint["global_step"] if self.checkpoint else 0
         self.best_checkpoints = list(self.checkpoint["best_checkpoints"]) if self.checkpoint else []
-        self.complete = self.start_epoch > args.epochs
+        self.complete = self.start_epoch > epochs
         if self.complete:
-            print(f"检查点已完成 {self.start_epoch - 1} 轮，已达到目标 {args.epochs}，无需续训。")
+            print(f"检查点已完成 {self.start_epoch - 1} 轮，已达到目标 {epochs}，无需续训。")
             return
-        random.seed(args.seed)
-        np.random.seed(args.seed)
-        torch.manual_seed(args.seed)
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
 
     def restore(self, model, optimizer, scheduler):
         """初始化对象后恢复权重与优化器，随机状态留到数据加载器创建后恢复。"""
@@ -106,11 +99,11 @@ class TrainingRun:
             load_initial_weights(model, self.args.weights, self.keys, self.args.weights_keys)
 
     def open_writer(self):
-        self.checkpoint_dir, log_dir = prepare_run_directories(self.args, self.checkpoint_root)
+        self.checkpoint_dir, log_dir = prepare_run_directories(self.args, self.checkpoint_root, self.log_root)
         writer = SummaryWriter(log_dir=str(log_dir))
         print(f"检查点目录: {self.checkpoint_dir}")
         print(f"TensorBoard 目录: {log_dir}")
-        print(f"准备开始训练 - Epoch {self.start_epoch} 至 {self.args.epochs}")
+        print(f"准备开始训练 - Epoch {self.start_epoch} 至 {self.epochs}")
         print(f"  - 验证开始: Epoch {self.config['start_valid_epoch']}")
         print(f"  - 每轮保存 last.pth；周期备份 / Top-K 开始: Epoch {self.config['start_save_epoch']}")
         return writer
