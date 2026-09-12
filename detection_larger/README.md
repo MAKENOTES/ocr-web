@@ -48,9 +48,9 @@
 
 ## 推理、评估与导出
 
-推理不使用命令行参数，先修改 `inference.py` 顶部常量：`MODEL_PATH`（文档专用 `.pth` 或 `.onnx`）、`IMAGE_PATH`（图片或目录）、`OUTPUT_DIR`（尚不存在的输出目录）、`DEVICE`、`SCORE_THRESHOLD`、`NMS_IOU_THRESHOLD`、`SAVE_CROPS` 和 `CROP_DIR`。路径相对于运行目录，建议在仓库根目录执行。默认使用 `detection_larger/data/test_images` 图片目录，`DEVICE = "auto"` 让 PyTorch 优先使用 CUDA，无可用 GPU 时回退到 CPU；也可指定 `"cuda:0"` 或 `"cpu"`。ONNX 在 `auto` 下使用 CPU，也可显式设置 `cpu`。需要保存文字裁片时设置 `SAVE_CROPS = True`，裁片默认保存到 `detection_larger/data/crops/test_images/<原图文件名>/crop_0000.png`，由 `CROP_DIR` 控制根目录；原图文件名包含扩展名以避免同名 JPG/PNG 冲突。已有同名裁片子目录时会报错，关闭开关时不创建裁片目录。
+推理不使用命令行参数，先修改 `inference.py` 顶部常量：`MODEL_PATH`（文档专用 `.pth` 或 `.onnx`）、`IMAGE_PATH`（图片或目录）、`OUTPUT_DIR`（允许覆盖同名结果的输出目录）、`DEVICE`、`SCORE_THRESHOLD`、`NMS_IOU_THRESHOLD`、`SAVE_CROPS` 和 `CROP_DIR`。路径相对于运行目录，建议在仓库根目录执行。默认使用 `detection_larger/data/test_images` 图片目录，`DEVICE = "auto"` 让 PyTorch 优先使用 CUDA，无可用 GPU 时回退到 CPU；也可指定 `"cuda:0"` 或 `"cpu"`。ONNX 在 `auto` 下使用 CPU，也可显式设置 `cpu`。需要保存文字裁片时设置 `SAVE_CROPS = True`，裁片默认保存到 `detection_larger/data/crops/test_images/<原图文件名>/crop_0000.png`，由 `CROP_DIR` 控制根目录；原图文件名包含扩展名以避免同名 JPG/PNG 冲突。重复运行覆盖本次输入对应的图片、标签及裁片，并清理该原图超出本次框数的旧编号裁片，保留其他文件和其他图片的结果；关闭裁片开关时不创建或修改裁片目录。
 
-推理按 `SCORE_THRESHOLD` 过滤连通域，并通过 `NMS_IOU_THRESHOLD` 抑制重复框，不限制候选框数量。输出目录默认为 `detection_larger/data/test_results`：`images/<原图文件名>` 保存画框后的原尺寸图片，`labels/gt_<原图 stem>.txt` 保存训练使用的 bbox4 标签，每行 `x_min y_min x_max y_max`，保留浮点原图坐标，不附置信度；无框时生成空标签。输入图片的 stem 必须唯一，避免不同扩展名共用标签。图片是画框预览；用于训练时应搭配对应原图。原先每图子目录中的 `overlay.png` 和 `boxes.json` 不再生成。
+推理按 `SCORE_THRESHOLD` 过滤连通域，并通过 `NMS_IOU_THRESHOLD` 抑制重复框，不限制候选框数量；保留单个高置信度特征像素，不按连通域长宽比过滤，避免缩小后的编号、日期和小字漏框。输出目录默认为 `detection_larger/data/test_results`：`images/<原图文件名>` 保存画框后的原尺寸图片，`labels/gt_<原图 stem>.txt` 保存训练使用的 bbox4 标签，每行 `x_min y_min x_max y_max`，保留浮点原图坐标，不附置信度；无框时生成空标签。输入图片的 stem 必须唯一，避免不同扩展名共用标签。图片是画框预览；用于训练时应搭配对应原图。原先每图子目录中的 `overlay.png` 和 `boxes.json` 不再生成。
 
 ```bash
 .venv/bin/python detection_larger/inference.py
@@ -68,3 +68,5 @@
 训练、推理共用整图预处理，推理一次前向后恢复原图坐标；模型记录自身输入尺寸。评估报告总体及 JPG/PNG 等格式分组的 precision/recall/F1，不将扩展名当作通用业务分类。可单独指定 PDF 或网页验证目录进行来源评估。
 
 完整尺寸统计及验证记录见[核对报告](../docs/detection/detection-larger-assessment.md)。
+
+漏框修复依据、验证集指标和对比结果见[推理漏框核查](../docs/detection/inference-missing-boxes-2026-09-12.md)。

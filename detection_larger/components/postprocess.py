@@ -4,8 +4,7 @@ import numpy as np
 
 from detection_larger.components.transforms import STRIDE
 
-MIN_AREA = 2  # 连通域最小面积，单位为置信度图像素数。
-SMALL_MAX_ASPECT = 5.0  # 小连通域的最大长短边比，用于排除细线噪声；不限制大文本行。
+MIN_AREA = 1  # 连通域最小面积，单位为置信度图像素数；保留缩小后仅占一个高置信度像素的小字。
 
 
 def scaled_small_region_area(input_size):
@@ -47,8 +46,8 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
 
       - 大连通域（面积 >= small_region_area）：边缘像素采样，精度高
         ★ 不做宽高比过滤，正文长文本行天然是扁长条
-      - 小连通域（面积 < small_region_area） ：全像素中位数出框
-        ★ 对小连通域做宽高比过滤，去除细线噪点
+      - 小连通域（面积 < small_region_area）：全像素中位数出框
+        文档缩放后的编号、日期可能只有一行特征像素，不能按连通域长宽比过滤。
     """
     stride = float(STRIDE)
     boxes = []
@@ -67,12 +66,6 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
 
         # ── 小连通域（单符号）──────────────────────────────
         if area < small_region_area:
-            # 小连通域才做宽高比过滤（去除细线噪点）
-            # √ 等符号宽高比接近 1，细线噪点宽高比极大
-            w_cc = stats[label_id, cv2.CC_STAT_WIDTH]
-            h_cc = stats[label_id, cv2.CC_STAT_HEIGHT]
-            if max(w_cc, h_cc) / (min(w_cc, h_cc) + 1e-6) > SMALL_MAX_ASPECT:
-                continue
             box = box_from_small_region(ys, xs, geo_map_np, stride)
             if box[2] - box[0] > 1 and box[3] - box[1] > 1:
                 boxes.append(box)

@@ -23,12 +23,12 @@ from detection_larger.models.east_model import ONNX_CONFIG_KEY, load_checkpoint,
 # 文档专用检查点或 ONNX 模型；更换训练结果时修改此路径。
 MODEL_PATH = Path("detection_larger/checkpoints/ocr_experiment_1789136798452328557/best_detection_epoch_584_loss_0.01150.pth")
 IMAGE_PATH = Path("detection_larger/data/test_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
-OUTPUT_DIR = Path("detection_larger/data/test_results")  # 本次输出目录，必须尚不存在，避免覆盖结果。
+OUTPUT_DIR = Path("detection_larger/data/test_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
 DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU；可指定 cpu、cuda:0，ONNX 自动使用 CPU。
 SCORE_THRESHOLD = 0.7  # 文字置信度阈值，取值范围为 (0, 1)。
 NMS_IOU_THRESHOLD = 0.3  # 重复框抑制的交并比阈值，取值范围为 (0, 1]。
 SAVE_CROPS = True  # 启用时保存原图文字框 PNG 裁片，供 recognition 使用。
-CROP_DIR = Path("detection_larger/data/crops/test_images")  # 裁片根目录，按原图文件名分目录保存，仅在 SAVE_CROPS 启用时创建。
+CROP_DIR = Path("detection_larger/data/crops/test_images")  # 裁片根目录；启用 SAVE_CROPS 时覆盖同名裁片并清理该原图多余的旧编号裁片。
 
 
 def suppress_boxes(boxes, scores, iou_threshold=NMS_IOU_THRESHOLD):
@@ -114,11 +114,9 @@ class DocumentDetector:
 def main():
     """按顶部常量批量推理，写入画框图片、bbox4 标签及可选裁片。
 
-    路径相对于当前工作目录；输出目录或同名裁片目录已存在时拒绝覆盖。
+    路径相对于当前工作目录；覆盖本次输入的同名产物，保留其他图片的结果。
     """
     image_path, output_dir = Path(IMAGE_PATH), Path(OUTPUT_DIR)
-    if output_dir.exists():
-        raise FileExistsError(f"Output already exists; choose a new path: {output_dir}")
     paths = sorted(p for p in image_path.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS) if image_path.is_dir() else [image_path]
     if not paths:
         raise ValueError(f"No images in {image_path}")
@@ -128,21 +126,16 @@ def main():
         if path.stem in stems:
             raise ValueError(f"Duplicate image stem for labels: {stems[path.stem]} and {path}")
         stems[path.stem] = path
-    if SAVE_CROPS:
-        for path in paths:
-            crop_destination = Path(CROP_DIR) / path.name
-            if crop_destination.exists():
-                raise FileExistsError(f"Crop output already exists; choose a new CROP_DIR: {crop_destination}")
     detector = DocumentDetector(MODEL_PATH, DEVICE)
     images_dir, labels_dir = output_dir / "images", output_dir / "labels"
-    images_dir.mkdir(parents=True)
-    labels_dir.mkdir()
+    images_dir.mkdir(parents=True, exist_ok=True)
+    labels_dir.mkdir(exist_ok=True)
     for path in paths:
         image = load_rgb_image(path)
         predictions = detector.predict(image, SCORE_THRESHOLD, NMS_IOU_THRESHOLD)
         if SAVE_CROPS:
             crop_destination = Path(CROP_DIR) / path.name
-            crop_destination.mkdir(parents=True)
+            crop_destination.mkdir(parents=True, exist_ok=True)
         visual = image.copy()
         draw = ImageDraw.Draw(visual)
         for index, prediction in enumerate(predictions):
@@ -151,6 +144,13 @@ def main():
             if SAVE_CROPS:
                 crop_box = (int(np.floor(box[0])), int(np.floor(box[1])), int(np.ceil(box[2])), int(np.ceil(box[3])))
                 image.crop(crop_box).save(crop_destination / f"crop_{index:04d}.png")
+        if SAVE_CROPS:
+            # 仅清理该原图超出本次框数的标准编号裁片，保留其他文件。
+            for old_crop in crop_destination.glob("crop_*.png"):
+                number = old_crop.stem.removeprefix("crop_")
+                if number.isascii() and number.isdigit() and len(number) >= 4:
+                    if int(number) >= len(predictions) and old_crop.is_file():
+                        old_crop.unlink()
         visual.save(images_dir / path.name)
         # bbox4 使用原图像素坐标，不附置信度或伪造文字；无检测框时写空标签。
         label_text = "".join(" ".join(str(float(value)) for value in prediction["box"]) + "\n"

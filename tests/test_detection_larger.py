@@ -65,13 +65,25 @@ def test_inference_main_uses_constants(tmp_path, monkeypatch, use_directory, sav
     if not save_crops:
         assert not (tmp_path / 'crops').exists()
 
-    with pytest.raises(FileExistsError, match=str(output)):
-        inference.main()
+    unrelated = output / 'labels' / 'gt_other.txt'
+    unrelated.write_text('保留其他图片的结果', encoding='utf-8')
+    label = output / 'labels' / 'gt_page.txt'
+    label.write_text('旧标签', encoding='utf-8')
     if save_crops:
-        monkeypatch.setattr(inference, 'OUTPUT_DIR', tmp_path / 'new_output')
-        with pytest.raises(FileExistsError, match='Crop output already exists'):
-            inference.main()
-        assert not (tmp_path / 'new_output').exists()
+        stale_crop = crop.parent / 'crop_9999.png'
+        Image.new('RGB', (1, 1)).save(stale_crop)
+        note = crop.parent / 'notes.txt'
+        note.write_text('保留备注', encoding='utf-8')
+    has_boxes = False
+    inference.main()
+    assert label.read_text() == ''
+    assert unrelated.read_text(encoding='utf-8') == '保留其他图片的结果'
+    with Image.open(output / 'images' / 'page.png') as image:
+        assert image.getpixel((2, 3)) == (255, 255, 255)
+    if save_crops:
+        assert not crop.exists()
+        assert not stale_crop.exists()
+        assert note.read_text(encoding='utf-8') == '保留备注'
 
 
 def test_inference_main_rejects_empty_directory(tmp_path, monkeypatch):
@@ -99,6 +111,23 @@ def test_inference_rejects_duplicate_label_stems(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match='Duplicate image stem for labels:.*page.jpg.*page.png'):
         inference.main()
     assert not (tmp_path / 'output').exists()
+
+
+@pytest.mark.parametrize('length', [1, 6, 10, 14])
+@pytest.mark.parametrize('vertical', [False, True])
+def test_decode_maps_keeps_confident_thin_text_regions(length, vertical):
+    score = np.zeros((1, 256, 256), dtype=np.float32)
+    geometry = np.zeros((4, 256, 256), dtype=np.float32)
+    ys = np.arange(20, 20 + length) if vertical else np.full(length, 20)
+    xs = np.full(length, 20) if vertical else np.arange(20, 20 + length)
+    score[0, ys, xs] = .95
+    x0, y0, x1, y1 = xs.min() - 1, ys.min() - 1, xs.max() + 2, ys.max() + 2
+    geometry[:, ys, xs] = np.log1p(np.stack([
+        ys + .5 - y0, x1 - xs - .5, y1 - ys - .5, xs + .5 - x0,
+    ]))
+    boxes, confidence = decode_maps(score, geometry)
+    np.testing.assert_allclose(boxes, [[x0 * 4, y0 * 4, x1 * 4, y1 * 4]], atol=1e-4)
+    np.testing.assert_allclose(confidence, [.95])
 
 
 def test_decode_maps_keeps_all_regions_above_threshold():
