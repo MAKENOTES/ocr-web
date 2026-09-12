@@ -28,7 +28,8 @@ DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU
 SCORE_THRESHOLD = 0.7  # 文字置信度阈值，取值范围为 (0, 1)。
 NMS_IOU_THRESHOLD = 0.3  # 重复框抑制的交并比阈值，取值范围为 (0, 1]。
 SAVE_CROPS = True  # 启用时保存原图文字框 PNG 裁片，供 recognition 使用。
-CROP_DIR = Path("detection_larger/data/crops/test_images")  # 裁片根目录；启用 SAVE_CROPS 时覆盖同名裁片并清理该原图多余的旧编号裁片。
+CROP_DIR = Path("detection_larger/data/crops/test_images")  # 裁片目录，所有原图的裁片平铺在此，不再按原图建子目录；启用 SAVE_CROPS 时覆盖同名裁片并清理该原图多余的旧序号裁片。
+CROP_INDEX_DIGITS = 5  # 裁片文件名序号位数，序号从 1 开始并左侧补零，例如 page.png 的首个裁片为 page-00001.png。
 
 
 def suppress_boxes(boxes, scores, iou_threshold=NMS_IOU_THRESHOLD):
@@ -111,6 +112,22 @@ class DocumentDetector:
         return [{"box": boxes[index].tolist(), "score": float(scores[index])} for index in keep]
 
 
+def crop_path(crop_dir, image_stem, index):
+    """按 <原图 stem>-<序号>.png 生成平铺裁片路径；序号从 1 开始，与原图逐一对应。"""
+    return Path(crop_dir) / f"{image_stem}-{index + 1:0{CROP_INDEX_DIGITS}d}.png"
+
+
+def remove_stale_crops(crop_dir, image_stem, keep_count):
+    """删除该原图序号超出本次框数的旧裁片，保留其他原图的结果和无关文件。"""
+    prefix = f"{image_stem}-"
+    for path in Path(crop_dir).iterdir():
+        if not path.is_file() or not path.name.startswith(prefix) or path.suffix.lower() != ".png":
+            continue
+        number = path.stem[len(prefix):]
+        if number.isascii() and number.isdigit() and int(number) > keep_count:
+            path.unlink()
+
+
 def main():
     """按顶部常量批量推理，写入画框图片、bbox4 标签及可选裁片。
 
@@ -120,7 +137,7 @@ def main():
     paths = sorted(p for p in image_path.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS) if image_path.is_dir() else [image_path]
     if not paths:
         raise ValueError(f"No images in {image_path}")
-    # 训练标签按 stem 配对，同名不同扩展名的输入不能共用一份标签。
+    # 训练标签和裁片名都按 stem 生成，同名不同扩展名的输入不能共用一套产物。
     stems = {}
     for path in paths:
         if path.stem in stems:
@@ -130,12 +147,11 @@ def main():
     images_dir, labels_dir = output_dir / "images", output_dir / "labels"
     images_dir.mkdir(parents=True, exist_ok=True)
     labels_dir.mkdir(exist_ok=True)
+    if SAVE_CROPS:
+        Path(CROP_DIR).mkdir(parents=True, exist_ok=True)
     for path in paths:
         image = load_rgb_image(path)
         predictions = detector.predict(image, SCORE_THRESHOLD, NMS_IOU_THRESHOLD)
-        if SAVE_CROPS:
-            crop_destination = Path(CROP_DIR) / path.name
-            crop_destination.mkdir(parents=True, exist_ok=True)
         visual = image.copy()
         draw = ImageDraw.Draw(visual)
         for index, prediction in enumerate(predictions):
@@ -143,14 +159,9 @@ def main():
             draw.rectangle(box, outline="red", width=2)
             if SAVE_CROPS:
                 crop_box = (int(np.floor(box[0])), int(np.floor(box[1])), int(np.ceil(box[2])), int(np.ceil(box[3])))
-                image.crop(crop_box).save(crop_destination / f"crop_{index:04d}.png")
+                image.crop(crop_box).save(crop_path(CROP_DIR, path.stem, index))
         if SAVE_CROPS:
-            # 仅清理该原图超出本次框数的标准编号裁片，保留其他文件。
-            for old_crop in crop_destination.glob("crop_*.png"):
-                number = old_crop.stem.removeprefix("crop_")
-                if number.isascii() and number.isdigit() and len(number) >= 4:
-                    if int(number) >= len(predictions) and old_crop.is_file():
-                        old_crop.unlink()
+            remove_stale_crops(CROP_DIR, path.stem, len(predictions))
         visual.save(images_dir / path.name)
         # bbox4 使用原图像素坐标，不附置信度或伪造文字；无检测框时写空标签。
         label_text = "".join(" ".join(str(float(value)) for value in prediction["box"]) + "\n"

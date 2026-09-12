@@ -48,7 +48,7 @@
 
 ## 推理、评估与导出
 
-推理不使用命令行参数，先修改 `inference.py` 顶部常量：`MODEL_PATH`（文档专用 `.pth` 或 `.onnx`）、`IMAGE_PATH`（图片或目录）、`OUTPUT_DIR`（允许覆盖同名结果的输出目录）、`DEVICE`、`SCORE_THRESHOLD`、`NMS_IOU_THRESHOLD`、`SAVE_CROPS` 和 `CROP_DIR`。路径相对于运行目录，建议在仓库根目录执行。默认使用 `detection_larger/data/test_images` 图片目录，`DEVICE = "auto"` 让 PyTorch 优先使用 CUDA，无可用 GPU 时回退到 CPU；也可指定 `"cuda:0"` 或 `"cpu"`。ONNX 在 `auto` 下使用 CPU，也可显式设置 `cpu`。需要保存文字裁片时设置 `SAVE_CROPS = True`，裁片默认保存到 `detection_larger/data/crops/test_images/<原图文件名>/crop_0000.png`，由 `CROP_DIR` 控制根目录；原图文件名包含扩展名以避免同名 JPG/PNG 冲突。重复运行覆盖本次输入对应的图片、标签及裁片，并清理该原图超出本次框数的旧编号裁片，保留其他文件和其他图片的结果；关闭裁片开关时不创建或修改裁片目录。
+推理不使用命令行参数，先修改 `inference.py` 顶部常量：`MODEL_PATH`（文档专用 `.pth` 或 `.onnx`）、`IMAGE_PATH`（图片或目录）、`OUTPUT_DIR`（允许覆盖同名结果的输出目录）、`DEVICE`、`SCORE_THRESHOLD`、`NMS_IOU_THRESHOLD`、`SAVE_CROPS` 和 `CROP_DIR`。路径相对于运行目录，建议在仓库根目录执行。默认使用 `detection_larger/data/test_images` 图片目录，`DEVICE = "auto"` 让 PyTorch 优先使用 CUDA，无可用 GPU 时回退到 CPU；也可指定 `"cuda:0"` 或 `"cpu"`。ONNX 在 `auto` 下使用 CPU，也可显式设置 `cpu`。需要保存文字裁片时设置 `SAVE_CROPS = True`，裁片平铺在 `CROP_DIR`（默认 `detection_larger/data/crops/test_images`）下，不再按原图建子目录；文件名为 `<原图 stem>-<5 位序号>.png`，序号从 1 开始，例如原图 `du20260910-000001.png` 的首个裁片是 `du20260910-000001-00001.png`。裁片名和标签都以原图 stem 为前缀，所以输入图片的 stem 必须唯一，同名不同扩展名会直接报错。重复运行覆盖本次输入对应的图片、标签及裁片，并清理该原图超出本次框数的旧序号裁片，保留其他文件和其他原图的结果；关闭裁片开关时不创建或修改裁片目录。
 
 推理按 `SCORE_THRESHOLD` 过滤连通域，并通过 `NMS_IOU_THRESHOLD` 抑制重复框，不限制候选框数量；保留单个高置信度特征像素，不按连通域长宽比过滤，避免缩小后的编号、日期和小字漏框。输出目录默认为 `detection_larger/data/test_results`：`images/<原图文件名>` 保存画框后的原尺寸图片，`labels/gt_<原图 stem>.txt` 保存训练使用的 bbox4 标签，每行 `x_min y_min x_max y_max`，保留浮点原图坐标，不附置信度；无框时生成空标签。输入图片的 stem 必须唯一，避免不同扩展名共用标签。图片是画框预览；用于训练时应搭配对应原图。原先每图子目录中的 `overlay.png` 和 `boxes.json` 不再生成。
 

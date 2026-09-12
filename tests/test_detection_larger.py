@@ -57,7 +57,7 @@ def test_inference_main_uses_constants(tmp_path, monkeypatch, use_directory, sav
     assert not ignored.any()
     if not has_boxes:
         assert dataset.label_paths[0].read_text() == ''
-    crop = tmp_path / 'crops' / 'page.png' / 'crop_0000.png'
+    crop = tmp_path / 'crops' / 'page-00001.png'
     assert crop.exists() == (save_crops and has_boxes)
     if save_crops and has_boxes:
         with Image.open(crop) as image:
@@ -70,9 +70,11 @@ def test_inference_main_uses_constants(tmp_path, monkeypatch, use_directory, sav
     label = output / 'labels' / 'gt_page.txt'
     label.write_text('旧标签', encoding='utf-8')
     if save_crops:
-        stale_crop = crop.parent / 'crop_9999.png'
+        stale_crop = tmp_path / 'crops' / 'page-99999.png'
         Image.new('RGB', (1, 1)).save(stale_crop)
-        note = crop.parent / 'notes.txt'
+        other_crop = tmp_path / 'crops' / 'other-00001.png'
+        Image.new('RGB', (1, 1)).save(other_crop)
+        note = tmp_path / 'crops' / 'notes.txt'
         note.write_text('保留备注', encoding='utf-8')
     has_boxes = False
     inference.main()
@@ -83,6 +85,8 @@ def test_inference_main_uses_constants(tmp_path, monkeypatch, use_directory, sav
     if save_crops:
         assert not crop.exists()
         assert not stale_crop.exists()
+        # 平铺目录下不能误删其他原图的裁片和无关文件。
+        assert other_crop.exists()
         assert note.read_text(encoding='utf-8') == '保留备注'
 
 
