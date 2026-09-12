@@ -22,7 +22,7 @@ from detection_larger.components.training_options import parse_args, load_initia
 
 # --- 超参数：沿用参考项目的 Adam、OneCycleLR 和早停配置 ---
 LEARNING_RATE = 1e-4  # Adam 构造时的学习率，随后由 OneCycleLR 接管实际学习/+*率
-MAX_LEARNING_RATE = 3e-4  # OneCycleLR 的峰值学习率，沿用 majorbio 配置
+MAX_LEARNING_RATE = 3e-4  # OneCycleLR 的峰值学习率
 BATCH_SIZE = 4  # 每批完整图片数；先用 2，显存有余量时再增加
 EPOCHS = 620  # 最大训练轮数；达到早停条件时提前结束
 INPUT_SIZE = 1024  # 整图方形输入边长，单位 px；显式传给训练预处理并写入检查点，推理读取检查点尺寸。

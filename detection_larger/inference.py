@@ -2,6 +2,7 @@
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,7 @@ if __package__ in (None, ""):
 
 from recognition.components.dataset import load_rgb_image
 from detection_larger.components.dataset import IMAGE_EXTENSIONS
+from detection_larger.components.onnx_runtime import OpenVINOBackend, session_options
 from detection_larger.components.transforms import STRIDE, prepare_image, restore_boxes
 from detection_larger.components.postprocess import MIN_AREA, boxes_from_connected_components, scaled_small_region_area
 from detection_larger.models.east_model import ONNX_CONFIG_KEY, load_checkpoint, validate_config
@@ -71,22 +73,70 @@ def decode_maps(score, geometry, threshold=SCORE_THRESHOLD):
 class DocumentDetector:
     """加载文档检测模型，共用整图预处理和原图坐标后处理。"""
 
-    def __init__(self, model_path, device="cpu"):
-        """按后缀加载 ONNX 或 PyTorch 权重及输入配置；auto 优先为 PyTorch 选择 CUDA。"""
+    def __init__(self, model_path, device="cpu", backend="auto"):
+        """backend 按后缀选择或显式指定 OpenVINO；device=auto 为 PyTorch 优先选择 CUDA。"""
+        suffix = Path(model_path).suffix.lower()
+        if backend == "auto":
+            backend = "onnx" if suffix == ".onnx" else "pytorch"
+        if backend not in {"onnx", "openvino", "pytorch"}:
+            raise ValueError(f"Unknown document backend: {backend}")
+        expected_suffix = ".pth" if backend == "pytorch" else ".onnx"
+        if suffix != expected_suffix:
+            raise ValueError(f"Backend {backend} requires {expected_suffix}: {model_path}")
+        self.backend = backend
+        self.openvino = None
         if device == "auto":
             device = "cuda" if Path(model_path).suffix.lower() != ".onnx" and torch.cuda.is_available() else "cpu"
         self.device = device
         self.session = None
-        if Path(model_path).suffix.lower() == ".onnx":
+        if backend == "openvino":
+            if device != "cpu":
+                raise ValueError("Document OpenVINO backend requires device='cpu'")
+            self.openvino = OpenVINOBackend(model_path)
+            self.config = self.openvino.config
+        elif backend == "onnx":
             import onnxruntime as ort
             if device != "cpu":
                 raise ValueError("Document ONNX backend requires device='cpu'")
-            self.session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
-            self.config = json.loads(self.session.get_modelmeta().custom_metadata_map[ONNX_CONFIG_KEY])
-            validate_config(self.config)
+            options = session_options()
+            self.session = ort.InferenceSession(str(model_path), sess_options=options,
+                                                providers=["CPUExecutionProvider"])
+            try:
+                self.config = json.loads(self.session.get_modelmeta().custom_metadata_map[ONNX_CONFIG_KEY])
+                validate_config(self.config)
+            except (KeyError, ValueError, TypeError, AttributeError) as error:
+                raise ValueError(f"Invalid document ONNX config: {model_path}: {error}") from error
+            inputs = self.session.get_inputs()
+            if (len(inputs) != 1 or inputs[0].name != "image" or inputs[0].type != "tensor(float)"
+                    or len(inputs[0].shape) != 4
+                    or inputs[0].shape[1:] != [3, *self.config["input_size"]]
+                    or {value.name for value in self.session.get_outputs()} != {"score", "geometry"}):
+                raise ValueError(f"Incompatible document ONNX inputs/outputs: {model_path}")
         else:
             self.model, checkpoint = load_checkpoint(model_path, device)
             self.config = checkpoint["config"]
+
+    def infer(self, batch):
+        """执行 NCHW 前向，计时含设备传输及同步，不含图片预处理和解码。"""
+        started = time.perf_counter()
+        if self.openvino is not None:
+            score, geometry = self.openvino.infer(batch.numpy())
+        elif self.session is not None:
+            score, geometry = self.session.run(["score", "geometry"], {"image": batch.numpy()})
+        else:
+            with torch.inference_mode():
+                score, geometry = self.model(batch.to(self.device))
+            score, geometry = score.cpu().numpy(), geometry.cpu().numpy()
+        self.last_infer_ms = (time.perf_counter() - started) * 1000
+        return score, geometry
+
+    def warmup(self, count):
+        """按模型尺寸预热，计时汇总不包含这些前向。"""
+        if not isinstance(count, int) or count < 0:
+            raise ValueError("warmup count must be a nonnegative integer")
+        sample = torch.zeros(1, 3, *self.config["input_size"])
+        for _ in range(count):
+            self.infer(sample)
 
     def predict(self, image, threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD):
         """检测 RGB 图片，返回含原图像素 xyxy 框和置信度的列表，不修改输入图片。
@@ -96,12 +146,7 @@ class DocumentDetector:
         if not 0 < threshold < 1 or not 0 < iou_threshold <= 1:
             raise ValueError("Invalid detection thresholds")
         tensor, metadata = prepare_image(image, self.config["input_size"])
-        if self.session is not None:
-            score, geometry = self.session.run(["score", "geometry"], {"image": tensor[None].numpy()})
-        else:
-            with torch.inference_mode():
-                score, geometry = self.model(tensor[None].to(self.device))
-            score, geometry = score.cpu().numpy(), geometry.cpu().numpy()
+        score, geometry = self.infer(tensor[None])
         boxes, scores = decode_maps(score[0], geometry[0], threshold)
         boxes = restore_boxes(boxes, metadata, image.size)
         valid = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
@@ -128,13 +173,32 @@ def remove_stale_crops(crop_dir, image_stem, keep_count):
             path.unlink()
 
 
-def main():
-    """按顶部常量批量推理，写入画框图片、bbox4 标签及可选裁片。
+def expand_predictions(predictions, image_size, ratio_w, ratio_h):
+    """按框高向左右和上下扩边，裁片、标签和预览一致；坐标限制在原图内。"""
+    if not all(np.isfinite(ratio) and ratio >= 0 for ratio in (ratio_w, ratio_h)):
+        raise ValueError("Expansion ratios must be finite and nonnegative")
+    width, height = image_size
+    result = []
+    for prediction in predictions:
+        x0, y0, x1, y1 = prediction["box"]
+        box_height = y1 - y0
+        box = [max(0, x0 - box_height * ratio_w), max(0, y0 - box_height * ratio_h),
+               min(width, x1 + box_height * ratio_w), min(height, y1 + box_height * ratio_h)]
+        result.append({**prediction, "box": box})
+    return result
 
-    路径相对于当前工作目录；覆盖本次输入的同名产物，保留其他图片的结果。
-    """
-    image_path, output_dir = Path(IMAGE_PATH), Path(OUTPUT_DIR)
-    paths = sorted(p for p in image_path.iterdir() if p.suffix.lower() in IMAGE_EXTENSIONS) if image_path.is_dir() else [image_path]
+
+def run_inference(model_path, image_path, output_dir, device="cpu", *,
+                  threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
+                  save_crops=False, crop_dir=None, backend="auto", warmup_runs=0,
+                  expand_ratio_w=0.0, expand_ratio_h=0.0):
+    """批量保存画框图、bbox4 标签及可选裁片，统计包含预处理和后处理的单图耗时。"""
+    if save_crops and crop_dir is None:
+        raise ValueError("crop_dir is required when save_crops=True")
+    if not all(np.isfinite(ratio) and ratio >= 0 for ratio in (expand_ratio_w, expand_ratio_h)):
+        raise ValueError("Expansion ratios must be finite and nonnegative")
+    image_path, output_dir = Path(image_path), Path(output_dir)
+    paths = sorted(p for p in image_path.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS) if image_path.is_dir() else [image_path]
     if not paths:
         raise ValueError(f"No images in {image_path}")
     # 训练标签和裁片名都按 stem 生成，同名不同扩展名的输入不能共用一套产物。
@@ -143,31 +207,59 @@ def main():
         if path.stem in stems:
             raise ValueError(f"Duplicate image stem for labels: {stems[path.stem]} and {path}")
         stems[path.stem] = path
-    detector = DocumentDetector(MODEL_PATH, DEVICE)
+    detector = DocumentDetector(model_path, device, backend=backend)
+    if warmup_runs:
+        detector.warmup(warmup_runs)
+    print(f"模型: {model_path}; 后端: {detector.backend}; 预热: {warmup_runs} 次")
+    total_boxes, total_infer_ms, total_detect_ms = 0, 0.0, 0.0
+    wall_started = time.perf_counter()
     images_dir, labels_dir = output_dir / "images", output_dir / "labels"
     images_dir.mkdir(parents=True, exist_ok=True)
     labels_dir.mkdir(exist_ok=True)
-    if SAVE_CROPS:
-        Path(CROP_DIR).mkdir(parents=True, exist_ok=True)
+    if save_crops:
+        Path(crop_dir).mkdir(parents=True, exist_ok=True)
     for path in paths:
         image = load_rgb_image(path)
-        predictions = detector.predict(image, SCORE_THRESHOLD, NMS_IOU_THRESHOLD)
+        started = time.perf_counter()
+        predictions = detector.predict(image, threshold, iou_threshold)
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        total_boxes += len(predictions)
+        infer_ms = detector.last_infer_ms
+        total_infer_ms += infer_ms
+        total_detect_ms += elapsed_ms
+        predictions = expand_predictions(predictions, image.size, expand_ratio_w, expand_ratio_h)
         visual = image.copy()
         draw = ImageDraw.Draw(visual)
         for index, prediction in enumerate(predictions):
             box = prediction["box"]
             draw.rectangle(box, outline="red", width=2)
-            if SAVE_CROPS:
+            if save_crops:
                 crop_box = (int(np.floor(box[0])), int(np.floor(box[1])), int(np.ceil(box[2])), int(np.ceil(box[3])))
-                image.crop(crop_box).save(crop_path(CROP_DIR, path.stem, index))
-        if SAVE_CROPS:
-            remove_stale_crops(CROP_DIR, path.stem, len(predictions))
+                image.crop(crop_box).save(crop_path(crop_dir, path.stem, index))
+        if save_crops:
+            remove_stale_crops(crop_dir, path.stem, len(predictions))
         visual.save(images_dir / path.name)
         # bbox4 使用原图像素坐标，不附置信度或伪造文字；无检测框时写空标签。
         label_text = "".join(" ".join(str(float(value)) for value in prediction["box"]) + "\n"
                              for prediction in predictions)
         (labels_dir / f"gt_{path.stem}.txt").write_text(label_text, encoding="utf-8")
-        print(f"{path}: {len(predictions)} boxes", flush=True)
+        print(f"{path}: {len(predictions)} boxes, 前向 {infer_ms:.1f} ms, 检测 {elapsed_ms:.1f} ms", flush=True)
+    wall_seconds = time.perf_counter() - wall_started
+    summary = {"images": len(paths), "boxes": total_boxes,
+               "mean_infer_ms": total_infer_ms / len(paths),
+               "mean_detect_ms": total_detect_ms / len(paths),
+               "wall_seconds": wall_seconds, "images_per_second": len(paths) / wall_seconds}
+    print(f"完成: {len(paths)} 张, {total_boxes} 框; 前向均值 {summary['mean_infer_ms']:.1f} ms; "
+          f"检测均值 {summary['mean_detect_ms']:.1f} ms; 总耗时 {wall_seconds:.2f} s; "
+          f"吞吐量 {summary['images_per_second']:.2f} 张/s; 输出: {output_dir}")
+    return summary
+
+
+def main():
+    """按顶部常量推理，覆盖本次输入对应的同名产物。"""
+    run_inference(MODEL_PATH, IMAGE_PATH, OUTPUT_DIR, DEVICE,
+                  threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
+                  save_crops=SAVE_CROPS, crop_dir=CROP_DIR)
 
 
 if __name__ == "__main__":

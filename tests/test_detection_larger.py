@@ -35,7 +35,8 @@ def test_inference_main_uses_constants(tmp_path, monkeypatch, use_directory, sav
         monkeypatch.setattr(inference, name, value)
 
     class FakeDetector:
-        def __init__(self, path, device):
+        def __init__(self, path, device, backend="auto"):
+            self.backend, self.last_infer_ms = backend, 1.0
             assert (path, device) == (model_path, 'cpu')
 
         def predict(self, image, threshold, iou_threshold):
@@ -307,6 +308,7 @@ def test_whole_image_inference_restores_long_lines_and_cells():
 
     detector = DocumentDetector.__new__(DocumentDetector)
     detector.config = checkpoint_config(256)
+    detector.openvino = None
     detector.device, detector.session, detector.model = 'cpu', None, PerfectModel()
     result = detector.predict(image)
     assert len(calls) == 1
