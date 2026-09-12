@@ -7,7 +7,7 @@
 ## 目录与入口
 
 - `detection/`：EAST 风格检测模型、数据集、损失、训练和历史推理实现。
-- `detection_larger/`：大图文字检测，使用同名的 `components/`、`models/` 包，以及 `train_resnet.py`、`inference.py` 入口，直接读取已准备好的训练与验证目录。
+- `detection_larger/`：大图文字检测，使用同名的 `components/`、`models/` 包，以及 `train.py`、`inference.py` 入口，直接读取已准备好的训练与验证目录。
 - `recognition/`：CRNN 识别模型、统一图片预处理、训练、评估和历史记录。
 - `detection_inference_640.py`：当前矩形检测推理入口。
 - `recognition_inference.py`：PyTorch、ONNX、OpenVINO 多后端识别入口。
@@ -49,6 +49,7 @@
 
 ## 修改原则
 
+- **两个检测子系统必须隔离**：`detection` 与 `detection_larger` 的代码、配置、数据、权重、训练、推理、导出和测试分别维护，不允许相互导入、引用或通过根目录入口间接依赖。需要相似功能时，在各自目录内实现并独立维护；修改一方不得要求另一方同步修改或提供运行资源。
 - 优先复用 `recognition/components/dataset.py` 中的加载和预处理逻辑，确保训练、评估、PyTorch、ONNX 和 OpenVINO 行为一致。
 - 图片或标注错误应尽早给出包含具体路径的异常，不能静默跳过会污染训练的数据。
 - 修复当前主链路时不要顺手重写带版本号的历史实验脚本；只有在任务明确涉及它们时才同步修改。

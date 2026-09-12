@@ -1,4 +1,4 @@
-"""仅处理本次运行的权重和输出路径；训练配置统一在 train_resnet.py。"""
+"""仅处理本次运行的权重和输出路径；训练配置统一在 train.py。"""
 import argparse
 from pathlib import Path
 

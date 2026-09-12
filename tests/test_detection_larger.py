@@ -1,4 +1,4 @@
-"""验证大图基线与原 EAST 的一致性，以及数据隔离和整图推理。"""
+"""独立验证文档检测的固定数值契约、数据隔离和整图推理。"""
 from pathlib import Path
 
 import numpy as np
@@ -6,9 +6,6 @@ import pytest
 import torch
 from PIL import Image
 
-from detection.components.ground_truth import generate_ground_truth as baseline_ground_truth
-from detection.components.loss import EASTLoss as BaselineLoss
-from detection.components.transforms import get_transforms as baseline_transforms
 from detection_larger.components.dataset import OCRDataset, read_boxes
 from detection_larger.components.eval_metrics import match_counts, summarize_counts
 from detection_larger.components.ground_truth import generate_ground_truth
@@ -16,6 +13,130 @@ from detection_larger.components.loss import EASTLoss
 from detection_larger.components.transforms import get_transforms, normalize_input_size, prepare_image, restore_boxes
 from detection_larger.inference import DocumentDetector, decode_maps, suppress_boxes
 from detection_larger.models.east_model import checkpoint_config, create_model, load_checkpoint, save_checkpoint
+
+
+@pytest.mark.parametrize('use_directory,save_crops', [(False, False), (True, True)])
+@pytest.mark.parametrize('has_boxes', [True, False])
+def test_inference_main_uses_constants(tmp_path, monkeypatch, use_directory, save_crops, has_boxes):
+    from detection_larger import inference
+
+    source = tmp_path / 'images'
+    source.mkdir()
+    image_path = source / 'page.png'
+    Image.new('RGB', (40, 30), 'white').save(image_path)
+    (source / 'notes.txt').write_text('非图片文件', encoding='utf-8')
+    output = tmp_path / 'output'
+    model_path = tmp_path / 'model.pth'
+    for name, value in {
+        'MODEL_PATH': model_path, 'IMAGE_PATH': source if use_directory else image_path,
+        'OUTPUT_DIR': output, 'CROP_DIR': tmp_path / 'crops', 'DEVICE': 'cpu', 'SCORE_THRESHOLD': .6,
+        'NMS_IOU_THRESHOLD': .2, 'SAVE_CROPS': save_crops,
+    }.items():
+        monkeypatch.setattr(inference, name, value)
+
+    class FakeDetector:
+        def __init__(self, path, device):
+            assert (path, device) == (model_path, 'cpu')
+
+        def predict(self, image, threshold, iou_threshold):
+            assert image.size == (40, 30)
+            assert (threshold, iou_threshold) == (.6, .2)
+            return [{'box': [2.25, 3, 20, 15], 'score': .9}] if has_boxes else []
+
+    monkeypatch.setattr(inference, 'DocumentDetector', FakeDetector)
+    inference.main()
+    assert sorted(path.name for path in output.iterdir()) == ['images', 'labels']
+    with Image.open(output / 'images' / 'page.png') as image:
+        assert image.size == (40, 30)
+        assert image.getpixel((2, 3)) == ((255, 0, 0) if has_boxes else (255, 255, 255))
+    dataset = OCRDataset(output / 'images', output / 'labels')
+    assert dataset.label_paths == [output / 'labels' / 'gt_page.txt']
+    assert sorted(path.name for path in (output / 'labels').iterdir()) == ['gt_page.txt']
+    boxes, ignored = read_boxes(dataset.label_paths[0], (40, 30))
+    assert boxes.tolist() == ([[2.25, 3, 20, 15]] if has_boxes else [])
+    assert not ignored.any()
+    if not has_boxes:
+        assert dataset.label_paths[0].read_text() == ''
+    crop = tmp_path / 'crops' / 'page.png' / 'crop_0000.png'
+    assert crop.exists() == (save_crops and has_boxes)
+    if save_crops and has_boxes:
+        with Image.open(crop) as image:
+            assert image.size == (18, 12)
+    if not save_crops:
+        assert not (tmp_path / 'crops').exists()
+
+    with pytest.raises(FileExistsError, match=str(output)):
+        inference.main()
+    if save_crops:
+        monkeypatch.setattr(inference, 'OUTPUT_DIR', tmp_path / 'new_output')
+        with pytest.raises(FileExistsError, match='Crop output already exists'):
+            inference.main()
+        assert not (tmp_path / 'new_output').exists()
+
+
+def test_inference_main_rejects_empty_directory(tmp_path, monkeypatch):
+    from detection_larger import inference
+
+    source = tmp_path / 'empty'
+    source.mkdir()
+    output = tmp_path / 'output'
+    monkeypatch.setattr(inference, 'IMAGE_PATH', source)
+    monkeypatch.setattr(inference, 'OUTPUT_DIR', output)
+    with pytest.raises(ValueError, match=str(source)):
+        inference.main()
+    assert not output.exists()
+
+
+def test_inference_rejects_duplicate_label_stems(tmp_path, monkeypatch):
+    from detection_larger import inference
+
+    source = tmp_path / 'images'
+    source.mkdir()
+    for name in ('page.jpg', 'page.png'):
+        Image.new('RGB', (40, 30), 'white').save(source / name)
+    monkeypatch.setattr(inference, 'IMAGE_PATH', source)
+    monkeypatch.setattr(inference, 'OUTPUT_DIR', tmp_path / 'output')
+    with pytest.raises(ValueError, match='Duplicate image stem for labels:.*page.jpg.*page.png'):
+        inference.main()
+    assert not (tmp_path / 'output').exists()
+
+
+def test_decode_maps_keeps_all_regions_above_threshold():
+    score = np.zeros((1, 284, 284), dtype=np.float32)
+    for y in range(0, 284, 4):
+        for x in range(0, 284, 4):
+            score[0, y:y + 2, x:x + 2] = .8
+    geometry = np.full((4, 284, 284), np.log1p(1), dtype=np.float32)
+    boxes, confidence = decode_maps(score, geometry, threshold=.7)
+    assert len(boxes) == 71 * 71
+    np.testing.assert_allclose(confidence, .8)
+    assert len(decode_maps(score, geometry, threshold=.9)[0]) == 0
+
+
+@pytest.mark.parametrize('threshold', [0, 1, -.1])
+def test_decode_maps_rejects_invalid_threshold(threshold):
+    with pytest.raises(ValueError, match='threshold must be'):
+        decode_maps(np.zeros((1, 4, 4)), np.zeros((4, 4, 4)), threshold)
+
+
+@pytest.mark.parametrize('available,requested,expected', [
+    (True, 'auto', 'cuda'), (False, 'auto', 'cpu'), (True, 'cpu', 'cpu'),
+    (True, 'cuda:0', 'cuda:0'),
+])
+def test_detector_selects_pytorch_device(monkeypatch, available, requested, expected):
+    from detection_larger import inference
+
+    monkeypatch.setattr(torch.cuda, 'is_available', lambda: available)
+    calls = []
+
+    def fake_load(path, device):
+        calls.append((path, device))
+        return object(), {'config': checkpoint_config(64)}
+
+    monkeypatch.setattr(inference, 'load_checkpoint', fake_load)
+    detector = DocumentDetector('model.pth', requested)
+    assert detector.device == expected
+    assert calls == [('model.pth', expected)]
 
 
 def make_source(tmp_path, count=4):
@@ -70,14 +191,11 @@ def test_evaluation_counts_blanks_duplicates_misses_and_ignore():
 
 
 @pytest.mark.parametrize('size', [(32, 17), (2632, 1114), (2480, 3509), (64, 400)])
-def test_whole_image_preprocess_matches_baseline_and_coordinates_roundtrip(size):
+def test_whole_image_preprocess_matches_inference_and_coordinates_roundtrip(size):
     image = Image.new('RGB', size, (243, 240, 238))
     boxes = np.array([[1, 1, size[0] - 1, size[1] - 1]], dtype=np.float32)
     quads = np.stack([boxes[:, [0, 1]], boxes[:, [2, 1]], boxes[:, [2, 3]], boxes[:, [0, 3]]], axis=1)
-    baseline = baseline_transforms(False, 1024)({'image': image, 'quads': quads.copy()})
     actual = get_transforms(False, 1024)({'image': image, 'quads': quads.copy(), 'ignored': np.array([False])})
-    for key in ('image', 'score_map', 'geo_map'):
-        torch.testing.assert_close(actual[key], baseline[key], rtol=0, atol=0)
     tensor, metadata = prepare_image(image, 1024)
     torch.testing.assert_close(tensor, actual['image'], rtol=0, atol=0)
     scale, offset = metadata
@@ -95,17 +213,17 @@ def test_ground_truth_and_loss_match_reference_values_and_gradients():
     quads = np.array([[[8, 8], [72, 8], [72, 32], [8, 32]],
                       [[16, 48], [40, 48], [40, 64], [16, 64]]], dtype=np.float32)
     score, geometry = generate_ground_truth((96, 96), quads)
-    baseline_score, baseline_geo = baseline_ground_truth((96, 96), quads)
-    np.testing.assert_array_equal(score, baseline_score)
-    np.testing.assert_array_equal(geometry, baseline_geo)
+    # 固定迁移前的数值样本，不再导入另一检测子系统作为运行时参考。
+    with np.load(Path(__file__).parent / 'fixtures' / 'detection_larger_reference.npz') as data:
+        np.testing.assert_array_equal(score, data['score'])
+        np.testing.assert_array_equal(geometry, data['geometry'])
+        expected = [torch.from_numpy(data[f'result_{index}']) for index in range(5)]
     truth_score, truth_geo = torch.from_numpy(score)[None, None], torch.from_numpy(geometry)[None]
     pred_score = torch.full_like(truth_score, .7, requires_grad=True)
     pred_geo = torch.full_like(truth_geo, .3, requires_grad=True)
-    expected = BaselineLoss(lambda_iou=3)(truth_score, pred_score, truth_geo, pred_geo)
-    expected_grads = torch.autograd.grad(expected[0], (pred_score, pred_geo), retain_graph=True)
     actual = EASTLoss(lambda_iou=3)(truth_score, pred_score, truth_geo, pred_geo, torch.ones_like(truth_score))
     actual_grads = torch.autograd.grad(actual[0], (pred_score, pred_geo))
-    for reference, result in zip((*expected, *expected_grads), (*actual, *actual_grads)):
+    for reference, result in zip(expected, (*actual, *actual_grads)):
         torch.testing.assert_close(result, reference, rtol=0, atol=0)
 
 
@@ -126,6 +244,20 @@ def test_ignored_regions_have_no_loss_gradient_and_blank_is_finite():
     assert score.grad[:, :, 2:6, 2:6].eq(0).all()
     assert score.grad.sum() > 0
     assert geo.grad.eq(0).all()
+
+
+def test_explicit_input_size_matches_training_preprocess_and_checkpoint():
+    from detection_larger.train import INPUT_SIZE
+
+    image = Image.new('RGB', (96, 64), 'white')
+    tensor, _ = prepare_image(image, INPUT_SIZE)
+    sample = get_transforms(is_train=False, input_size=INPUT_SIZE)({
+        'image': image, 'quads': np.empty((0, 4, 2), dtype=np.float32),
+        'ignored': np.empty(0, dtype=bool),
+    })
+    assert tensor.shape[-2:] == (INPUT_SIZE, INPUT_SIZE)
+    assert checkpoint_config(INPUT_SIZE)['input_size'] == [INPUT_SIZE, INPUT_SIZE]
+    torch.testing.assert_close(sample['image'], tensor, rtol=0, atol=0)
 
 
 def test_whole_image_inference_restores_long_lines_and_cells():
@@ -181,7 +313,7 @@ def test_model_backward_and_checkpoint_contract(tmp_path):
 
 
 def test_training_entry_runs_reference_loop_and_saves_top_k(tmp_path, monkeypatch):
-    from detection_larger import train_resnet as training
+    from detection_larger import train as training
     source = make_source(tmp_path)
     val_root = tmp_path / 'validation'
     val_root.mkdir()

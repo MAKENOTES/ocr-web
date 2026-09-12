@@ -21,11 +21,11 @@ from torch.optim.lr_scheduler import OneCycleLR
 from detection_larger.components.training_options import parse_args, load_initial_weights
 
 # --- 超参数：沿用参考项目的 Adam、OneCycleLR 和早停配置 ---
-LEARNING_RATE = 1e-4  # Adam 构造时的学习率，随后由 OneCycleLR 接管实际学习率
+LEARNING_RATE = 1e-4  # Adam 构造时的学习率，随后由 OneCycleLR 接管实际学习/+*率
 MAX_LEARNING_RATE = 3e-4  # OneCycleLR 的峰值学习率，沿用 majorbio 配置
-BATCH_SIZE = 2  # 每批完整图片数；先用 2，显存有余量时再增加
+BATCH_SIZE = 4  # 每批完整图片数；先用 2，显存有余量时再增加
 EPOCHS = 620  # 最大训练轮数；达到早停条件时提前结束
-INPUT_SIZE = 1024  # 整图方形输入边长，单位 px；先验证 1024，小字漏检明显时再比较 1280
+INPUT_SIZE = 1024  # 整图方形输入边长，单位 px；显式传给训练预处理并写入检查点，推理读取检查点尺寸。
 TRAIN_IMAGE_DIR = "detection_larger/data/train_images"  # 已准备好的训练图片目录，同时读取 JPG 和 PNG
 TRAIN_LABEL_DIR = "detection_larger/data/train_labels"  # 训练文字框标签目录，按图片 stem 配对
 VAL_IMAGE_DIR = "detection_larger/data/val_images"  # 独立验证图片目录，不与训练集混用
