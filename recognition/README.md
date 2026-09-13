@@ -65,28 +65,37 @@ recognition/
 
 ## 文档快速索引
 
-当前架构与运行说明统一放在 `docs/recogniton/`；旧模型说明放在 `history/model/`，
-旧批量问题放在 `history/batch/`。历史资料用于追溯，配置和接口以当前说明为准。
+完整分类见 [Recognition 文档索引](../docs/recogniton/README.md)。`docs/recogniton/` 下的
+`guides/` 保存当前操作说明，`guides/code-walkthrough/` 保存随代码更新的新手导读；
+`history/model/`、`history/batch/`、`history/experiments/` 分别保存旧模型、批量问题和实验记录。
+历史资料用于追溯，配置和接口以当前说明为准。
 
 ### 当前使用
 
 | 内容 | 文档 |
 | --- | --- |
 | 图片、模型、张量与解码 | [当前架构](../docs/recogniton/recognition.md) |
-| 训练、续训、评估、导出与 CPU 部署 | [运行说明](../docs/recogniton/running.md) |
+| 训练、续训、评估、导出与 CPU 部署 | [运行说明](../docs/recogniton/guides/running.md) |
 | 划分、统计、字典和清理工具 | [数据维护](datadoc/dataset.md) |
-| 统计列、清理条件、备份和引用检查范围 | [数据工具详解](../docs/recogniton/data-tools.md) |
+| 统计列、清理条件、备份和引用检查范围 | [数据工具详解](../docs/recogniton/guides/data-tools.md) |
 | 补字、红章、边线和错误定向合成 | [合成说明](datadoc/synthesis.md) |
 | CTC、CER、真实宽度等术语 | [术语表](../docs/terminology.md) |
 | 未解决的实现和证据问题 | [核对待办](../docs/code-doc-todolist.md) |
+
+### 新手代码导读
+
+建议按 dataset → model → converter 阅读，三篇均以当前实现为准。
+
+| 查询主题 | 文档 |
+| --- | --- |
+| 图片加载、增强与分桶 | [dataset 导读](../docs/recogniton/guides/code-walkthrough/dataset-analysis.md) |
+| CNN、BiGRU 与 CTC 输出 | [model 导读](../docs/recogniton/guides/code-walkthrough/model-analysis.md) |
+| 字典编码与解码 | [converter 导读](../docs/recogniton/guides/code-walkthrough/converter-analysis.md) |
 
 ### 历史代码与问题说明
 
 | 查询主题 | 文档及适用范围 |
 | --- | --- |
-| 图片加载、增强与分桶 | [dataset 分析](../docs/recogniton/dataset-analysis.md)，2026-09-07 代码快照 |
-| CNN、BiGRU 与 CTC 输出 | [model 分析](../docs/recogniton/model-analysis.md)，2026-09-07 代码快照 |
-| 字典编码与解码 | [converter 分析](../docs/recogniton/converter-analysis.md)，2026-09-07 代码快照 |
 | 旧 ResNet/BiLSTM 模型初始化 | [CRNN 初始化](../docs/recogniton/history/model/model-crnn-init.md) |
 | 旧模型前向传播 | [CRNN 前向传播](../docs/recogniton/history/model/model-crnn-forward.md) |
 | 旧模型张量形状 | [数据流](../docs/recogniton/history/model/model-data.md)、[宽度下采样](../docs/recogniton/history/model/model-data-2.md) |
@@ -97,10 +106,10 @@ recognition/
 | 查询主题 | 文档 |
 | --- | --- |
 | 历次训练过程 | [训练历史](train.md) |
-| 指定运行的收敛与后续建议 | [ocr_exp_1788970646 训练分析](../docs/recogniton/training-analysis-1788970646.md) |
-| 红章与训练增强 | [2026-09-07 专项分析](../docs/recogniton/recognition-analysis-2026-09-07.md)、[2026-09-08 去章核对](../docs/recogniton/red-seal-audit-2026-09-08.md) |
-| CPU 导出、推理与量化 | [2026-09-09 CPU 报告](../docs/recogniton/recognition-cpu-report-2026-09-09.md) |
-| 尾字增加或丢失 | [尾部实验记录](../docs/recogniton/tail-experiments-history.md)，原报告缺失情况已标明 |
+| 指定运行的收敛与后续建议 | [ocr_exp_1788970646 训练分析](../docs/recogniton/history/experiments/training-analysis-1788970646.md) |
+| 红章与训练增强 | [2026-09-07 专项分析](../docs/recogniton/history/experiments/recognition-analysis-2026-09-07.md)、[2026-09-08 去章核对](../docs/recogniton/history/experiments/red-seal-audit-2026-09-08.md) |
+| CPU 导出、推理与量化 | [2026-09-09 CPU 报告](../docs/recogniton/history/experiments/recognition-cpu-report-2026-09-09.md) |
+| 尾字增加或丢失 | [尾部实验记录](../docs/recogniton/history/experiments/tail-experiments-history.md)，原报告缺失情况已标明 |
 | 标点整理及合成图片恢复 | [2026-09-10 数据整理](datadoc/dataset-history-2026-09-10.md) |
 
 ## 常用检查

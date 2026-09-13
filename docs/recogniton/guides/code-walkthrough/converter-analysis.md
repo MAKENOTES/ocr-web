@@ -1,12 +1,10 @@
 # converter.py：文字与 CTC 类别编号之间的转换
 
-> 历史分析：结论限于原文注明的代码、数据及权重版本，本次未重做训练或性能测量。当前行为见[架构](recognition.md)和[运行说明](running.md)。
+代码入口：[recognition/components/converter.py](../../../../recognition/components/converter.py)。已于 2026-09-13 对照当前实现核对；修改相关实现时同步更新本页。
 
-分析对象：[recognition/components/converter.py](../../recognition/components/converter.py)。本文依据 2026-09-07 的工作区代码。
+**`LabelConverter` 管理“哪个编号代表哪个字”，训练时把标签变成整数，推理时把模型预测的整数路径合并成文字。** 它不读取图片，也不运行神经网络。
 
-**先记住一句话：`LabelConverter` 管理“哪个编号代表哪个字”，训练时把标签变成整数，推理时把模型预测的整数路径合并成文字。** 它不读取图片，也不运行神经网络。
-
-配套阅读：[dataset.py 分析](dataset-analysis.md)负责图片与标签，[model.py 分析](model-analysis.md)负责生成预测；整体约定见 [Recognition 架构](recognition.md)。
+配套阅读：[dataset.py 导读](dataset-analysis.md)负责图片与标签，[model.py 导读](model-analysis.md)负责生成预测；整体约定见 [Recognition 架构](../../recognition.md)。
 
 ## 1. 在识别链路中的位置
 
@@ -95,7 +93,7 @@ lengths       = [2,    3,       1]
 
 `encode()` 不会自动插入 blank，也不会去掉重复字符或空格。字典外字符会占据一个 `[UNK]` 编号，长度照常加一，而不是从标签里消失。返回的两个张量都在 CPU，类型为 `torch.long`；训练脚本负责后续设备转换。
 
-注意：虽然附近注释提到了避免刷屏，当前未知字符的 `print()` 实际处于启用状态，每次调用遇到未知字符都会打印。字符串长度按 Python 逐字符遍历计算，不是按用户看到的组合字形或单词计算。
+每次调用 `encode()` 遇到未知字符都会打印本批次的数量与字符列表。字符串长度按 Python 逐字符遍历计算，不是按用户看到的组合字形或单词计算。
 
 ## 4. decode：先选类别，再执行 CTC 合并
 
@@ -199,6 +197,6 @@ with TemporaryDirectory() as temp_dir:
 | 一张图对应多个异常字符串 | `layout` 是否写错，batch 与时间维是否颠倒 |
 | batch 中出现长图后，短图尾部多字 | 继续检查 dataset 的 `img_widths` 和模型的 padding 处理 |
 
-实际调用可从 [recognition/train.py](../../recognition/train.py) 中的 `converter.encode`、`converter.decode` 入手；部署入口是 [recognition_inference.py](../../recognition_inference.py)。
+实际调用可从 [recognition/train.py](../../../../recognition/train.py) 中的 `converter.encode`、`converter.decode` 入手；部署入口是 [recognition_inference.py](../../../../recognition_inference.py)。
 
-[test_recognition_batch_invariance.py](../../tests/test_recognition_batch_invariance.py) 中的 `test_ctc_decode_uses_explicit_layout_when_time_is_shorter_than_batch` 验证了 `T < B` 时两种显式 layout 解码一致。上面的教学例子补充展示了标签展平、UNK 和重复字符合并的具体结果。
+[test_recognition_batch_invariance.py](../../../../tests/test_recognition_batch_invariance.py) 中的 `test_ctc_decode_uses_explicit_layout_when_time_is_shorter_than_batch` 验证了 `T < B` 时两种显式 layout 解码一致。上面的教学例子补充展示了标签展平、UNK 和重复字符合并的具体结果。

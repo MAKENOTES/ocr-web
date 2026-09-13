@@ -1,6 +1,6 @@
 # Recognition 训练分析：ocr_exp_1788970646
 
-> 历史分析：结论限于原文注明的代码、数据及权重版本，本次未重做训练或性能测量。当前行为见[架构](recognition.md)和[运行说明](running.md)。
+> 历史分析：结论限于原文注明的代码、数据及权重版本，本次未重做训练或性能测量。当前行为见[架构](../../recognition.md)和[运行说明](../../guides/running.md)。
 
 分析日期：2026-09-10；TensorBoard 快照截至第 495 轮完整验证（13:01:37）。训练日志仍在增长，后续轮次不属于本文结论。本文只分析并提出方案，没有启动训练、修改训练实现或改写数据和权重。
 
@@ -13,7 +13,7 @@
 - 当前错误清单有 **290** 条，**126 条（43.4%）只涉及标点或符号编辑**。现有历史红章分类中仍有 73 张出现在本次错误中，红章值得继续优化。
 - 训练中固定画布 ±2° 旋转对长条文字并不轻微；应先用对照实验验证关闭旋转的收益。
 
-![训练曲线](../../outputs/recognition_analysis_1788970646/training_curves.png)
+训练曲线（当前本地文件缺失，原路径：`outputs/recognition_analysis_1788970646/training_curves.png`）
 
 ## 1. 曲线说明了什么
 
@@ -125,5 +125,5 @@
 ## 6. 本次证据与限制
 
 - 已读取完整 1–495 轮标量，逐轮核对 batch 数，检查当前九份训练标注、验证标注和错误文本；已读取验证图片尺寸并生成、目视检查曲线。
-- [逐轮指标快照](../../outputs/recognition_analysis_1788970646/epoch_metrics.json)、[错误统计](../../outputs/recognition_analysis_1788970646/error_summary.json)、[错误文件快照](../../outputs/recognition_analysis_1788970646/error_cases_snapshot.txt) 保存在本地 outputs，不属于应提交的大数据产物。
+- 逐轮指标快照（当前本地文件缺失，原路径：`outputs/recognition_analysis_1788970646/epoch_metrics.json`）、错误统计（当前本地文件缺失，原路径：`outputs/recognition_analysis_1788970646/error_summary.json`）、错误文件快照（当前本地文件缺失，原路径：`outputs/recognition_analysis_1788970646/error_cases_snapshot.txt`） 保存在本地 outputs，不属于应提交的大数据产物。
 - 未运行模型重评、训练消融或重新逐图审核错误，因此本文不报告实验收益或新的模型分数。仅新增分析文档和本地分析产物，没有代码行为改动，无需以单元测试代替尚未执行的训练实验。

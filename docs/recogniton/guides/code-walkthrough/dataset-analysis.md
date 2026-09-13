@@ -1,12 +1,10 @@
 # dataset.py：从图片和标注到模型输入
 
-> 历史分析：结论限于原文注明的代码、数据及权重版本，本次未重做训练或性能测量。当前行为见[架构](recognition.md)和[运行说明](running.md)。
+代码入口：[recognition/components/dataset.py](../../../../recognition/components/dataset.py)。已于 2026-09-13 对照当前实现核对；修改相关实现时同步更新本页。
 
-分析对象：[recognition/components/dataset.py](../../recognition/components/dataset.py)。本文依据 2026-09-07 的工作区代码。
+**这个文件把大小不同的 detection 文字框，整理成可以一起送入模型的图片张量，同时保留每张图自己的真实宽度。** 训练与推理共享图片处理逻辑，区别主要是是否增强、返回标签还是路径。
 
-**先记住一句话：这个文件把大小不同的 detection 文字框，整理成可以一起送入模型的图片张量，同时保留每张图自己的真实宽度。** 训练与推理共享图片处理逻辑，区别主要是是否增强、返回标签还是路径。
-
-配套阅读：[model.py 分析](model-analysis.md)说明真实宽度如何控制模型，[converter.py 分析](converter-analysis.md)说明标签如何变成 CTC 编号；整体约定见 [Recognition 架构](recognition.md)。
+配套阅读：[model.py 导读](model-analysis.md)说明真实宽度如何控制模型，[converter.py 导读](converter-analysis.md)说明标签如何变成 CTC 编号；整体约定见 [Recognition 架构](../../recognition.md)。
 
 ## 1. 先看最终交付给模型的三个东西
 
@@ -31,9 +29,11 @@ images, labels_or_paths, img_widths = next(iter(dataloader))
 | `resolve_image_path` | 检查指定路径是否确实是文件 |
 | `load_rgb_image` | 读取图片、修正 EXIF 方向、合成透明背景并转 RGB |
 | `_border_fill_color` | 用图片四周边缘估计窄图补边颜色 |
+| `remove_red_seal` | 根据局部叠印证据去章，保护同行红字 |
+| `RandomBackgroundGeometry` | 用当前背景色填充轻微旋转和透视产生的边缘 |
 | `resize_detection_image` | 固定高度缩放，限制最大宽度，为窄图补画布 |
 | `AddGaussianNoise` | 给训练张量增加轻微高斯噪声 |
-| `BaseTextDataset` | 共享加载、缩放、增强和归一化逻辑 |
+| `BaseTextDataset` | 共享加载、去章、缩放、增强和归一化逻辑 |
 | `TextRecognitionDataset` | 读取一个或多个标注文件，返回 `(image, label)` |
 | `InferenceDataset` | 接收图片路径列表，返回 `(image, path)` |
 | `BucketBatchSampler` | 按宽高比安排训练 batch，减少无用 padding |
@@ -47,9 +47,10 @@ flowchart TD
     TD --> GET["DataLoader 按索引调用 __getitem__"]
     ID --> GET
     GET --> LOAD["BaseTextDataset：load_rgb_image"]
-    LOAD --> SIZE["resize_detection_image：缩放与窄图补边"]
+    LOAD --> SEAL["remove_red_seal：按局部叠印证据去章"]
+    SEAL --> SIZE["resize_detection_image：缩放与窄图补边"]
     SIZE --> TRAIN{"is_train"}
-    TRAIN -->|True| AUG["颜色、极性、模糊、噪声、少量擦除"]
+    TRAIN -->|True| AUG["几何、颜色、极性、模糊、噪声、少量擦除"]
     TRAIN -->|False| BASIC["基础通道转换与 ToTensor"]
     AUG --> NORM["Normalize"]
     BASIC --> NORM
@@ -88,7 +89,7 @@ dataset[0] -> (第一张图的 tensor, "你好")
 
 ### 当前标注格式：以实际解析代码为准
 
-当前委托 [recognition/utils/annotation.py](../../recognition/utils/annotation.py) 的 `split_annotation_fields()` 解析，格式是：
+当前委托 [recognition/utils/annotation.py](../../../../recognition/utils/annotation.py) 的 `split_annotation_fields()` 解析，格式是：
 
 ```text
 relative/path.png<TAB>文字内容
@@ -96,7 +97,7 @@ relative/path.png<TAB>文字内容
 
 `<TAB>` 表示一个真正的制表符。用 Python 表示一条实际记录是 `"short.png\t你好\n"`，不要把 `<TAB>` 这五个字符写进文件。
 
-**仓库 `AGENTS.md` 中的 `relative/path.png, "文本"` 是旧格式描述，与当前解析器不一致。** 本文解释当前代码行为；没有改动数据格式或标注文件。
+该格式与仓库 `AGENTS.md` 的数据契约一致。旧逗号分隔标注需要先转换，加载器不会自动兼容。
 
 具体规则容易影响训练标签：
 
@@ -142,7 +143,15 @@ relative/path.png<TAB>文字内容
 
 这是基于整体可见亮度的背景选择，不会识别文字区域或分别为每个字选择底色。混合亮暗内容的实际可读性仍取决于输入图片。
 
-### 4.2 resize_detection_image：固定高度，保留完整 detection 框
+### 4.2 remove_red_seal：在缩放前按局部证据去章
+
+训练、验证和推理都在透明背景合成之后、缩放和随机增强之前调用此函数。它先要求浅色纸面和足够的灰黑正文，再检查局部红色区域与正文的穿插、上下错位关系；通过区域检查后，还会逐个连通区域复核正文支持。
+
+只有符合条件的红像素被替换为纸面中位色，不膨胀删除掩码，也不改变图片尺寸。完全落在正文行内的小红字及缺少正文支持的红色区域会保留。该规则可能留下与正文对齐的章字碎片，也不能恢复已经被章遮住的笔画；特殊排版的合法红色内容仍需用实际样本核对。
+
+核对时比较原图与 `remove_red_seal(load_rgb_image(path))`：正文和合法红字应保留，改动只应落在叠印红章区域。具体判断见源码，术语见[术语表](../../../terminology.md)。
+
+### 4.3 resize_detection_image：固定高度，保留完整 detection 框
 
 常规缩放宽度为：
 
@@ -164,13 +173,13 @@ resized_width = max(1, round(原图宽 × target_height / 原图高))
 
 `img_width` / `max_width` 是上限，不是所有图片都要拉伸到的固定宽度，也不是最终 batch 画布宽度。
 
-### 4.3 窄图为什么补到 48
+### 4.4 窄图为什么补到 48
 
 默认 `MIN_IMAGE_WIDTH=48`。缩放后不足这个宽度时，代码用四周边缘像素的中位数估计背景色，创建画布并水平居中贴入图片，以保留字符比例。若最大宽度小于 48，补边也受该上限约束。
 
 例如 `10 × 40` 的单字图先变成 `8 × 32`，再左右各补 `20` 像素，最终宽度 `48`。collate 后记录的 `img_widths` 是 `48`，不是 `8`，更不是原图宽 `10`。
 
-整个基础处理使用完整 detection 框，不做二次文字裁剪，也不按红色像素删内容。
+整个基础处理使用完整 detection 框，不做二次文字裁剪，去章只处理满足上述局部证据的红像素。
 
 ## 5. 训练增强与验证 / 推理的区别
 
@@ -180,18 +189,19 @@ resized_width = max(1, round(原图宽 × target_height / 原图高))
 
 | 顺序 | 操作 | 当前配置 |
 | --- | --- | --- |
-| 1 | `ColorJitter` | `p=0.7`；亮度 `0.2`、对比度 `0.25`、饱和度 `0.35`、色相 `0.03` |
-| 2 | 自动对比度 | `p=0.2` |
-| 3 | 颜色反转 | `p=0.08` |
-| 4 | 可选灰度转换，然后 `ToTensor` | 根据 `num_channels`，变为 `[C_img, H, W]` |
-| 5 | 高斯模糊 | `p=0.15`；核大小 `3`，`sigma=(0.1, 0.8)` |
-| 6 | `AddGaussianNoise` | `p=0.15`；实际使用 `std=0.015`，加噪后截到 `[0, 1]` |
-| 7 | 随机擦除 | `p=0.05`；面积比例 `0.005～0.03`，`value="random"` |
-| 8 | `Normalize` | 各通道 `mean=0.5`、`std=0.5` |
+| 1 | `RandomBackgroundGeometry` | 每张图随机旋转 `±2°`；透视 `p=0.3`、`distortion_scale=0.1` |
+| 2 | `ColorJitter` | `p=0.7`；亮度 `0.2`、对比度 `0.25`、饱和度 `0.35`、色相 `0.03` |
+| 3 | 自动对比度 | `p=0.2` |
+| 4 | 颜色反转 | `p=0.08` |
+| 5 | 可选灰度转换，然后 `ToTensor` | 根据 `num_channels`，变为 `[C_img, H, W]` |
+| 6 | 高斯模糊 | `p=0.15`；核大小 `3`，`sigma=(0.1, 0.8)` |
+| 7 | `AddGaussianNoise` | `p=0.15`；实际使用 `std=0.015`，加噪后截到 `[0, 1]` |
+| 8 | 随机擦除 | `p=0.05`；面积比例 `0.005～0.03`，`value="random"` |
+| 9 | `Normalize` | 各通道 `mean=0.5`、`std=0.5` |
 
-`AddGaussianNoise` 类自身默认 `std=0.02`，但这里实例化时覆盖成 `0.015`。增强不做旋转或透视变换；随机擦除仍可能局部遮挡像素，不等同于完全不改变文字区域。
+`AddGaussianNoise` 类自身默认 `std=0.02`，但这里实例化时覆盖成 `0.015`。几何增强共用扰动前估计的背景色；旋转不扩大画布，边缘内容可能移出画布。随机擦除仍可能局部遮挡像素，不等同于完全不改变文字区域。
 
-验证 / 推理只做可选灰度转换、`ToTensor()` 和归一化。对于普通 8 位图片，像素变换是：
+验证 / 推理仍执行前述共享加载、去章和缩放；其 transform 只做可选灰度转换、`ToTensor()` 和归一化。对于普通 8 位图片，像素变换是：
 
 ```text
 原始像素 p -> p / 255 -> (p / 255 - 0.5) / 0.5
@@ -241,7 +251,7 @@ flowchart LR
     LEN --> RNN
 ```
 
-右侧保护区解决 CNN 的边缘上下文问题，`img_widths` 则让模型和 CTC 知道哪里才是有效序列。具体原因见 [model.py 分析](model-analysis.md)。当前 collate 面向非空、同高度、同通道的 CPU 图片张量，不是任意 dtype / device 的通用拼接工具。
+右侧保护区解决 CNN 的边缘上下文问题，`img_widths` 则让模型和 CTC 知道哪里才是有效序列。具体原因见 [model.py 导读](model-analysis.md)。当前 collate 面向非空、同高度、同通道的 CPU 图片张量，不是任意 dtype / device 的通用拼接工具。
 
 ## 7. 桶采样器与 DataLoader 工厂
 
@@ -311,6 +321,7 @@ with TemporaryDirectory() as temp_dir:
 | 现象 | 优先检查 |
 | --- | --- |
 | 透明底文字读出来消失 | 是否绕过了 `load_rgb_image`，直接丢弃 alpha |
+| 去章后合法红字受损或仍有残章 | 对比去章前后图片，检查局部正文支持及错位关系；不要改为全图抹红 |
 | 长文字被压得很密 | `img_width` 上限是否低于等比缩放需要的宽度 |
 | 单字显得横向变形 | 是否绕过窄图补画布，直接拉伸到固定宽度 |
 | 训练正常，推理结果明显不同 | 通道数、最大宽度、归一化、透明合成和是否启用增强是否一致 |
@@ -318,4 +329,4 @@ with TemporaryDirectory() as temp_dir:
 | CTC 长度不对 | 是否把 `W_batch` 当成每张图的真实宽度，或使用了原图尺寸 |
 | 多文件合并后找不到图 | 是否把路径误解为相对仓库根目录，而非各标注文件目录 |
 
-对应验证见 [test_recognition_preprocess.py](../../tests/test_recognition_preprocess.py)，覆盖完整框、多个标注文件、RGB、透明图、右侧颜色、路径一致性和评估复用；模型侧的批次一致性见 [test_recognition_batch_invariance.py](../../tests/test_recognition_batch_invariance.py)。
+对应验证见 [test_recognition_preprocess.py](../../../../tests/test_recognition_preprocess.py)，覆盖完整框、多个标注文件、RGB、透明图、右侧颜色、路径一致性和评估复用；模型侧的批次一致性见 [test_recognition_batch_invariance.py](../../../../tests/test_recognition_batch_invariance.py)。

@@ -1,6 +1,8 @@
 # Recognition 运行说明
 
-操作入口见 [包说明](../../recognition/README.md)，输入与张量契约见[当前架构](recognition.md)。
+核对日期：2026-09-13。参数、默认值和处理边界以链接的当前实现为依据。
+
+操作入口见 [包说明](../../../recognition/README.md)，输入与张量契约见[当前架构](../recognition.md)。
 以下命令在仓库根目录执行，权重占位路径须替换为实际文件。
 
 
@@ -18,13 +20,13 @@ flowchart LR
 
 主入口：
 
-- `../../recognition/train.py`：训练与训练期验证；
-- `../../recognition/evaluate_val.py`：独立 manifest 的 Accuracy/CER/错误样本；
-- `../../recognition/inference.py`：PyTorch checkpoint 调试；
-- `../../recognition_export_onnx.py`：带 `img_widths`、动态 batch/width 的 ONNX；
-- `../../recognition_inference.py`：ONNX/OpenVINO/PyTorch 部署推理。
-- `../../recognition_benchmark_cpu.py`：带标注的 CPU CER、整行准确率、耗时和逐图预测报告；
-- `../../recognition_quantize_static.py`：共享预处理的 NNCF 静态量化，以及基于真实 CER 的精度恢复。
+- `../../../recognition/train.py`：训练与训练期验证；
+- `../../../recognition/evaluate_val.py`：独立 manifest 的 Accuracy/CER/错误样本；
+- `../../../recognition/inference.py`：PyTorch checkpoint 调试；
+- `../../../recognition_export_onnx.py`：带 `img_widths`、动态 batch/width 的 ONNX；
+- `../../../recognition_inference.py`：ONNX/OpenVINO/PyTorch 部署推理。
+- `../../../recognition_benchmark_cpu.py`：带标注的 CPU CER、整行准确率、耗时和逐图预测报告；
+- `../../../recognition_quantize_static.py`：共享预处理的 NNCF 静态量化，以及基于真实 CER 的精度恢复。
 
 `train.py` 的 `TRAIN_ANNOTATION` 可配置一个标注路径或多个标注路径；当前训练集按配置顺序
 合并 `train_annotation.txt` 与 synthesis1、synthesis2、synthesis3、red、lines、
@@ -63,7 +65,7 @@ ReduceLROnPlateau、已完成轮次、global_step、随机状态、字典与配�
 不能直接用于删字符后的新字典。旧纯权重未保存优化器等状态，无法补成完整续训。
 
 续训核对标注文件内容摘要、模型/数据加载/字符转换实现和关键配置，差异时报错。
-源码校验取完整文件 SHA-256，包含注释和 docstring；本次注释整理也会使旧检查点的
+源码校验取完整文件 SHA-256，包含注释和 docstring；仅修改被校验文件的注释也会使旧检查点的
 `implementation` 摘要不匹配。继续原实验应使用保存检查点时的源码版本；需要在新版本
 继续学习时使用 `--weights` 初始化新运行，不要直接修改检查点摘要绕过校验。
 图片内容不逐张计算摘要，原地替换图片后应使用 `--weights` 启动新实验。
@@ -116,7 +118,7 @@ ONNX 导出包装器直接生成带 `sequence_lens` 和动态 `initial_h` 的标
 已有权重无需重新训练。当前专用映射支持单层、带 bias 的双向 GRU；其他配置明确报错。
 仍使用 `dynamo=False` 导出器，其弃用提示与批次一致性无关，未作全局警告屏蔽。
 
-独立的新版入口是 `../../recognition_export_onnx_dynamo.py`，需要 PyTorch >= 2.9、
+独立的新版入口是 `../../../recognition_export_onnx_dynamo.py`，需要 PyTorch >= 2.9、
 onnx、onnxscript 和 onnxruntime，默认生成 `best_recognition_dynamo.onnx`：
 
 ```bash
@@ -143,7 +145,7 @@ ONNX 默认关闭线程空转，避免等待下一张图时抢占预处理 CPU�
 PyTorch 线程，推理线程由后端管理，避免线程池互相竞争。
 OpenVINO 使用单 stream、LATENCY 和 FP32 浮点计算提示，INT8 层仍按量化图执行。
 本机 OpenVINO 2026.0 CPU 的双向 GRU 在实测中仍遍历 padding，造成大量末字丢失。
-`../../recognition/utils/openvino.py` 在加载/量化前将其改为两个正向 GRU，并用
+`../../../recognition/utils/openvino.py` 在加载/量化前将其改为两个正向 GRU，并用
 batch Gather 按各样本真实长度显式反转反向分支的输入、输出；最终沿用 blank mask。
 这样保留完整 CNN 背景保护区，又使有效反向状态不受 padding 污染。该处理仅面向
 当前不消费最终 hidden state、有效长度大于零的 CRNN；已修复 IR 再次加载时不重复改图。
@@ -179,7 +181,7 @@ FP32；`--quantize_head` 是需另行评估的实验选项，不承诺必然提�
 激活零点；保存后实际执行若干不同宽度输入，验证运行时兼容性。
 
 历史报告中指定 epoch 120 权重的全量准确率、CPU 性能、OpenVINO 修复与部署命令见
-[CPU 测试报告（2026-09-09）](recognition-cpu-report-2026-09-09.md)。
+[CPU 测试报告（2026-09-09）](../history/experiments/recognition-cpu-report-2026-09-09.md)。
 
 初次准备数据的划分与标注核对见[数据工具](data-tools.md)。已有人工维护的数据不能直接重新划分。
 
@@ -193,7 +195,7 @@ FP32；`--quantize_head` 是需另行评估的实验选项，不承诺必然提�
 `evaluate_val.py` 默认读取 val、batch 64、4 个加载子进程。它不限制图片宽度；
 训练期验证经 `TextRecognitionDataset` 限宽 1800，超宽图片可能产生差异。
 独立评估按 stem 映射标签，当前没有重复 stem 防护；空数据会在准确率计算时除零。
-错误报告只在有错误时写入，零错误运行不会清理上次报告。检查方法见[待办](../code-doc-todolist.md)。
+错误报告只在有错误时写入，零错误运行不会清理上次报告。检查方法见[待办](../../code-doc-todolist.md)。
 
 包内 PyTorch 推理和评估按权重形状加载字典类别，不能识别“类别数相同但字典顺序不同”。
 使用与权重配套的原字典；不要把 `load_state_dict` 成功当作字典内容校验。

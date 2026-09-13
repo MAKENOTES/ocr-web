@@ -1,6 +1,6 @@
 # Recognition 分析：dataset 增强是否不利于红章
 
-> 历史分析：结论限于原文注明的代码、数据及权重版本，本次未重做训练或性能测量。当前行为见[架构](recognition.md)和[运行说明](running.md)。
+> 历史分析：结论限于原文注明的代码、数据及权重版本，本次未重做训练或性能测量。当前行为见[架构](../../recognition.md)和[运行说明](../../guides/running.md)。
 
 2026-09-07 复核。代码基线 `ce9a37e`，训练配置按本次工作区最新修改核验。
 本文只保留问题、证据与方案；详细测量由文末脚本复现。
@@ -98,7 +98,7 @@ CTC 的 `zero_infinity=True` 只是把无穷 loss 及梯度置零，不能代替
 旧 checkpoint、训练日志和诊断目录目前缺失，本轮没有复现旧准确率，也没有运行新的训练精度对照。
 
 复核完成：六份标注和精确路径检查、103 张能唯一绑定 GT 的清单图、历史去红/缩放、增强和 BN 探针；未对全量图片完整解码。`000103-000003.png` 当前无法绑定 train/val 标签，已单列。
-脚本：[recognition_dataset_review_20260907.py](../diagnostics/recognition_dataset_review_20260907.py)；结果和输入 hash 位于 `outputs/recognition_dataset_review_20260907/`。
+脚本：recognition_dataset_review_20260907.py（当前本地文件缺失，原路径：`docs/diagnostics/recognition_dataset_review_20260907.py`）；结果和输入 hash 位于 `outputs/recognition_dataset_review_20260907/`。
 
 ```bash
 .venv/bin/python docs/diagnostics/recognition_dataset_review_20260907.py

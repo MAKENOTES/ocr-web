@@ -1,7 +1,7 @@
 # Recognition 数据维护
 
 图片使用 PNG，标注为 `relative/path.png<TAB>文字`。共享解析器不做标点替换或外层引号剥离；
-文字首尾空白由加载器去除。流程细节见[数据工具](../../docs/recogniton/data-tools.md)，
+文字首尾空白由加载器去除。流程细节见[数据工具](../../docs/recogniton/guides/data-tools.md)，
 模型输入见[当前架构](../../docs/recogniton/recognition.md)。
 
 ## 常用检查
@@ -49,7 +49,7 @@
 train/val 零出现、合成合计不足 10 次或仅在一份合成数据出现的字符。
 显式 `--apply` 会备份并删除整条样本及相应字典行；只校验四份清单，不检查其余训练输入。
 `remove_common_synthesis.py` 默认要求整条文字的每个字符在 train+val 至少出现 100 次，且不修改 keys。
-具体条件、引用检查范围与恢复边界见[数据工具](../../docs/recogniton/data-tools.md)。
+具体条件、引用检查范围与恢复边界见[数据工具](../../docs/recogniton/guides/data-tools.md)。
 
 ## 划分与格式迁移
 

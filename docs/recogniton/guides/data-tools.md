@@ -1,11 +1,13 @@
 # Recognition 数据工具
 
-维护入口见[数据维护](../../recognition/datadoc/dataset.md)。本页只描述脚本行为，不证明本地数据已完成校验。
+核对日期：2026-09-13。参数、默认值和处理边界以链接的当前实现为依据。
+
+维护入口见[数据维护](../../../recognition/datadoc/dataset.md)。本页只描述脚本行为，不证明本地数据已完成校验。
 
 ## 初始训练集/验证集划分
 
 当 `all_images/` 和 `all_annotation.txt` 保存全量数据时，使用
-`../../recognition/split_dataset.py` 做确定性的 80/20 均匀系统抽样。脚本按标注顺序每隔约
+`../../../recognition/split_dataset.py` 做确定性的 80/20 均匀系统抽样。脚本按标注顺序每隔约
 5 条抽取一条到验证集，其余进入训练集；总数不能被 5 整除时，会在 4～5 条之间
 均匀调整间隔，使验证集数量等于最接近 20% 的整数。
 
@@ -50,7 +52,7 @@ split 中同名图片后面的识别文字。校对通过返回 0；缺失、多
   --output-dir outputs/recognition_training_character_stats
 ```
 
-只生成 `../../outputs/recognition_character_stats/character_stats.csv`，不再生成 JSON。
+只生成 `../../../outputs/recognition_character_stats/character_stats.csv`，不再生成 JSON。
 CSV 和终端均按未舍入的合计占比倒序输出，同频保持 keys 原顺序，零出现字符也保留；
 只列 keys 中的字符，不修改 keys。占比列在前，次数列统一放在最后。
 默认列顺序为 `字符、train_占比、val_占比、synthesis1_占比、synthesis2_占比、合计_占比、
@@ -61,14 +63,14 @@ train_次数、val_次数、synthesis1_次数、synthesis2_次数、合计_次�
 合计累加本次传入的全部标注记录，不去重，默认包含 val，不能当作训练集总量。
 终端同时提供各文件及合计的文字总字符数，方便核对分母。
 默认运行也会在终端逐行打印全部字符；`--chars` 只限制终端展示，不过滤输出文件。
-`../../outputs` 在 `../../.gitignore` 中，编辑器全局搜索可能排除它；直接打开文件搜索，或显式运行
+`../../../outputs` 在 `../../../.gitignore` 中，编辑器全局搜索可能排除它；直接打开文件搜索，或显式运行
 `rg -n 王 outputs/recognition_character_stats/character_stats.csv`。
 脚本复用训练的 Tab 解析和首尾空白处理规则，不进行标点、Unicode 或转义归一化；
 空标签按训练规则跳过并计数，格式错误直接报告具体文件与行号。此脚本不检查图片。
 
 ## 按字符统计移除补充数据
 
-`../../recognition/utils/remove_characters_by_stats.py` 使用上述默认 CSV，并核对当前
+`../../../recognition/utils/remove_characters_by_stats.py` 使用上述默认 CSV，并核对当前
 `keys.txt` 和 train、val、synthesis1、synthesis2 四份标注中的实际字符次数。
 CSV 缺列、字符集合或次数不一致时停止，需先重新运行 `character_stats.py`。
 
@@ -109,9 +111,9 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 
 ## 移除 train/val 已覆盖字符的合成样本
 
-`../../recognition/utils/remove_common_synthesis.py` 专门处理
-`../../recognition/data/synthesis1_annotation.txt` 和 `synthesis2_annotation.txt`。
-读取 `../../outputs/recognition_character_stats/character_stats.csv` 的 `train_次数`、`val_次数`，
+`../../../recognition/utils/remove_common_synthesis.py` 专门处理
+`../../../recognition/data/synthesis1_annotation.txt` 和 `synthesis2_annotation.txt`。
+读取 `../../../outputs/recognition_character_stats/character_stats.csv` 的 `train_次数`、`val_次数`，
 以 **train + val 合计 >= 100** 判断常见字，包含恰好 100 次；不使用包含 synthesis 的总次数
 来判断是否需要补充。可用 `--threshold` 调整阈值。
 

@@ -1,12 +1,10 @@
 # model.py：从图片特征到 CTC 字符序列
 
-> 历史分析：结论限于原文注明的代码、数据及权重版本，本次未重做训练或性能测量。当前行为见[架构](recognition.md)和[运行说明](running.md)。
+代码入口：[recognition/models/model.py](../../../../recognition/models/model.py)。已于 2026-09-13 对照当前实现核对；修改相关实现时同步更新本页。
 
-分析对象：[recognition/models/model.py](../../recognition/models/model.py)。本文依据 2026-09-07 的工作区代码。
+**`CRNN` 用 CNN 把图片变成从左到右的特征序列，用双向 GRU 理解上下文，再为每个时间步输出各字符类别的对数概率。** 最终字符串由 converter 解码，训练损失由训练脚本计算。
 
-**先记住一句话：`CRNN` 用 CNN 把图片变成从左到右的特征序列，用双向 GRU 理解上下文，再为每个时间步输出各字符类别的对数概率。** 最终字符串由 converter 解码，训练损失由训练脚本计算。
-
-配套阅读：[dataset.py 分析](dataset-analysis.md)说明图片和真实宽度从哪里来，[converter.py 分析](converter-analysis.md)说明类别编号与 CTC 解码；整体约定见 [Recognition 架构](recognition.md)。
+配套阅读：[dataset.py 导读](dataset-analysis.md)说明图片和真实宽度从哪里来，[converter.py 导读](converter-analysis.md)说明类别编号与 CTC 解码；整体约定见 [Recognition 架构](../../recognition.md)。
 
 ## 1. 输入输出：先把四种维度分清
 
@@ -99,7 +97,7 @@ flowchart TD
 
 高度逐步从 `32` 变成 `1`；宽度只在 `stem` 和 `pool` 缩小，后续保持不变。因此沿宽度的每一列，都成为一个含 256 个特征的时间步。
 
-文件中保留过多种下采样路径的文字说明，阅读时应以 `self.stem`、`self.pool`、`self.block1～3` 的实际定义为准。
+下采样对应 `self.stem`、`self.pool`、`self.block1～3`；修改结构时需同步更新宽度计算方法。
 
 ### 3.3 从特征图改成 GRU 接受的维度顺序
 
@@ -211,7 +209,7 @@ flowchart TD
 | `embedding` | `512 → K` | 实际是 `nn.Linear` 分类头，不是词嵌入查表 |
 | `log_softmax(dim=2)` | `[T, B, K]` 不变 | 沿类别维归一化，直接供 CTC 使用 |
 
-文件里的“两层 GRU、hidden=384”代码处于注释状态，不参与运行。`model.eval()` 会关闭两个 Dropout 并使用 BatchNorm 的运行统计；`torch.no_grad()` 负责关闭梯度记录，二者用途不同。
+`model.eval()` 会关闭两个 Dropout 并使用 BatchNorm 的运行统计；`torch.no_grad()` 负责关闭梯度记录，二者用途不同。
 
 `forward()` 的可选参数影响实质行为：
 
@@ -224,7 +222,7 @@ flowchart TD
 
 ## 7. 和 CTC Loss 怎样衔接
 
-本文件没有创建 `CTCLoss`。在 [recognition/train.py](../../recognition/train.py) 中，四个输入一起送入损失函数：
+本文件没有创建 `CTCLoss`。在 [recognition/train.py](../../../../recognition/train.py) 中，四个输入一起送入损失函数：
 
 | CTC 输入 | 来源 | 两图示例 |
 | --- | --- | --- |
@@ -262,7 +260,7 @@ CTC 允许一段图片时间序列对应较短的文字标签，因此不要求�
 
 这里 `6000` 是演示用**总类别数**，不是对当前 `keys.txt` 大小的声明。参数量不包括 BatchNorm 的运行统计等 buffer。这个配置下分类头占据多数参数，类别数量会直接影响模型大小。
 
-文件头的 `CNN ~0.5M`、`总计 ~4.7M` 等属于历史估算，与当前实例化结果不同；“CPU 提升 3～5 倍”也不能替代具体硬件和输入下的基准测试。本次分析核对了形状和参数量，没有运行完整速度基准或精度评估。
+模型结构和参数量不能保证固定加速倍数。速度与准确率需使用配套权重和独立数据实测，操作见[运行说明](../running.md)；本页示例只核对形状、参数量和 CTC 契约。
 
 ## 9. 可运行的小例子：把三个文件接起来
 
@@ -326,6 +324,6 @@ with TemporaryDirectory() as temp_dir:
 | 更换 `keys.txt` 后异常 | `n_class` 和字符编号顺序是否与 checkpoint 一致 |
 | 修改横向卷积、stride 或 padding | 同步长度公式、CNN 右侧保护区与导出包装器，并验证批次一致性 |
 
-导出时还需阅读 [recognition_export_onnx.py](../../recognition_export_onnx.py) 的 `OnnxExportWrapper`：它复用模型层，但有自己的 forward、宽度计算和 mask 逻辑。只改 `CRNN.forward()` 不会自动更新那段代码。
+导出时还需阅读 [recognition_export_onnx.py](../../../../recognition_export_onnx.py) 的 `OnnxExportWrapper`：它复用模型层，但有自己的 forward、宽度计算和 mask 逻辑。只改 `CRNN.forward()` 不会自动更新那段代码。
 
-对应测试在 [test_recognition_batch_invariance.py](../../tests/test_recognition_batch_invariance.py)：覆盖 PyTorch 有效输出一致性、PackedSequence 反向传播、ONNX 的 GRU `sequence_lens`、ONNX 与 PyTorch 数值对齐，以及 OpenVINO 批次一致性。这里“反向传播”指梯度计算，与 BiGRU 的反向阅读方向是两件事。
+对应测试在 [test_recognition_batch_invariance.py](../../../../tests/test_recognition_batch_invariance.py)：覆盖 PyTorch 有效输出一致性、PackedSequence 反向传播、ONNX 的 GRU `sequence_lens`、ONNX 与 PyTorch 数值对齐，以及 OpenVINO 批次一致性。这里“反向传播”指梯度计算，与 BiGRU 的反向阅读方向是两件事。

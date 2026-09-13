@@ -5,7 +5,7 @@
 Recognition 接收 detection 输出的单个文字框，输出 Unicode 文本。支持彩色/深浅背景、PNG 和动态宽度处理。
 
 当前基线为 MobileNet 风格 CNN + 单层双向 GRU + CTC head，输入高度固定为 32，宽度通常按比例缩放并在 batch 内动态 padding；超过调用方宽度上限时会横向压缩。
-操作见[包入口](../../recognition/README.md)、[运行说明](running.md)和[数据工具](data-tools.md)，术语见[术语表](../terminology.md)。
+操作见[包入口](../../recognition/README.md)、[运行说明](guides/running.md)和[数据工具](guides/data-tools.md)，术语见[术语表](../terminology.md)。
 
 ## 数据与预处理
 
@@ -67,7 +67,7 @@ flowchart TD
 由此恢复。这些阈值属于启发式规则，上线效果仍需用红章及合法红字分组评估。
 已有权重的验证/推理输入也会受这一确定性预处理影响。
 
-历史样本核对见[2026-09-08 记录](red-seal-audit-2026-09-08.md)，不代表当前独立评估精度。
+历史样本核对见[2026-09-08 记录](history/experiments/red-seal-audit-2026-09-08.md)，不代表当前独立评估精度。
 
 训练随机增强在等比缩放后执行，先做轻微旋转和透视，再应用其他增强（验证/推理不启用）：
 
@@ -100,7 +100,7 @@ Pillow 全局允许截断图片加载；采样器预扫描失败暂记宽高比 
 训练按原图宽高比排序组 batch，再打乱 batch 顺序；不是先完成增强再分桶。
 缩放宽度为 `round(原宽 × 32 / 原高)`，训练和训练期验证上限是 `IMG_WIDTH=1800`，
 超过上限直接横向压缩至上限。窄图居中补背景到 48 像素，补后的宽度计入 `img_widths`。
-包内独立评估和推理默认不设宽度上限，见[运行边界](running.md#当前默认配置与评估边界)。
+包内独立评估和推理默认不设宽度上限，见[运行边界](guides/running.md#当前默认配置与评估边界)。
 
 ## 模型与张量契约
 
@@ -148,4 +148,4 @@ CTC 可对齐条件为时间步至少等于标签字符数加相邻重复字符�
 跨 batch 一致性在 eval 模式验证，不能把含 Dropout 和随机增强的训练输出逐位比较。
 单元测试覆盖共享预处理、CTC 长度及多后端输出；真实红章、白字、小字、长文本精度仍需独立数据验证。
 未确定的训练收益、历史报告缺失和实现差距见[待办](../code-doc-todolist.md)。
-[尾部实验记录](tail-experiments-history.md)、`history/model/`、`history/batch/`、日期分析及 `model_resnet50.py` 属于历史资料，不代表当前模型。
+[尾部实验记录](history/experiments/tail-experiments-history.md)、`history/model/`、`history/batch/`、日期分析及 `model_resnet50.py` 属于历史资料，不代表当前模型。

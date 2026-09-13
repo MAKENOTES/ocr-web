@@ -2,7 +2,7 @@
 
 本包直接检测完整页面图片中的水平文字框，不直接读取 PDF，不恢复表格行列结构。
 模型、数据处理、后处理、配置与权重均独立于 `detection`。
-详细接口见[大图检测架构](../docs/detection/larger-architecture.md)。
+详细接口见[大图检测架构](../docs/detection_larger/larger-architecture.md)。
 
 ## 工程目录层级
 
@@ -31,7 +31,7 @@ detection_larger/
 
 本包没有数据划分入口，直接读取已有独立目录。根目录的
 `detection_larger_export_onnx.py` 和 `detection_larger_inference_onnx.py` 分别负责导出和 CPU 推理；
-架构细节放在 `docs/detection/larger-architecture.md`。这些入口不引用小图检测实现。
+架构细节放在 `../docs/detection_larger/larger-architecture.md`。这些入口不引用小图检测实现。
 
 ## 训练
 
@@ -57,7 +57,7 @@ detection_larger/
 | NUM_WORKERS / DEVICE | 4 个加载子进程 / 优先 CUDA，否则 CPU |
 
 输入也可设为 `(高, 宽)`，各边至少 64 且为 32 的倍数。独立验证集需事先检查重复样本；
-入口只检查目录路径不同。[早期 1024、batch 2 基线记录](../docs/detection/larger-baseline-history.md)不代表当前默认值，真实精度需另行评估。
+入口只检查目录路径不同。[早期 1024、batch 2 基线记录](../docs/detection_larger/larger-baseline-history.md)不代表当前默认值，真实精度需另行评估。
 
 ## 推理与导出
 
