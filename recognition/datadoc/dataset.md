@@ -1,5 +1,7 @@
 # Recognition 数据维护
 
+本文指导识别数据的日常维护，包括标注约定、字典管理、数据检查和合成样本清理。
+
 图片使用 PNG，标注为 `relative/path.png<TAB>文字`。共享解析器不做标点替换或外层引号剥离；
 文字首尾空白由加载器去除。流程细节见[数据工具](../../docs/recogniton/guides/data-tools.md)，
 模型输入见[当前架构](../../docs/recogniton/recognition.md)。

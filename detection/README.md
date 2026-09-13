@@ -1,5 +1,7 @@
 # UI 小图文字检测
 
+本文介绍 UI 小图文字检测包的用途、工程目录、常用入口和关键约束，并提供相关文档索引。
+
 本包用 ResNet18 EAST 定位 UI 小图中的水平文字框。训练入口为 [train_resnet.py](train_resnet.py)，
 矩形多后端推理入口为根目录的 [detection_inference_640.py](../detection_inference_640.py)。
 文件名中的 `640` 不代表当前尺寸；默认输入为高 256、宽 768 像素。

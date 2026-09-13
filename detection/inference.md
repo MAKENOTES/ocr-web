@@ -1,5 +1,7 @@
 # 小图检测推理
 
+本文指导小图文字检测的多后端推理，说明运行命令、配置、输出文件和坐标处理约定。
+
 当前入口是仓库根目录的 [detection_inference_640.py](../detection_inference_640.py)，
 支持 PyTorch、ONNX Runtime 和 OpenVINO。以下命令均在仓库根目录运行。
 

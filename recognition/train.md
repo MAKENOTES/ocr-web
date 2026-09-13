@@ -1,5 +1,7 @@
 # Recognition 训练历史
 
+本文按历史记录保留识别训练、模型与预处理方案的演变，供追溯旧实验及其适用背景。
+
 > 当前架构和预处理规范以 [`docs/recogniton/recognition.md`](../docs/recogniton/recognition.md) 为准。以下内容保留为历史训练记录，旧方案不代表当前实现。
 
 20260902 在新一轮 RGB 训练前根治混合宽度 batch 问题：

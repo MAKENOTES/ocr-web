@@ -1,5 +1,7 @@
 # OCR Web 仓库协作指南
 
+本文规定 OCR Web 仓库的协作方式、数据契约、代码与文档规范，以及修改和测试要求。
+
 ## 项目范围
 
 这是一个两阶段 OCR 项目：`detection` 定位 UI 小图文字，`detection_larger` 定位 PDF 页面和网页表格文字，`recognition` 将文字框识别为 Unicode 文本。根目录中的脚本负责主要的推理、导出和量化入口。

@@ -1,5 +1,7 @@
 # model.py：从图片特征到 CTC 字符序列
 
+本文帮助新手理解 CRNN 的数据流、张量形状和有效序列长度，以及 CNN、双向 GRU 与 CTC 分类头如何配合。
+
 代码入口：[recognition/models/model.py](../../../../recognition/models/model.py)。已于 2026-09-13 对照当前实现核对；修改相关实现时同步更新本页。
 
 **`CRNN` 用 CNN 把图片变成从左到右的特征序列，用双向 GRU 理解上下文，再为每个时间步输出各字符类别的对数概率。** 最终字符串由 converter 解码，训练损失由训练脚本计算。

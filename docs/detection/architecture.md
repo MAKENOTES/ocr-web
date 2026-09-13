@@ -1,5 +1,7 @@
 # 小图检测架构
 
+本文说明小图文字检测的数据格式、模型张量、训练与推理契约，供核对实现和评估改动影响。
+
 本页对应 `detection/train_resnet.py`、`detection_inference_640.py` 的当前实现。
 操作入口见 [detection/README.md](../../detection/README.md)，术语见[术语表](../terminology.md)。
 
