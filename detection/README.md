@@ -7,6 +7,38 @@
 本包与 `detection_larger` 分别维护代码、配置、数据和权重，不能互相导入。
 接口细节见[架构](../docs/detection/architecture.md)，推理操作见[推理说明](inference.md)。
 
+## 工程目录层级
+
+下图列出主要目录和文件；历史变体按文件名前缀归组，省略包初始化文件与缓存。
+
+```text
+detection/
+├── README.md                 # 包用途、训练约束与检查入口
+├── train_resnet.py           # 当前小图 ResNet18 训练入口
+├── train_resnet_metrics.py   # 历史检测指标训练实验
+├── train_resnet_overfit.py   # 历史过拟合监控训练实验
+├── train_mobilenet.py        # 历史 MobileNet 训练实验
+├── split_dataset.py          # 按持久化 manifest 划分数据
+├── inference.md              # 当前根目录推理入口的使用说明
+├── inference.py              # 历史推理入口
+├── inference_v*.py           # 按版本保留的历史推理实现
+├── components/
+│   ├── dataset.py            # 图片与文字框标签加载
+│   ├── transforms.py         # 颜色增强、缩放补边与张量转换
+│   ├── ground_truth.py       # 当前置信度和几何真值生成
+│   ├── ground_truth_*.py     # 历史骨干对应的真值变体
+│   ├── loss.py               # Dice 与几何损失
+│   └── eval_metrics.py       # 独立框级指标评估
+├── models/
+│   ├── east_model.py         # 当前 ResNet18 EAST
+│   └── east_model_*.py       # 历史 ResNet18/ResNet50/MobileNet 变体
+├── data/                     # 本地图片、标签及 split_manifest.csv，不提交
+└── checkpoints/              # 本地模型权重，不提交
+```
+
+当前多后端推理和导出位于根目录：`detection_inference_640.py`、`detection_export_onnx.py`。
+架构与评估边界放在 `docs/detection/architecture.md`，本包不依赖大图检测包。
+
 ## 训练前检查
 
 `train_resnet.py` 当前的 `VAL_IMAGE_DIR`、`VAL_LABEL_DIR` 指向训练目录。

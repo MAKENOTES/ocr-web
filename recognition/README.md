@@ -3,6 +3,44 @@
 本包将完整 detection 文字框识别为 Unicode 文本。当前模型为 Mobile 风格 CNN、
 单层双向 GRU 和 CTC，默认输入 RGB、高度 32 像素。
 
+## 工程目录层级
+
+下图列出主要目录和文件，省略包初始化文件、缓存及具体数据产物。
+
+```text
+recognition/
+├── README.md                 # 包入口与文档快速索引
+├── train.py                  # 训练与训练期验证
+├── evaluate_val.py           # 独立标注集评估与错误报告
+├── inference.py              # PyTorch 推理
+├── split_dataset.py          # 初始训练集/验证集划分
+├── keys.txt                  # 字符字典，内容与顺序绑定模型
+├── components/
+│   ├── dataset.py            # 图片加载、预处理、增强、分桶与动态补边
+│   └── converter.py          # 字符编码与 CTC 解码
+├── models/
+│   ├── model.py              # 当前 Mobile CNN + BiGRU 模型
+│   └── model_resnet50.py      # 历史模型，实际使用 ResNet34 + BiLSTM
+├── utils/
+│   ├── annotation.py         # Tab 标注解析与格式化
+│   ├── checkpoint.py         # 权重解包与输入通道推断
+│   ├── training_run.py       # 训练运行配置及恢复流程
+│   ├── training_checkpoint.py # 完整训练状态的保存与校验
+│   ├── openvino.py           # 长度感知 GRU 的 OpenVINO 图适配
+│   ├── character_stats.py    # 字符统计；同目录另有校对和清理工具
+│   └── synthesis/            # 补字、红章、边线及定向合成入口
+├── datadoc/                  # 数据维护、合成说明和整理历史
+│   └── analysisdata/         # 按日期保存的错误样本分析
+├── train.md                  # 历史训练记录
+├── data/                     # 本地图片与标注，不提交
+├── checkpoints/              # 本地训练检查点，不提交
+└── runs/                     # TensorBoard 运行日志，不提交
+```
+
+包外的 `docs/recogniton/` 保存架构、运行说明和历史模型文档，见下方快速索引。
+根目录 `recognition_inference.py`、`recognition_export_onnx.py` 分别负责多后端推理和导出；
+`recognition_benchmark_cpu.py`、`recognition_quantize_static.py` 负责 CPU 评测和静态量化。
+
 ## 常用入口
 
 以下命令在仓库根目录执行；先核对脚本顶部的数据、权重和输出路径。

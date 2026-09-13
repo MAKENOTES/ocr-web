@@ -4,6 +4,35 @@
 模型、数据处理、后处理、配置与权重均独立于 `detection`。
 详细接口见[大图检测架构](../docs/detection/larger-architecture.md)。
 
+## 工程目录层级
+
+下图列出主要目录和文件，省略包初始化文件、缓存及具体数据产物。
+
+```text
+detection_larger/
+├── README.md                 # 包入口、配置与操作说明
+├── train.py                  # 完整页面图片训练与验证
+├── inference.py              # 多后端加载、整图推理与结果保存
+├── components/
+│   ├── dataset.py            # 严格配对图片和标签，解析忽略区域
+│   ├── transforms.py         # 整图缩放补边、归一化与坐标还原
+│   ├── ground_truth.py       # 置信度、几何真值及忽略区域掩码
+│   ├── loss.py               # 带忽略掩码的 Dice 与 Smooth L1
+│   ├── postprocess.py        # 连通域聚类与几何出框
+│   ├── onnx_runtime.py       # CPU 运行配置与 OpenVINO 加载
+│   ├── eval_metrics.py       # 总体及图片格式分组的框级指标
+│   └── training_options.py   # 初始权重和本次输出目录参数
+├── models/
+│   └── east_model.py         # 独立 ResNet18 EAST 与检查点契约
+├── data/                     # 已准备好的训练/验证图片与标签，不提交
+├── checkpoints/              # 按运行保存的本地模型权重，不提交
+└── runs/                     # TensorBoard 运行日志，不提交
+```
+
+本包没有数据划分入口，直接读取已有独立目录。根目录的
+`detection_larger_export_onnx.py` 和 `detection_larger_inference_onnx.py` 分别负责导出和 CPU 推理；
+架构细节放在 `docs/detection/larger-architecture.md`。这些入口不引用小图检测实现。
+
 ## 训练
 
 先准备 `detection_larger/data/train_images`、`train_labels`、`val_images`、`val_labels`。
