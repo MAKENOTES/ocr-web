@@ -15,6 +15,9 @@ from detection_larger.models.east_model import create_model, save_checkpoint
 @pytest.mark.parametrize('fallback', [False, True])
 def test_export_and_inference_roundtrip(tmp_path, monkeypatch, fallback):
     import onnx
+    from detection_larger import inference
+
+    monkeypatch.setattr(inference, "INPUT_SIZE", (64, 96))
 
     previous = torch.get_num_threads()
     torch.set_num_threads(1)
@@ -34,10 +37,11 @@ def test_export_and_inference_roundtrip(tmp_path, monkeypatch, fallback):
             return original(*args, **kwargs)
 
         monkeypatch.setattr(torch.onnx, 'export', track_export)
-        config = exporter.export_model(checkpoint, output)
+        exporter.export_model(checkpoint, output)
         assert exporters == ([True, False] if fallback else [True])
         detector = DocumentDetector(output)
-        assert detector.config == config
+        assert detector.input_size == (64, 96)
+        assert not hasattr(detector, "config")
         assert detector.session.get_inputs()[0].shape == ['batch', 3, 64, 96]
         graph = onnx.load(output)
         assert all(not tensor.external_data for tensor in graph.graph.initializer)
@@ -56,11 +60,16 @@ def test_export_and_inference_roundtrip(tmp_path, monkeypatch, fallback):
             np.testing.assert_allclose([p['box'] for p in ov_predictions], [p['box'] for p in observed], atol=.001)
             assert ov_detector.last_infer_ms > 0
             check_quantized_inference(output, tmp_path / 'int8.onnx')
+        monkeypatch.setattr(inference, "INPUT_SIZE", 64)
+        for backend in ("onnx", "openvino"):
+            with pytest.raises(ValueError, match="INPUT_SIZE.*does not match"):
+                DocumentDetector(output, backend=backend)
+        monkeypatch.setattr(inference, "INPUT_SIZE", (64, 96))
         with pytest.raises(FileExistsError, match=str(output)):
             exporter.export_model(checkpoint, output)
         graph.graph.input[0].type.tensor_type.shape.dim[3].dim_value = 64
         onnx.save(graph, output)
-        with pytest.raises(ValueError, match='Incompatible document ONNX inputs/outputs:.*model.onnx'):
+        with pytest.raises(ValueError, match='INPUT_SIZE.*does not match.*model.onnx'):
             DocumentDetector(output)
         del graph.metadata_props[:]
         onnx.save(graph, output)
@@ -157,10 +166,8 @@ def test_expansion_clips_and_preserves_original():
 
 
 def test_warmup_and_forward_timing():
-    from detection_larger.models.east_model import checkpoint_config
-
     detector = DocumentDetector.__new__(DocumentDetector)
-    detector.config = checkpoint_config(64)
+    detector.input_size = (64, 64)
     detector.session, detector.openvino, detector.device = None, None, 'cpu'
     calls = []
 
@@ -204,3 +211,20 @@ def test_run_summary_and_expanded_outputs(tmp_path, monkeypatch):
     assert (tmp_path / 'output/labels/gt_page.txt').read_text() == '0.0 0.0 20.0 15.0\n'
     with Image.open(tmp_path / 'crops/page-00001.png') as crop:
         assert crop.size == (20, 15)
+
+
+def test_export_entry_uses_path_constants(tmp_path, monkeypatch, capsys):
+    checkpoint = tmp_path / 'source.pth'
+    output = tmp_path / 'export.onnx'
+    monkeypatch.setattr(exporter, 'CHECKPOINT_PATH', checkpoint)
+    monkeypatch.setattr(exporter, 'OUTPUT_PATH', output)
+    calls = []
+
+    def export_model(checkpoint_path, output_path):
+        calls.append((checkpoint_path, output_path))
+        return {'input_size': [64, 96]}
+
+    monkeypatch.setattr(exporter, 'export_model', export_model)
+    exporter.main()
+    assert calls == [(checkpoint, output)]
+    assert f'导出及数值校验通过: {output}' in capsys.readouterr().out

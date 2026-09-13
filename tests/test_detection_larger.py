@@ -307,7 +307,7 @@ def test_whole_image_inference_restores_long_lines_and_cells():
             return target['score_map'][None, None], target['geo_map'][None]
 
     detector = DocumentDetector.__new__(DocumentDetector)
-    detector.config = checkpoint_config(256)
+    detector.input_size = (256, 256)
     detector.openvino = None
     detector.device, detector.session, detector.model = 'cpu', None, PerfectModel()
     result = detector.predict(image)
@@ -447,3 +447,32 @@ def test_training_options_only_accept_run_paths(tmp_path):
     with pytest.raises(FileExistsError, match='must be empty'):
         parse_args(['--output', str(tmp_path)])
     assert (tmp_path / 'keep.pth').read_text() == 'existing'
+
+
+@pytest.mark.parametrize('size,expected', [(64, (64, 64)), ((64, 96), (64, 96))])
+def test_inference_size_constant_overrides_checkpoint(monkeypatch, size, expected):
+    from detection_larger import inference
+
+    monkeypatch.setattr(inference, 'INPUT_SIZE', size)
+    calls = []
+
+    def model(batch):
+        calls.append(tuple(batch.shape))
+        h, w = batch.shape[-2:]
+        return torch.zeros(1, 1, h // 4, w // 4), torch.zeros(1, 4, h // 4, w // 4)
+
+    monkeypatch.setattr(inference, 'load_checkpoint',
+                        lambda *args: (model, {'config': checkpoint_config(256)}))
+    detector = DocumentDetector('model.pth')
+    assert not hasattr(detector, 'config')
+    detector.warmup(1)
+    assert detector.predict(Image.new('RGB', (180, 70), 'white')) == []
+    assert calls == [(1, 3, *expected)] * 2
+
+
+def test_invalid_inference_size_constant(monkeypatch):
+    from detection_larger import inference
+
+    monkeypatch.setattr(inference, 'INPUT_SIZE', 65)
+    with pytest.raises(ValueError, match='input_size'):
+        DocumentDetector('unused.pth')

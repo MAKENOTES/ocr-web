@@ -629,6 +629,12 @@ FP32；`--quantize_head` 是需另行评估的实验选项，不承诺必然提�
 
 ## 6. 已知问题与演进边界
 
+2026-09-12 [尾部增漏专项实验](../../recognition/datadoc/analysisdata/errdata20260912-tail-experiment.md)
+已对真实训练／验证集比较有效背景扩展，并完成同起点两轮训练对照；8 px 扩展仍使验证错误增加，
+因此保留当前 `img_widths` 和 32 px CNN 保护区契约，不在推理入口给有效宽度直接加常数。
+[继续验证](../../recognition/datadoc/analysisdata/errdata20260912-tail-followup.md)进一步核对了 CTC 文本概率，
+前缀搜索、跨上下文重评分及两轮背景 blank 监督均未通过尾部和整体验收，仍不替换正式解码或权重。
+
 - `train.py` 的数据路径和模型超参数仍以顶部常量配置；续训配置与标注摘要已随检查点保存，尚未逐张校验图片内容。
 - 训练数据与标注统一使用 `.png`；路径或扩展名不一致会直接报错，避免自动回退掩盖数据问题或以 dummy tensor 静默污染训练。
 - recognition 不再做二次裁剪；detection 框质量需要在 detection 环节单独评估。

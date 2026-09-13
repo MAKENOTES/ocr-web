@@ -10,7 +10,7 @@
 .venv/bin/python detection_larger/train.py
 ```
 
-输入尺寸统一修改 `detection_larger/train.py` 的 `INPUT_SIZE`，训练入口显式将尺寸传给预处理和检查点保存函数，其他模块不定义默认尺寸、不导入训练入口；已有模型推理使用检查点记录的尺寸。数据路径、batch、轮数、学习率、加载进程数和设备在训练入口顶部常量配置：
+训练输入尺寸修改 `detection_larger/train.py` 的 `INPUT_SIZE`，训练入口显式将尺寸传给预处理和检查点保存函数，推理尺寸独立修改 `detection_larger/inference.py` 顶部的 `INPUT_SIZE`（默认 640，即 640×640），不从检查点配置取值，也不导入训练入口。支持整数或 `(高, 宽)`，各边至少 64 且为 32 的倍数；预处理和预热使用同一尺寸。ONNX/OpenVINO 的导出尺寸必须与该常量一致，否则加载时报错；推理入口不保存或读取 `self.config`，ONNX/OpenVINO 直接检查模型实际输入形状；加载辅助函数仍校验模型元数据格式。数据路径、batch、轮数、学习率、加载进程数和设备在训练入口顶部常量配置：
 
 | 配置 | 默认路径 | 当前图片数 |
 | --- | --- | ---: |
@@ -60,14 +60,12 @@
   --image-dir detection_larger/data/val_images \
   --label-dir detection_larger/data/val_labels
 
-.venv/bin/python detection_larger_export_onnx.py \
-  --checkpoint detection_larger/checkpoints/<run>/<model>.pth \
-  --output detection_larger/artifacts/best_detection.onnx
+.venv/bin/python detection_larger_export_onnx.py
 
 .venv/bin/python detection_larger_inference_onnx.py
 ```
 
-ONNX 导出优先使用 Dynamo，失败自动回退到 TorchScript，两者使用 opset 18。安装了 `onnxsim` 时尝试简化图；简化不可用或失败则保留原图。导出需要 `onnx`、`onnxruntime`，Dynamo 另需 `onnxscript`（均已列入根目录依赖）。输入名为 `image`，输出名为 `score`、`geometry`，高宽固定为检查点配置，batch 动态变化（Dynamo 声明范围为 1～32 张）。导出强制比较 batch 1、2 的 PyTorch 与 ONNX CPU 输出，通过后才生成单个 ONNX 文件，并写入 `docdet_config` 元数据；目标存在时拒绝覆盖。大图检查点必须含 `config` 和 `model`，不接受裸权重或旧切片模型。
+导出脚本无命令行参数；运行前修改顶部的 `CHECKPOINT_PATH`（输入检查点）和 `OUTPUT_PATH`（新的 ONNX 文件路径）常量。ONNX 导出优先使用 Dynamo，失败自动回退到 TorchScript，两者使用 opset 18。安装了 `onnxsim` 时尝试简化图；简化不可用或失败则保留原图。导出需要 `onnx`、`onnxruntime`，Dynamo 另需 `onnxscript`（均已列入根目录依赖）。输入名为 `image`，输出名为 `score`、`geometry`，高宽固定为检查点配置，batch 动态变化（Dynamo 声明范围为 1～32 张）。导出强制比较 batch 1、2 的 PyTorch 与 ONNX CPU 输出，通过后才生成单个 ONNX 文件，并写入 `docdet_config` 元数据；目标存在时拒绝覆盖。大图检查点必须含 `config` 和 `model`，不接受裸权重或旧切片模型。
 
 根目录 `detection_larger_inference_onnx.py` 支持 ONNX Runtime、OpenVINO 和 PyTorch CPU，无命令行参数。修改顶部的模型、图片、输出目录、阈值和裁片常量后运行；默认读取上述导出文件，输出至 `detection_larger/data/test_results/onnx`，裁片至 `detection_larger/data/crops/onnx`。`BACKEND = "auto"` 按后缀选择：`.onnx` 使用 ONNX Runtime，`.pth` 使用 PyTorch；设置 `"openvino"` 可用 OpenVINO 编译 ONNX。显式后端与文件类型不匹配时报错，不会自动换模型文件。OpenVINO 是可选运行依赖，使用 FP32 和单请求延迟优化，按 `score`、`geometry` 名称获取输出。CPU 线程预算集中在 `components/onnx_runtime.py` 的 `CPU_THREADS`，默认 4；ONNX Runtime 开启全部图优化、内存复用，OpenVINO 使用同一线程预算。
 
@@ -87,13 +85,13 @@ ONNX 导出优先使用 Dynamo，失败自动回退到 TorchScript，两者使�
 | CPU 线程与内存优化 | 已支持；不照搬占满全部逻辑核心的设置，避免线程争用，默认预算 4 线程，可集中调整 |
 | 预热、单图耗时、整体吞吐 | 已补齐，区分前向、检测和包含文件 I/O 的整体耗时 |
 | 单图/目录、裁片、可选扩框 | 已支持，并保留原图浮点 bbox4 标签；裁片仍使用大图已有的 5 位序号，避免改变下游路径契约 |
-| 输入尺寸覆盖 | 不增加；自动读取检查点尺寸，支持检查点内的方形/矩形尺寸，手工覆盖会使 ONNX 固定形状或训练预处理不一致 |
+| 推理输入尺寸 | 修改 `inference.py` 的 `INPUT_SIZE` 常量，支持方形/矩形；ONNX/OpenVINO 必须匹配导出尺寸，不增加命令行覆盖 |
 | 小图面积、长宽比过滤 | 不迁移；大图已有回归用例要求保留单像素、细长编号和日期区域，过滤会重新引入漏框 |
 | 小图预处理和缩放图预览 | 使用大图共享预处理及原图预览，确保透明图背景、坐标和裁片与现有大图链路一致；不重复建立预处理实现 |
 | 坏图跳过、重复覆盖模型 | 不迁移；坏图应带路径报错，导出拒绝覆盖已有模型，符合仓库数据约束 |
 | 输入尺寸、阈值等命令行覆盖 | 保持顶部常量配置；导出只保留本次检查点和输出路径，避免同一配置同时存在常量与命令行两套入口 |
 
-训练、推理共用整图预处理，推理一次前向后恢复原图坐标；模型记录自身输入尺寸。评估报告总体及 JPG/PNG 等格式分组的 precision/recall/F1，不将扩展名当作通用业务分类。可单独指定 PDF 或网页验证目录进行来源评估。
+训练、推理共用整图预处理，推理一次前向后恢复原图坐标；模型记录训练输入尺寸，推理使用独立的 `INPUT_SIZE` 常量。评估报告总体及 JPG/PNG 等格式分组的 precision/recall/F1，不将扩展名当作通用业务分类。可单独指定 PDF 或网页验证目录进行来源评估。
 
 完整尺寸统计及验证记录见[核对报告](../docs/detection/detection-larger-assessment.md)。
 

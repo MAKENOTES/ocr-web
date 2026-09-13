@@ -1,6 +1,5 @@
 """使用独立的 EAST 连通域后处理，整图推理后还原 PDF/表格文字框坐标。"""
 
-import json
 import sys
 import time
 from pathlib import Path
@@ -16,20 +15,21 @@ if __package__ in (None, ""):
 
 from recognition.components.dataset import load_rgb_image
 from detection_larger.components.dataset import IMAGE_EXTENSIONS
-from detection_larger.components.onnx_runtime import OpenVINOBackend, session_options
-from detection_larger.components.transforms import STRIDE, prepare_image, restore_boxes
+from detection_larger.components.onnx_runtime import OpenVINOBackend, session_options, validate_onnx_metadata
+from detection_larger.components.transforms import STRIDE, normalize_input_size, prepare_image, restore_boxes
 from detection_larger.components.postprocess import MIN_AREA, boxes_from_connected_components, scaled_small_region_area
-from detection_larger.models.east_model import ONNX_CONFIG_KEY, load_checkpoint, validate_config
+from detection_larger.models.east_model import load_checkpoint
 
 
 # 文档专用检查点或 ONNX 模型；更换训练结果时修改此路径。
-MODEL_PATH = Path("detection_larger/checkpoints/ocr_experiment_1789136798452328557/best_detection_epoch_584_loss_0.01150.pth")
+MODEL_PATH = Path("detection_larger/checkpoints/best_detection_epoch_618_loss_0.01213.pth")
 IMAGE_PATH = Path("detection_larger/data/test_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
 OUTPUT_DIR = Path("detection_larger/data/test_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
 DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU；可指定 cpu、cuda:0，ONNX 自动使用 CPU。
+INPUT_SIZE = 640  # 推理输入边长，单位 px；也可设为 (高, 宽)，各边至少 64 且为 32 的倍数；ONNX/OpenVINO 须匹配导出尺寸。
 SCORE_THRESHOLD = 0.7  # 文字置信度阈值，取值范围为 (0, 1)。
 NMS_IOU_THRESHOLD = 0.3  # 重复框抑制的交并比阈值，取值范围为 (0, 1]。
-SAVE_CROPS = True  # 启用时保存原图文字框 PNG 裁片，供 recognition 使用。
+SAVE_CROPS = False  # 启用时保存原图文字框 PNG 裁片，供 recognition 使用。
 CROP_DIR = Path("detection_larger/data/crops/test_images")  # 裁片目录，所有原图的裁片平铺在此，不再按原图建子目录；启用 SAVE_CROPS 时覆盖同名裁片并清理该原图多余的旧序号裁片。
 CROP_INDEX_DIGITS = 5  # 裁片文件名序号位数，序号从 1 开始并左侧补零，例如 page.png 的首个裁片为 page-00001.png。
 
@@ -75,6 +75,7 @@ class DocumentDetector:
 
     def __init__(self, model_path, device="cpu", backend="auto"):
         """backend 按后缀选择或显式指定 OpenVINO；device=auto 为 PyTorch 优先选择 CUDA。"""
+        self.input_size = normalize_input_size(INPUT_SIZE)
         suffix = Path(model_path).suffix.lower()
         if backend == "auto":
             backend = "onnx" if suffix == ".onnx" else "pytorch"
@@ -93,7 +94,12 @@ class DocumentDetector:
             if device != "cpu":
                 raise ValueError("Document OpenVINO backend requires device='cpu'")
             self.openvino = OpenVINOBackend(model_path)
-            self.config = self.openvino.config
+            exported_size = tuple(dim.get_length() for dim in self.openvino.compiled.input("image").partial_shape[2:])
+            if exported_size != self.input_size:
+                raise ValueError(
+                    f"INPUT_SIZE {self.input_size} does not match exported model input size "
+                    f"{exported_size}: {model_path}"
+                )
         elif backend == "onnx":
             import onnxruntime as ort
             if device != "cpu":
@@ -101,20 +107,21 @@ class DocumentDetector:
             options = session_options()
             self.session = ort.InferenceSession(str(model_path), sess_options=options,
                                                 providers=["CPUExecutionProvider"])
-            try:
-                self.config = json.loads(self.session.get_modelmeta().custom_metadata_map[ONNX_CONFIG_KEY])
-                validate_config(self.config)
-            except (KeyError, ValueError, TypeError, AttributeError) as error:
-                raise ValueError(f"Invalid document ONNX config: {model_path}: {error}") from error
+            validate_onnx_metadata(self.session.get_modelmeta().custom_metadata_map, model_path)
             inputs = self.session.get_inputs()
             if (len(inputs) != 1 or inputs[0].name != "image" or inputs[0].type != "tensor(float)"
                     or len(inputs[0].shape) != 4
-                    or inputs[0].shape[1:] != [3, *self.config["input_size"]]
+                    or inputs[0].shape[1] != 3
                     or {value.name for value in self.session.get_outputs()} != {"score", "geometry"}):
                 raise ValueError(f"Incompatible document ONNX inputs/outputs: {model_path}")
+            exported_size = tuple(inputs[0].shape[2:])
+            if exported_size != self.input_size:
+                raise ValueError(
+                    f"INPUT_SIZE {self.input_size} does not match exported model input size "
+                    f"{exported_size}: {model_path}"
+                )
         else:
-            self.model, checkpoint = load_checkpoint(model_path, device)
-            self.config = checkpoint["config"]
+            self.model, _ = load_checkpoint(model_path, device)
 
     def infer(self, batch):
         """执行 NCHW 前向，计时含设备传输及同步，不含图片预处理和解码。"""
@@ -131,21 +138,21 @@ class DocumentDetector:
         return score, geometry
 
     def warmup(self, count):
-        """按模型尺寸预热，计时汇总不包含这些前向。"""
+        """按 INPUT_SIZE 常量预热，计时汇总不包含这些前向。"""
         if not isinstance(count, int) or count < 0:
             raise ValueError("warmup count must be a nonnegative integer")
-        sample = torch.zeros(1, 3, *self.config["input_size"])
+        sample = torch.zeros(1, 3, *self.input_size)
         for _ in range(count):
             self.infer(sample)
 
     def predict(self, image, threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD):
         """检测 RGB 图片，返回含原图像素 xyxy 框和置信度的列表，不修改输入图片。
 
-        输入尺寸使用模型记录的配置；结果经过置信度过滤及 NMS，按从上到下、从左到右排序。
+        输入尺寸使用脚本顶部 INPUT_SIZE 常量；结果经过置信度过滤及 NMS，按从上到下、从左到右排序。
         """
         if not 0 < threshold < 1 or not 0 < iou_threshold <= 1:
             raise ValueError("Invalid detection thresholds")
-        tensor, metadata = prepare_image(image, self.config["input_size"])
+        tensor, metadata = prepare_image(image, self.input_size)
         score, geometry = self.infer(tensor[None])
         boxes, scores = decode_maps(score[0], geometry[0], threshold)
         boxes = restore_boxes(boxes, metadata, image.size)

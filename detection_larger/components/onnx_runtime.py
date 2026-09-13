@@ -23,6 +23,16 @@ def session_options():
     return options
 
 
+def validate_onnx_metadata(properties, model_path):
+    """仅校验模型格式，元数据不控制推理入口的尺寸。"""
+    try:
+        config = json.loads(properties[ONNX_CONFIG_KEY])
+        validate_config(config)
+    except (KeyError, ValueError, TypeError, AttributeError) as error:
+        raise ValueError(f"Invalid document ONNX config: {model_path}: {error}") from error
+    return config
+
+
 class OpenVINOBackend:
     """从带大图配置的 ONNX 编译 CPU FP32 模型，按名称取出输出。"""
 
@@ -31,12 +41,8 @@ class OpenVINOBackend:
         import openvino as ov
 
         graph = onnx.load(str(model_path), load_external_data=False)
-        try:
-            properties = {entry.key: entry.value for entry in graph.metadata_props}
-            self.config = json.loads(properties[ONNX_CONFIG_KEY])
-            validate_config(self.config)
-        except (KeyError, ValueError, TypeError, AttributeError) as error:
-            raise ValueError(f"Invalid document ONNX config: {model_path}: {error}") from error
+        properties = {entry.key: entry.value for entry in graph.metadata_props}
+        self.config = validate_onnx_metadata(properties, model_path)
         inputs = graph.graph.input
         if (len(inputs) != 1 or inputs[0].name != 'image'
                 or inputs[0].type.tensor_type.elem_type != onnx.TensorProto.FLOAT

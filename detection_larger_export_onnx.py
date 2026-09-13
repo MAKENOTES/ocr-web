@@ -1,6 +1,5 @@
 """导出大图 EAST ONNX：优先 Dynamo、可选图简化，并校验 CPU 数值和动态 batch。"""
 
-import argparse
 import json
 import shutil
 import time
@@ -14,6 +13,8 @@ from detection_larger.components.onnx_runtime import CPU_THREADS, session_option
 from detection_larger.models.east_model import ONNX_CONFIG_KEY, load_checkpoint
 
 
+CHECKPOINT_PATH = Path("detection_larger/checkpoints/best_detection_epoch_618_loss_0.01213.pth")  # 待导出的大图检查点，必须包含 config 和 model。
+OUTPUT_PATH = Path("best_detection_larger.onnx")  # 导出 ONNX 文件路径；目标已存在时拒绝覆盖。
 BENCHMARK_ENABLED = True  # 导出校验后比较 CPU batch=1 前向速度，不影响数值校验要求。
 BENCHMARK_WARMUP = 5  # 每个后端正式测速前的预热次数。
 BENCHMARK_RUNS = 20  # 每个后端计入平均前向耗时的运行次数。
@@ -140,12 +141,9 @@ def export_model(checkpoint_path, output):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--checkpoint", required=True, type=Path, help="含 config 和 model 的大图 .pth 检查点")
-    parser.add_argument("--output", type=Path, default=Path("detection_larger/artifacts/best_detection.onnx"), help="新的 ONNX 路径，拒绝覆盖")
-    args = parser.parse_args()
-    config = export_model(args.checkpoint, args.output)
-    print(f"导出及数值校验通过: {args.output}; {config}")
+    """按顶部路径常量导出，数值校验通过后保存新模型。"""
+    config = export_model(CHECKPOINT_PATH, OUTPUT_PATH)
+    print(f"导出及数值校验通过: {OUTPUT_PATH}; {config}")
 
 
 if __name__ == "__main__":
