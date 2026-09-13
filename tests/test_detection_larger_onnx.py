@@ -18,6 +18,8 @@ def test_export_and_inference_roundtrip(tmp_path, monkeypatch, fallback):
     from detection_larger import inference
 
     monkeypatch.setattr(inference, "INPUT_SIZE", (64, 96))
+    monkeypatch.setattr(exporter, "INPUT_SIZE", (64, 96))
+    monkeypatch.setattr(exporter, "BENCHMARK_ENABLED", not fallback)
 
     previous = torch.get_num_threads()
     torch.set_num_threads(1)
@@ -26,7 +28,7 @@ def test_export_and_inference_roundtrip(tmp_path, monkeypatch, fallback):
         monkeypatch.setattr(exporter, 'BENCHMARK_RUNS', 2)
         model = create_model().eval()
         checkpoint, output = tmp_path / 'model.pth', tmp_path / 'model.onnx'
-        save_checkpoint(model, checkpoint, (64, 96))
+        save_checkpoint(model, checkpoint, 64)
         original = torch.onnx.export
         exporters = []
 
@@ -37,13 +39,16 @@ def test_export_and_inference_roundtrip(tmp_path, monkeypatch, fallback):
             return original(*args, **kwargs)
 
         monkeypatch.setattr(torch.onnx, 'export', track_export)
-        exporter.export_model(checkpoint, output)
+        config = exporter.export_model(checkpoint, output)
+        assert config["input_size"] == [64, 96]
         assert exporters == ([True, False] if fallback else [True])
         detector = DocumentDetector(output)
         assert detector.input_size == (64, 96)
         assert not hasattr(detector, "config")
         assert detector.session.get_inputs()[0].shape == ['batch', 3, 64, 96]
         graph = onnx.load(output)
+        import json
+        assert json.loads({p.key: p.value for p in graph.metadata_props}[exporter.ONNX_CONFIG_KEY]) == config
         assert all(not tensor.external_data for tensor in graph.graph.initializer)
         image = Image.new('RGB', (180, 70), 'white')
         expected = DocumentDetector(checkpoint).predict(image, threshold=.1)
@@ -228,3 +233,11 @@ def test_export_entry_uses_path_constants(tmp_path, monkeypatch, capsys):
     exporter.main()
     assert calls == [(checkpoint, output)]
     assert f'导出及数值校验通过: {output}' in capsys.readouterr().out
+
+
+def test_export_rejects_invalid_input_size(tmp_path, monkeypatch):
+    monkeypatch.setattr(exporter, 'INPUT_SIZE', 65)
+    output = tmp_path / 'invalid.onnx'
+    with pytest.raises(ValueError, match='input_size'):
+        exporter.export_model(tmp_path / 'unused.pth', output)
+    assert not output.exists()

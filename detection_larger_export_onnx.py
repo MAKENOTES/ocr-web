@@ -10,16 +10,17 @@ import numpy as np
 import torch
 
 from detection_larger.components.onnx_runtime import CPU_THREADS, session_options
-from detection_larger.models.east_model import ONNX_CONFIG_KEY, load_checkpoint
+from detection_larger.models.east_model import ONNX_CONFIG_KEY, checkpoint_config, load_checkpoint
 
 
 CHECKPOINT_PATH = Path("detection_larger/checkpoints/best_detection_epoch_618_loss_0.01213.pth")  # 待导出的大图检查点，必须包含 config 和 model。
 OUTPUT_PATH = Path("best_detection_larger.onnx")  # 导出 ONNX 文件路径；目标已存在时拒绝覆盖。
-BENCHMARK_ENABLED = True  # 导出校验后比较 CPU batch=1 前向速度，不影响数值校验要求。
+INPUT_SIZE = 640  # 导出输入边长，单位 px；也可设为 (高, 宽)，各边至少 64 且为 32 的倍数，推理常量须与此一致。
+BENCHMARK_ENABLED = True  # 启用时额外比较 CPU batch=1 前向速度；默认跳过测速，数值校验始终执行。
 BENCHMARK_WARMUP = 5  # 每个后端正式测速前的预热次数。
 BENCHMARK_RUNS = 20  # 每个后端计入平均前向耗时的运行次数。
 OPSET_VERSION = 18  # 两种导出器统一使用的 ONNX 算子集版本。
-MAX_BATCH_SIZE = 32  # Dynamo 动态 batch 的最大图片张数；高宽固定为检查点尺寸。
+MAX_BATCH_SIZE = 32  # Dynamo 动态 batch 的最大图片张数；高宽固定为 INPUT_SIZE。
 SIMPLIFY_MODEL = True  # 启用时尝试 onnxsim，缺少依赖或简化失败则保留原图。
 VALIDATION_RTOL = 1e-4  # PyTorch 与 ONNX 输出比较的相对误差容限。
 VALIDATION_ATOL = 1e-5  # PyTorch 与 ONNX 输出比较的绝对误差容限。
@@ -67,11 +68,13 @@ def benchmark_model(model, session, sample):
     """以相同线程预算比较 CPU 单图前向；计时不含模型加载与图片预处理。"""
     if BENCHMARK_WARMUP < 0 or BENCHMARK_RUNS < 1:
         raise ValueError("Benchmark warmup must be nonnegative and runs must be positive")
+    print(f"开始 CPU 测速：每个后端预热 {BENCHMARK_WARMUP} 次、计时 {BENCHMARK_RUNS} 次", flush=True)
     previous_threads = torch.get_num_threads()
     batch = sample[:1]
     inputs = {"image": batch.numpy()}
     try:
         torch.set_num_threads(CPU_THREADS)
+        print("PyTorch CPU 预热及测速中...", flush=True)
         with torch.inference_mode():
             for _ in range(BENCHMARK_WARMUP):
                 model(batch)
@@ -79,6 +82,7 @@ def benchmark_model(model, session, sample):
             for _ in range(BENCHMARK_RUNS):
                 model(batch)
             pytorch_ms = (time.perf_counter() - started) * 1000 / BENCHMARK_RUNS
+        print(f"PyTorch CPU 完成：{pytorch_ms:.1f} ms/张；开始 ONNX Runtime 测速...", flush=True)
         for _ in range(BENCHMARK_WARMUP):
             session.run(["score", "geometry"], inputs)
         started = time.perf_counter()
@@ -95,15 +99,17 @@ def benchmark_model(model, session, sample):
 
 
 def export_model(checkpoint_path, output):
-    """按检查点尺寸导出并验证 batch 1、2；全部通过后才生成目标文件，拒绝覆盖。"""
+    """按 INPUT_SIZE 常量导出并验证 batch 1、2；全部通过后才生成目标文件，拒绝覆盖。"""
     import onnx
     import onnxruntime as ort
 
     output = Path(output)
     if output.exists():
         raise FileExistsError(f"ONNX output already exists: {output}")
-    model, checkpoint = load_checkpoint(checkpoint_path)
-    height, width = checkpoint["config"]["input_size"]
+    config = checkpoint_config(INPUT_SIZE)
+    height, width = config["input_size"]
+    model, _ = load_checkpoint(checkpoint_path)
+    print(f"导出输入尺寸：{height}×{width}；CPU 测速：{BENCHMARK_ENABLED}", flush=True)
     # batch=2 避免 Dynamo 将示例中的单张 batch 特化为固定 1。
     sample = torch.rand(2, 3, height, width)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -111,9 +117,9 @@ def export_model(checkpoint_path, output):
         staged = Path(temporary) / "model.onnx"
         export_graph(model, sample, staged)
         graph = simplify_graph(onnx.load(str(staged)))
-        # 图优化之后再写配置，确保旧推理入口仍能还原预处理契约。
+        # 元数据记录本次实际导出尺寸，避免沿用检查点尺寸造成后端校验错配。
         properties = {entry.key: entry.value for entry in graph.metadata_props}
-        properties[ONNX_CONFIG_KEY] = json.dumps(checkpoint["config"])
+        properties[ONNX_CONFIG_KEY] = json.dumps(config)
         onnx.helper.set_model_props(graph, properties)
         onnx.checker.check_model(graph)
         onnx.save(graph, str(staged))
@@ -133,11 +139,13 @@ def export_model(checkpoint_path, output):
                 print(f"batch={batch_size}, {name} 最大绝对误差: {error:.2e}")
         if BENCHMARK_ENABLED:
             benchmark_model(model, session, sample)
+        else:
+            print("数值校验通过，跳过 CPU 测速，正在保存 ONNX...", flush=True)
         # 独占创建防止校验期间同名目标出现时被覆盖；输出不依赖外部权重文件。
         with output.open("xb") as destination, staged.open("rb") as source:
             shutil.copyfileobj(source, destination)
     print(f"ONNX 文件大小: {output.stat().st_size / (1024 ** 2):.1f} MiB; 下一步: .venv/bin/python detection_larger_inference_onnx.py")
-    return checkpoint["config"]
+    return config
 
 
 def main():

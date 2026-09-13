@@ -65,13 +65,13 @@
 .venv/bin/python detection_larger_inference_onnx.py
 ```
 
-导出脚本无命令行参数；运行前修改顶部的 `CHECKPOINT_PATH`（输入检查点）和 `OUTPUT_PATH`（新的 ONNX 文件路径）常量。ONNX 导出优先使用 Dynamo，失败自动回退到 TorchScript，两者使用 opset 18。安装了 `onnxsim` 时尝试简化图；简化不可用或失败则保留原图。导出需要 `onnx`、`onnxruntime`，Dynamo 另需 `onnxscript`（均已列入根目录依赖）。输入名为 `image`，输出名为 `score`、`geometry`，高宽固定为检查点配置，batch 动态变化（Dynamo 声明范围为 1～32 张）。导出强制比较 batch 1、2 的 PyTorch 与 ONNX CPU 输出，通过后才生成单个 ONNX 文件，并写入 `docdet_config` 元数据；目标存在时拒绝覆盖。大图检查点必须含 `config` 和 `model`，不接受裸权重或旧切片模型。
+导出脚本无命令行参数；运行前修改顶部的 `CHECKPOINT_PATH`（输入检查点）、`OUTPUT_PATH`（新的 ONNX 文件路径）和 `INPUT_SIZE`（默认 640，支持整数或高宽二元组）常量。ONNX 导出优先使用 Dynamo，失败自动回退到 TorchScript，两者使用 opset 18。安装了 `onnxsim` 时尝试简化图；简化不可用或失败则保留原图。导出需要 `onnx`、`onnxruntime`，Dynamo 另需 `onnxscript`（均已列入根目录依赖）。输入名为 `image`，输出名为 `score`、`geometry`，高宽固定为导出脚本的 `INPUT_SIZE`，元数据同步记录本次导出尺寸；推理脚本的尺寸常量需与之保持一致，batch 动态变化（Dynamo 声明范围为 1～32 张）。导出强制比较 batch 1、2 的 PyTorch 与 ONNX CPU 输出，通过后才生成单个 ONNX 文件，并写入 `docdet_config` 元数据；目标存在时拒绝覆盖。大图检查点必须含 `config` 和 `model`，不接受裸权重或旧切片模型。
 
 根目录 `detection_larger_inference_onnx.py` 支持 ONNX Runtime、OpenVINO 和 PyTorch CPU，无命令行参数。修改顶部的模型、图片、输出目录、阈值和裁片常量后运行；默认读取上述导出文件，输出至 `detection_larger/data/test_results/onnx`，裁片至 `detection_larger/data/crops/onnx`。`BACKEND = "auto"` 按后缀选择：`.onnx` 使用 ONNX Runtime，`.pth` 使用 PyTorch；设置 `"openvino"` 可用 OpenVINO 编译 ONNX。显式后端与文件类型不匹配时报错，不会自动换模型文件。OpenVINO 是可选运行依赖，使用 FP32 和单请求延迟优化，按 `score`、`geometry` 名称获取输出。CPU 线程预算集中在 `components/onnx_runtime.py` 的 `CPU_THREADS`，默认 4；ONNX Runtime 开启全部图优化、内存复用，OpenVINO 使用同一线程预算。
 
 `WARMUP_RUNS = 3` 在正式处理前预热，设为 0 可关闭。每张图打印前向耗时与检测耗时：前向包含模型执行及必要设备传输/同步，检测另外包含预处理和后处理；汇总报告图片数、框数、平均前向/检测耗时、整体处理时间和吞吐量。整体时间包含图片读取和结果保存，不含模型加载及预热。默认保存原图画框预览、bbox4 标签和裁片，命名与覆盖规则同 `inference.py`。`EXPAND_BOX` 默认关闭；启用时，左右各增加框高乘 `EXPAND_RATIO_W`，上下各增加框高乘 `EXPAND_RATIO_H`，默认比例均为 0.10，并裁到原图边界；标签、预览与裁片统一使用扩展后的框。密集表格先检查扩框是否带入邻格文字。
 
-导出默认额外运行 CPU 速度对比（`BENCHMARK_ENABLED`），PyTorch 和 ONNX Runtime 均使用 `CPU_THREADS`，batch=1、预热 5 次、计时 20 次，输出平均毫秒数、实测加速比和最终文件大小；相关次数在导出入口常量配置。测速不含预处理与结果保存，不保证固定倍数提速。导出数值检查始终执行，不受测速开关影响。
+导出默认跳过 CPU 速度对比（`BENCHMARK_ENABLED = False`），数值校验通过后直接保存。需要测速时设为 `True`，脚本会打印各后端的测速阶段；原先校验后长时间没有日志的阶段会额外执行共 50 次 CPU 前向。启用时，PyTorch 和 ONNX Runtime 均使用 `CPU_THREADS`，batch=1、预热 5 次、计时 20 次，输出平均毫秒数、实测加速比和最终文件大小；相关次数在导出入口常量配置。测速不含预处理与结果保存，不保证固定倍数提速。导出数值检查始终执行，不受测速开关影响。
 
 ### 与小图入口的功能核对
 
