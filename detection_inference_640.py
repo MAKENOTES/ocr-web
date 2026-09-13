@@ -1,33 +1,7 @@
-"""
-inference_optimized.py — 多后端优化推理脚本
-=====================================================================
-支持三种后端（自动按速度选择）：
-  1. ONNX Runtime FP32   （无损，2-3x 提速）
-  2. ONNX Runtime INT8   （极小精度损失，4-6x 提速）
-  3. OpenVINO            （Intel CPU 专属，5-10x 提速）
-  4. PyTorch（原始，作为 fallback）
+"""UI 小图多后端矩形检测：默认输入高 256、宽 768 像素。
 
-推理逻辑完全复用 inference_v2.py 的连通域聚类方案（高精度框定位）。
-只替换了「模型加载 + 前向推理」部分。
-
-用法:
-    # 自动选最优后端
-    python inference_optimized.py \
-        --model_path detection/checkpoints/east_model_int8_static.onnx \
-        --image_path detection/data/test/1 \
-        --output_dir detection/data/test_results/optimized
-
-    # 指定 OpenVINO 后端
-    python inference_optimized.py \
-        --model_path detection/checkpoints/east_model.onnx \
-        --backend openvino \
-        --image_path your_image.jpg
-
-依赖:
-    pip install onnxruntime onnxsim
-    # OpenVINO（可选，Intel CPU 专属）:
-    pip install openvino
-"""
+支持 PyTorch、ONNX Runtime 和 OpenVINO；auto 按后缀与依赖选择，不运行速度竞赛。
+保存输入尺寸预览与可选原图裁片，详情见 detection/inference.md。"""
 
 import os
 import sys
@@ -41,23 +15,21 @@ from torchvision.transforms import Normalize
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# ============================================================
 # 参数配置
-# ============================================================
 
-DEFAULT_MODEL_PATH  = "best_detection.onnx"
-DEFAULT_IMAGE_PATH  = "detection/data/test/1"
-DEFAULT_OUTPUT_DIR  = "detection/data/test_results/optimized/1"
-DEFAULT_CROP_DIR    = "detection/data/crops/optimized/1"
+DEFAULT_MODEL_PATH  = "best_detection.onnx"  # 默认小图 ONNX 权重路径，不与大图模型通用。
+DEFAULT_IMAGE_PATH  = "detection/data/test/1"  # 默认待推理图片目录。
+DEFAULT_OUTPUT_DIR  = "detection/data/test_results/optimized/1"  # 默认画框预览目录，覆盖同名结果。
+DEFAULT_CROP_DIR    = "detection/data/crops/optimized/1"  # 开启裁片时的固定目录，独立于 --output_dir。
 
 INPUT_SIZE          = (256, 768)  # (height, width)，与训练配置一致
-SCORE_THRESHOLD     = 0.7
-MIN_AREA            = 2
+SCORE_THRESHOLD     = 0.7  # 置信度严格超过此值的网格参与连通域。
+MIN_AREA            = 2  # 最小连通域面积，单位为特征图像素数。
 
-SAVE_CROPS          = False
-EXPAND_BOX          = False
-EXPAND_RATIO_W      = 0.10
-EXPAND_RATIO_H      = 0.10
+SAVE_CROPS          = False  # 启用时从原图保存 PNG 裁片，默认关闭。
+EXPAND_BOX          = False  # 启用时按框高向四周扩边，默认关闭。
+EXPAND_RATIO_W      = 0.10  # 左右各扩展框高的 10%，仅扩框启用时生效。
+EXPAND_RATIO_H      = 0.10  # 上下各扩展框高的 10%，仅扩框启用时生效。
 # 注意：宽高比过滤只用于小连通域噪点过滤，大连通域不受限制
 SMALL_MAX_ASPECT      = 5.0   # 小连通域宽高比超过此值才过滤（正方形符号宽高比应接近1）
 
@@ -88,12 +60,10 @@ def scaled_small_region_area(input_size):
     return max(MIN_AREA + 1, scaled_area)
 
 
-SMALL_REGION_AREA = scaled_small_region_area(INPUT_SIZE)
+SMALL_REGION_AREA = scaled_small_region_area(INPUT_SIZE)  # 默认输入尺寸对应的小区域面积分界，单位为特征图像素数。
 
 
-# ============================================================
 # 后端加载器
-# ============================================================
 
 class ONNXBackend:
     """ONNX Runtime 后端（支持 FP32 和 INT8 模型）"""
@@ -138,7 +108,7 @@ class ONNXBackend:
 
 class OpenVINOBackend:
     """
-    OpenVINO 后端（Intel CPU 专属，比 ONNX Runtime 再快 2-3x）
+    OpenVINO CPU 后端，使用 THROUGHPUT 提示和自动 stream 数；性能须实测。
     支持直接从 .onnx 文件加载，无需额外转换。
     """
 
@@ -204,7 +174,7 @@ class PyTorchBackend:
 
 def load_backend(model_path: str, backend: str, input_size=INPUT_SIZE):
     """
-    根据指定后端或文件扩展名自动选择最优后端。
+    使用显式后端或按扩展名选择；不比较速度。
     自动选择逻辑：
       .onnx → 优先 ONNX Runtime
       .pth  → PyTorch
@@ -232,9 +202,7 @@ def load_backend(model_path: str, backend: str, input_size=INPUT_SIZE):
         raise ValueError(f"未知后端: {backend}")
 
 
-# ============================================================
-# 图像预处理（与训练保持完全一致）
-# ============================================================
+# 图像预处理（沿用训练的确定性缩放、补边和归一化）
 
 def preprocess(image_path: str, input_size=INPUT_SIZE):
     """
@@ -277,8 +245,8 @@ def preprocess(image_path: str, input_size=INPUT_SIZE):
 def box_from_small_region(ys, xs, geo_map_np, stride):
     """
     针对小连通域（√ 等单字符/符号）的出框策略。
-    取所有像素 geo 预测的中位数，比边缘采样更稳定。
-    geo_map_np 此时已经过 expm1 还原，是真实像素距离。
+    取该区域所有像素 geo 预测的中位数。
+    geo_map_np 已经 expm1 还原，单位为特征图像素，乘 stride 后才是输入图像素。
     """
     d_top    = np.median(geo_map_np[0, ys, xs])
     d_right  = np.median(geo_map_np[1, ys, xs])
@@ -302,7 +270,7 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
     """
     单轮连通域检测：
 
-      - 大连通域（面积 >= small_region_area）：边缘像素采样，精度高
+      - 大连通域（面积 >= small_region_area）：边缘像素中位数采样
         ★ 不做宽高比过滤，正文长文本行天然是扁长条
       - 小连通域（面积 < small_region_area） ：全像素中位数出框
         ★ 对小连通域做宽高比过滤，去除细线噪点
@@ -322,7 +290,7 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
 
         ys, xs = np.where(labels == label_id)
 
-        # ── 小连通域（单符号）──────────────────────────────
+        # 小连通域（单符号）
         if area < small_region_area:
             # 小连通域才做宽高比过滤（去除细线噪点）
             # √ 等符号宽高比接近 1，细线噪点宽高比极大
@@ -335,7 +303,7 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
                 boxes.append(box)
             continue
 
-        # ── 大连通域（文本行）：边缘像素采样出框 ────────────
+        # 大连通域（文本行）：边缘像素采样出框
         # ★ 不加宽高比过滤，正文长文本行宽高比本来就大
         x_min_r = xs.min();  x_max_r = xs.max()
         y_min_r = ys.min();  y_max_r = ys.max()
@@ -364,9 +332,7 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
 
     return np.array(boxes) if boxes else np.array([])
 
-# ============================================================
 # 单图推理
-# ============================================================
 
 def detect_one(backend, image_path: str, output_dir: str,
                input_size=INPUT_SIZE,
@@ -385,7 +351,7 @@ def detect_one(backend, image_path: str, output_dir: str,
     img_np, resized_pil, (orig_w, orig_h) = preprocessed
     input_h, input_w = normalize_input_size(input_size)
 
-    # --- 前向推理 ---
+    # 前向推理
     t0 = time.perf_counter()
     score_raw, geo_raw = backend.infer(img_np)
     infer_ms = (time.perf_counter() - t0) * 1000
@@ -396,7 +362,7 @@ def detect_one(backend, image_path: str, output_dir: str,
     geo_map_np = np.expm1(geo_raw[0, :4])
     geo_map_np = np.maximum(geo_map_np, 0)
 
-    # --- 连通域检测 ---
+    # 连通域检测
     final_boxes = boxes_from_connected_components(
         score_map_np, geo_map_np,
         score_threshold=score_threshold,
@@ -404,14 +370,14 @@ def detect_one(backend, image_path: str, output_dir: str,
         small_region_area=scaled_small_region_area(input_size),
     )
 
-    # --- 坐标映射参数 ---
+    # 坐标映射参数
     scale = min(input_w / orig_w, input_h / orig_h)
     content_w = int(orig_w * scale)
     content_h = int(orig_h * scale)
     pad_x = (input_w - content_w) // 2
     pad_y = (input_h - content_h) // 2
 
-    # --- 绘图 & 保存 ---
+    # 绘图 & 保存
     img_vis = cv2.cvtColor(np.array(resized_pil), cv2.COLOR_RGB2BGR)
     img_orig = cv2.imread(image_path)
     if img_orig is None:
@@ -468,9 +434,7 @@ def detect_one(backend, image_path: str, output_dir: str,
     return len(final_boxes), infer_ms
 
 
-# ============================================================
 # 主函数
-# ============================================================
 
 def main():
     parser = argparse.ArgumentParser(description="EAST 优化推理（ONNX/INT8/OpenVINO）")

@@ -6,15 +6,11 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 
-DEFAULT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
+DEFAULT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")  # 加载器默认图片扩展名；当前训练入口显式限定 PNG。
 
 class OCRDataset(Dataset):
-    """
-    用于OCR文本检测任务的自定义数据集。
-    该数据集负责加载图像和对应的ICDAR格式的标签文件。
-    1、把label 的两个点转成四个点
-    2、调用 transform 得到 张量
-    """
+    """读取小图检测图片及 bbox4/quad8 标签，返回图片、四边形与文字列表。
+    存在 gt_ 标签时优先使用；require_labels 检查缺标签，解析坏行目前告警后跳过。"""
     def __init__(self, image_dir, label_dir, transform=None,
                  image_extensions=DEFAULT_IMAGE_EXTENSIONS,
                  require_labels=False):
@@ -139,14 +135,14 @@ class OCRDataset(Dataset):
 
                     # 处理可选的文本内容
                     transcription = " ".join(parts[transcription_start:])
-                    if transcription != "###": # 忽略 "don't care" 区域
+                    if transcription != "###":  # 这里只省略文字，quad 仍保留；当前真值没有忽略掩码。
                         transcriptions.append(transcription)
 
                 except (ValueError, IndexError):
                     print(f"警告: 无法解析行于 {label_path}: {line}")
                     continue
 
-        #把一个普通的 Python 列表（list）转换成一个 NumPy 数组（array）。
+        # 保持空框样本与非空框样本的 float32 类型一致。
         quads = np.array(quads, dtype=np.float32) if quads else np.array([], dtype=np.float32)
 
         sample = {'image': image, 'quads': quads, 'transcriptions': transcriptions}

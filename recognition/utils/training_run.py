@@ -31,7 +31,7 @@ def parse_args(argv=None):
 def build_training_config(*, train_annotation, valid_annotation, img_height, img_width,
                           num_channels, batch_size, num_workers, start_valid_epoch,
                           start_save_epoch, save_interval, keep_top_k):
-    """核对数据标注、核心实现和影响续训的配置；不扫描图片内容。"""
+    """记录标注内容、关键配置和核心源码全文 SHA-256；注释改动也影响续训，不扫描图片内容。"""
     annotations = [train_annotation] if isinstance(train_annotation, str) else list(train_annotation)
     if valid_annotation and os.path.exists(valid_annotation):
         annotations.append(valid_annotation)

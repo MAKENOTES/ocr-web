@@ -1,4 +1,4 @@
-"""三个合成入口的批次、文件名和报告目录约定。"""
+"""集中定义合成批次的日期、文件名与默认报告目录，供各生成入口显式调用。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 
-REPORT_ROOT = Path(__file__).resolve().parent / "synthesis_report"
+REPORT_ROOT = Path(__file__).resolve().parent / "synthesis_report"  # 默认合成报告根目录，各批次独立建子目录。
 
 
 def numbered_filename(batch: str, date: str, number: int) -> str:

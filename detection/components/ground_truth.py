@@ -2,32 +2,20 @@ import numpy as np
 import cv2
 
 def shrink_polygon(poly, r=0.4):
-    """
-    修正后的多边形收缩函数。
-    1. 修正了顶点顺序错位的问题。
-    2. 增加了防止过度收缩的保护机制（特别是针对细长文本）。
-    """
+    """按边法向收缩四边形，偏移不超过最短边的 45%，防止细长框翻转。"""
     area = cv2.contourArea(poly)
     perimeter = cv2.arcLength(poly, True)
 
     if perimeter == 0:
         return poly
 
-    # --- 核心修正 1: 收缩公式与限制 ---
-    # 计算理论收缩距离
+    # 按面积和周长估计偏移距离，坐标单位沿用输入多边形。
     d = area * (1 - r * r) / perimeter
 
-    # [保护机制]：如果文本非常细长（例如高度只有 4px），d 可能会导致两条长边交叉
-    # 我们计算多边形的“短边”长度近似值
-    # 简单的近似：面积 / (周长/2) = 平均厚度
-    # 或者直接计算最短边长
     edge_lengths = [np.linalg.norm(poly[i] - poly[(i + 1) % 4]) for i in range(4)]
     min_side = min(edge_lengths)
 
-    # 限制 d 不能超过最短边的一半，否则多边形会消失或翻转
-    # 留 1 个像素的余地，保证至少有 mask 存在
-    # max_d = (min_side - 1.0) / 2.0
-    # input_size 由1024改成640  原来  max_d = (min_side - 1.0) / 2.0   其中1.0 时常量，改成  max_d = min_side * 0.45 可以适配640。解决上下两行仅出一个框问题
+    # 上限随最短边缩放，不保证取整后必定保留一个正像素。
     max_d = min_side * 0.45
 
     # 如果 max_d <= 0，说明框太小了，甚至不足1px，此时强行保留极小厚度或不收缩
@@ -55,9 +43,7 @@ def shrink_polygon(poly, r=0.4):
 
     new_poly = []
     for i in range(4):
-        # --- 核心修正 2: 顶点对齐逻辑 ---
-        # 我们想要计算对应原 poly[i] 的新顶点
-        # 原 poly[i] 是 Line[i-1] (前一条边) 和 Line[i] (当前边) 的交点
+        # 相邻偏移边的交点对应原顶点，保持顶点顺序。
 
         # Line 1: 上一条边 (i-1)
         p1_prev, v1_prev = lines[(i - 1) % 4]
@@ -80,6 +66,7 @@ def shrink_polygon(poly, r=0.4):
 
 
 def generate_ground_truth(image_size, quads, score_map_scale=0.25):
+    """返回置信度 [H*s,W*s] 及几何 [4,H*s,W*s]；几何为 log1p 特征图像素距离。"""
     img_h, img_w = image_size
     score_map_h, score_map_w = int(img_h * score_map_scale), int(img_w * score_map_scale)
 
@@ -92,14 +79,6 @@ def generate_ground_truth(image_size, quads, score_map_scale=0.25):
     for quad in quads:
         scaled_quad = quad * score_map_scale
 
-        # area_ratio = (img_h * img_w) / (1024 * 1024)
-        # area = cv2.contourArea(scaled_quad.astype(np.int32))
-        # if area < 10 * area_ratio:
-        #     shrunk_quad = scaled_quad
-        # elif area < 50 * area_ratio:
-        #     shrunk_quad = shrink_polygon(scaled_quad, r=0.8)
-        # else:
-        #     shrunk_quad = shrink_polygon(scaled_quad, r=0.2)
         shrunk_quad = shrink_polygon(scaled_quad, r=0.35)
 
         mask = np.zeros((score_map_h, score_map_w), dtype=np.uint8)

@@ -1,47 +1,54 @@
-当前目录用于 UI 小图文字检测。PDF 页面与网页表格大图使用同级的 [detection_larger](../detection_larger/README.md)，尺寸判断见[文档检测评估](../docs/detection/detection-larger-assessment.md)。
+# UI 小图文字检测
 
-以下为早期目录结构记录：
+本包用 ResNet18 EAST 定位 UI 小图中的水平文字框。训练入口为 [train_resnet.py](train_resnet.py)，
+矩形多后端推理入口为根目录的 [detection_inference_640.py](../detection_inference_640.py)。
+文件名中的 `640` 不代表当前尺寸；默认输入为高 256、宽 768 像素。
 
-```text
-/home/weiqiang/AI/ocr-majorbio/
-|-- data/                  # 存放你的数据集
-|   |-- train_images/      # 训练图片
-|   |-- train_labels/      # 训练标签 (例如, .txt 文件)
-|   |-- val_images/        # 验证图片
-|   |-- val_labels/        # 验证标签
-|-- models/                # 存放模型定义脚本
-|   |-- east_model.py      # 模型架构
-|-- utils/                 # 工具脚本
-|   |-- dataset.py         # 自定义Dataset类，用于加载数据
-|   |-- transforms.py      # 数据预处理和增强
-|-- train.py               # 训练脚本
-|-- eval.py                # 评估脚本
-|-- requirements.txt       # 项目依赖
-```
+本包与 `detection_larger` 分别维护代码、配置、数据和权重，不能互相导入。
+接口细节见[架构](../docs/detection/architecture.md)，推理操作见[推理说明](inference.md)。
 
-## 稳定划分训练集和验证集
+## 训练前检查
 
-`split_dataset.py` 默认从 `data/train_images` 和 `data/train_labels` 中移动
-20% 的图片/标签对到 `data/val_images` 和 `data/val_labels`：
+`train_resnet.py` 当前的 `VAL_IMAGE_DIR`、`VAL_LABEL_DIR` 指向训练目录。
+直接运行得到的是训练数据上的损失，不能作为独立验证精度。正式训练前应将这两个常量
+指向已准备好的独立验证目录，并核对 `data/split_manifest.csv`；本次文档核对没有改动该配置。
+
+训练参数集中在文件顶部：RGB PNG、输入 `(256, 768)`、batch 8、最多 200 轮。
+使用 Adam 和 OneCycleLR，实际峰值学习率为 `3e-4`；`LEARNING_RATE=1e-4` 是优化器构造值。
+第 80 轮起逐轮验证，此前每 10 轮验证；早停按连续 15 次验证未改善计数。
+常规权重每 5 轮保存，保留最近 5 份；另保留验证损失最低的 3 份。
+保存的是模型参数，不包含优化器、调度器或完整续训状态。
 
 ```bash
-python detection/split_dataset.py --dry-run  # 只检查，不修改文件
-python detection/split_dataset.py            # 正式划分
+# 先核对顶部路径、输入尺寸和验证集配置
+.venv/bin/python detection/train_resnet.py
 ```
 
-划分结果保存在 `detection/data/split_manifest.csv`。CSV 是后续划分的依据：
-已有样本的 `train`/`val` 归属不会改变，脚本只为新增样本分组，并让总体验证集比例
-尽量保持为 20%。图片与标签按图片主文件名配对，支持
-`gt_<图片名>.txt` 和 `<图片名>.txt`；缺少标签或标签名有歧义时脚本会停止。
+## 固定训练集与验证集归属
 
-下一批数据位于 `all_images` 和 `all_labels` 时，可配置来源目录：
+[split_dataset.py](split_dataset.py) 以已有 manifest 为准，保留旧样本归属，仅为新增样本分组，
+尽量使验证集占 20%。按图片 stem 配对标签，支持 `gt_<stem>.txt` 和 `<stem>.txt`；
+缺失或歧义标签会报错。划分器的校验比当前训练加载器严格，二者不能混为一谈。
 
 ```bash
-python detection/split_dataset.py \
-  --source-images detection/data/all_images \
-  --source-labels detection/data/all_labels
+# 划分器默认执行移动，检查时必须显式加 --dry-run
+.venv/bin/python detection/split_dataset.py --dry-run
+
+# 需要执行划分时使用；会移动图片和标签并更新 manifest
+.venv/bin/python detection/split_dataset.py
 ```
 
-其他可配置参数可通过 `python detection/split_dataset.py --help` 查看，包括输出目录、
-CSV 路径、验证集比例、随机种子，以及 `--mode move|copy`。默认使用 `move`，避免训练集
-和验证集包含相同样本。
+可用 `--source-images`、`--source-labels` 指定新增数据目录，其他路径及 `move/copy` 选项见 `--help`。
+不要让训练和验证目录包含同一样本；`copy` 模式不能代替源目录与训练目录的隔离检查。
+
+## 历史实现与检查
+
+`inference.py`、`inference_v*.py`、`train_resnet_metrics.py`、`train_resnet_overfit.py`
+和 `train_mobilenet.py` 保留各自实验配置，不作为当前矩形入口的默认参数来源。
+模型和真值文件也有历史变体；实际导入关系见架构文档。
+
+```bash
+.venv/bin/python -m pytest tests/test_detection_rectangular_pipeline.py tests/test_detection_split_dataset.py tests/test_detection_isolation.py -q
+```
+
+尚待处理的加载、评估和数据隔离问题见[核对待办](../docs/code-doc-todolist.md)。

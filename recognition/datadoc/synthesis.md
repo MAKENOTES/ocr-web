@@ -1,5 +1,8 @@
 # Recognition 数据合成
 
+各入口的写入行为不同：普通生成直接创建新产物，重渲染和恢复默认只预览。
+生成前核对 `--help`、输出目录及实际字典。术语见[术语表](../../docs/terminology.md)。
+
 ## 按原标注补回已删除的图片
 
 图片已删除、同批次 `samples.jsonl` 仍在时，使用 `restore.py` 按 txt 中的原路径逐条重建。
@@ -93,10 +96,9 @@
 自动尝试 `synthesis2`、`synthesis3`，以此类推；图片文件名前缀与选中的编号一致。
 显式指定的图片目录或标注名称包含 `synthesisN` 时沿用该编号，已有非空输出仍拒绝覆盖。
 
-已有 `synthesis1_annotation.txt`、`synthesis2_annotation.txt` 中的图片按各自标注顺序重新编号，
-日期取迁移当天。可用 `python recognition/utils/rename_synthesis_images.py` 预览，
-加 `--apply` 同步改名和更新标注路径；正文和图片内容不变。
-原始标注、新旧文件名映射及图片 SHA-256 保存在 `outputs/synthesis_naming_migration/rename-*/`。
+历史迁移工具 `rename_synthesis_images.py` 当前不存在，不能再按旧命令改名。
+现有图片路径必须与标注精确一致；如需重新生成，使用上方 `regenerate.py` 或 `restore.py`，
+不要手工只改一侧路径。历史迁移产物仅作为本地记录，不是当前入口依赖。
 
 ### 风格要求
 默认从 `recognition/data/train_images/`、`val_images/` 合并抽样最多 **1600 张**参考图，
@@ -105,13 +107,15 @@
 ### 使用命令
 ```bash
 # 默认每个目标字新增 100 张
-python recognition/utils/synthesis/generate.py
+.venv/bin/python recognition/utils/synthesis/generate.py
 ```
 
 ## 2、根据统计字符占比文件，生成字符来平衡字符占比
 对应脚本：[recognition/utils/synthesis/generate_balanced.py](../utils/synthesis/generate_balanced.py)。
 用于根据统计结果补齐低频字，当前默认生成 **50000 张**。
 实际约束是补齐字符出现次数到指定范围，不是让所有字符的占比百分数相等。
+读取 CSV 第一列字符、最后一列次数，默认补至 110 次，可设 100～120；新增次数为目标减基线。
+默认基线包含 train、val、synthesis1/2，不能当作完整训练集次数；后续批次须重算统计避免重复补齐。
 
 ### 字符来源说明
 - 默认读取 `outputs/recognition_character_stats/character_stats.csv`，可用 `--stats` 指定其他文件。
@@ -135,9 +139,9 @@ python recognition/utils/synthesis/generate.py
 ### 使用命令
 ```bash
 # 校验 CSV、字体、参考图和完整配额计划，不生成图片或报告文件
-python recognition/utils/synthesis/generate_balanced.py --dry-run
+.venv/bin/python recognition/utils/synthesis/generate_balanced.py --dry-run
 # 当前默认：生成 50000 张，低频目标字最终补到 110 次
-python recognition/utils/synthesis/generate_balanced.py
+.venv/bin/python recognition/utils/synthesis/generate_balanced.py
 ```
 
 ## 3、特殊样本：生成受红章干扰的字符样本
@@ -167,7 +171,8 @@ python recognition/utils/synthesis/generate_balanced.py
 默认均分 10 种场景：参考位置、上弧、下弧、星形、行首、行尾、仅残弧、淡章、磨损、浓章。
 同时变化整章角度、圆章纵横比、局部印泥压力与遮盖程度；新增短框参考使正文长度覆盖单字至长行。
 正文仍为训练语料整条标签，章字不入标注。每张检查可见红色与正文交叠，报告记录场景分布及兜底次数。
-详细参数与数据契约见 [Recognition 当前架构](../../docs/recogniton/recognition.md#红章干扰合成默认-1000-张)。
+预处理边界见 [Recognition 当前架构](../../docs/recogniton/recognition.md#保守去红章与训练增强)；
+生成器只叠加干扰，不执行识别去章，不保证每张合成章都能被预处理移除。
 
 ### 使用命令
 ```bash
@@ -270,7 +275,7 @@ python recognition/utils/synthesis/generate_balanced.py
 并保存分析文档、语料、字典、参考图和字体的 SHA-256。预览长行会缩小，原图保留完整尺寸。
 已有输出拒绝覆盖；中断时保留 `.partial`，不发布未完成的标注。重新生成请指定新的输出和报告路径。
 
-### 2026-09-10 生成记录
+### 2026-09-10 历史生成记录（本次未重测）
 
 三类各 1000 张，合计 3000 张，已逐张验证 PNG 可读、RGB 模式、字典覆盖、两版标注一致及路径存在，
 并抽查最终预览。37、18、43 张参考图均被采样且文件校验和保持不变。

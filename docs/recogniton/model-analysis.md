@@ -1,5 +1,7 @@
 # model.py：从图片特征到 CTC 字符序列
 
+> 历史分析：结论限于原文注明的代码、数据及权重版本，本次未重做训练或性能测量。当前行为见[架构](recognition.md)和[运行说明](running.md)。
+
 分析对象：[recognition/models/model.py](../../recognition/models/model.py)。本文依据 2026-09-07 的工作区代码。
 
 **先记住一句话：`CRNN` 用 CNN 把图片变成从左到右的特征序列，用双向 GRU 理解上下文，再为每个时间步输出各字符类别的对数概率。** 最终字符串由 converter 解码，训练损失由训练脚本计算。

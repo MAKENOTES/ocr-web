@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""按字符统计清理 synthesis 图片、整条标注及 keys；默认仅预览。"""
+"""按字符统计清理 synthesis1/2 整条标注、图片及 keys；默认仅预览。"""
 
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ except ModuleNotFoundError:  # 支持直接运行脚本，不依赖 torch
     from convert_annotation_delimiter import atomic_write
 
 
-TARGETS = (SYNTHESIS_DATASET1, SYNTHESIS_DATASET2)
-DATASETS = ("train", "val", *TARGETS)
+TARGETS = (SYNTHESIS_DATASET1, SYNTHESIS_DATASET2)  # 允许删除标注和图片的两份合成数据；不扫描其他合成清单。
+DATASETS = ("train", "val", *TARGETS)  # 校验字符次数及保留图片引用的四份数据。
 
 
 @dataclass

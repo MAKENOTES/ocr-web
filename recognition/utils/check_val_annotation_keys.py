@@ -21,12 +21,12 @@ else:
     from dictionary import parse_annotation_text
 
 
-RECOGNITION_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_ANNOTATION = RECOGNITION_DIR / "data" / "val_annotation.txt"
-DEFAULT_KEYS = RECOGNITION_DIR / "keys.txt"
-OUTPUT_PATH = RECOGNITION_DIR / "data" / "val_unknown_keys.txt"
-UNKNOWN_IMAGES_DIR = RECOGNITION_DIR / "data" / "val_unknown"
-UNKNOWN_ANNOTATION = RECOGNITION_DIR / "data" / "val_unknown.txt"
+RECOGNITION_DIR = Path(__file__).resolve().parents[1]  # recognition 包目录，由当前文件位置推导。
+DEFAULT_ANNOTATION = RECOGNITION_DIR / "data" / "val_annotation.txt"  # 默认待核对的验证集标注文件。
+DEFAULT_KEYS = RECOGNITION_DIR / "keys.txt"  # 默认原字典路径，用于字符差集比较。
+OUTPUT_PATH = RECOGNITION_DIR / "data" / "val_unknown_keys.txt"  # 固定报告输出路径，运行时写入或覆盖。
+UNKNOWN_IMAGES_DIR = RECOGNITION_DIR / "data" / "val_unknown"  # 显式启用转移时，保存字典外字符图片的目录。
+UNKNOWN_ANNOTATION = RECOGNITION_DIR / "data" / "val_unknown.txt"  # 显式启用转移时，保存隔离样本的 Tab 标注文件。
 
 
 @dataclass(frozen=True)

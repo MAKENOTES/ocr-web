@@ -1,3 +1,6 @@
+"""按顶部配置评估一份 Tab 标注，输出整行准确率、CER 及错误报告。
+按 stem 映射标签，调用前需检查同名样本；有错误时才覆盖 ERROR_OUTPUT_FILE。"""
+
 import os
 import torch
 from torch.utils.data import DataLoader
@@ -20,11 +23,11 @@ from recognition.components.dataset import (
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 from recognition.utils.annotation import split_annotation_fields
 
-# ================= 配置区域 =================
-MODEL_PATH = "recognition/checkpoints/best_cer_0.003755_epoch_666.pth"  # 修改为你的最佳模型路径
-KEYS_PATH = "recognition/keys.txt"
+# 配置区域
+MODEL_PATH = "recognition/checkpoints/best_cer_0.003755_epoch_666.pth"  # 本次评估的 CRNN 权重，需与 KEYS_PATH 配套。
+KEYS_PATH = "recognition/keys.txt"  # 权重训练时的字符字典，内容及顺序必须一致。
 # VAL_ANNOTATION = "recognition/data/train_annotation.txt"
-VAL_ANNOTATION = "recognition/data/val_annotation.txt"
+VAL_ANNOTATION = "recognition/data/val_annotation.txt"  # 本次评估的 Tab 标注，图片路径相对于该文件。
 # VAL_ANNOTATION = "recognition/data/synthesis1_annotation.txt"
 # VAL_ANNOTATION = "recognition/data/synthesis2_annotation.txt"
 # VAL_ANNOTATION = "recognition/data/synthesis3_annotation.txt"
@@ -37,11 +40,11 @@ VAL_ANNOTATION = "recognition/data/val_annotation.txt"
 
 ERROR_OUTPUT_FILE = "recognition/error_cases.txt"  # 错误案例保存文件（可设为 None）
 
-IMG_HEIGHT = 32
-DEFAULT_NUM_CHANNELS = 3
-BATCH_SIZE = 64
-NUM_WORKERS = 4
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+IMG_HEIGHT = 32  # 输入固定高度，单位 px；评估默认不限制宽度。
+DEFAULT_NUM_CHANNELS = 3  # 无法从首层权重推断通道时默认使用 RGB 三通道。
+BATCH_SIZE = 64  # 每批评估图片数，末批保留。
+NUM_WORKERS = 4  # 数据加载子进程数；0 表示主进程加载。
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 有可用 CUDA 时使用 GPU，否则 CPU。
 
 
 def levenshtein_distance(s1: str, s2: str) -> int:

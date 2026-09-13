@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-ANNOTATION_SEPARATOR = "\t"
+ANNOTATION_SEPARATOR = "\t"  # 路径与文字之间的真实 Tab 分隔符；只按首个 Tab 拆分。
 
 
 def split_annotation_fields(

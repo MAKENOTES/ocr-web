@@ -8,7 +8,7 @@ import sys
 import numpy as np
 from PIL import Image
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[3]  # 仓库根目录，由当前文件位置推导，不依赖运行目录。
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -16,6 +16,7 @@ from recognition.utils.synthesis import error_common as common
 from recognition.utils.synthesis.generate import render_image
 
 # 参考图以右边缘问题为主；每十张分配四张右贴边，两张右轻裁，其余四种各一张。
+# 有重复项的采样配额表：右贴边占四份，右轻裁占两份，其他各一份。
 PATTERNS = ('tight_right', 'tight_right', 'tight_right', 'tight_right',
             'clip_right', 'clip_right', 'tight_left', 'clip_left', 'clip_vertical', 'fragment')
 

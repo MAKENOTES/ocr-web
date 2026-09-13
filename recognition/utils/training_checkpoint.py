@@ -12,7 +12,7 @@ import torch
 
 from recognition.utils.checkpoint import extract_state_dict
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 1  # 完整训练状态的序列化版本号，加载时必须精确匹配。
 
 
 def file_digest(path):

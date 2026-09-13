@@ -214,8 +214,8 @@ class ToTensor:
 def get_transforms(is_train=True, input_size=512):
     """
     获取一个组合好的数据转换流程 (pipeline)。
-    :param is_train: bool, 是否为训练模式。如果是，未来可以加入数据增强。
-    :param input_size: int, 模型的输入尺寸。
+    :param is_train: bool, 训练时启用颜色扰动；验证不做随机增强。
+    :param input_size: int 或 (高, 宽)，模型输入像素尺寸。
     :return: 一个 `torchvision.transforms.Compose` 对象。
     """
     # 为训练添加更多的数据增强

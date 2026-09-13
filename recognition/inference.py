@@ -1,3 +1,5 @@
+"""按顶部常量执行 PyTorch 识别，共享 RGB 加载、去章及动态补边。"""
+
 import os
 import torch
 import glob
@@ -11,7 +13,7 @@ project_root = os.path.dirname(current_dir)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# --- 导入项目模块 ---
+# 导入项目模块
 # converter: 用于字符解码
 from recognition.components.converter import LabelConverter
 # model: 定义网络结构
@@ -20,7 +22,7 @@ from recognition.models.model import CRNN
 from recognition.components.dataset import InferenceDataset, dynamic_padding_collate_fn
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
-# ================= 配置区域 (常量) =================
+# 配置区域 (常量)
 # 1. 核心路径
 MODEL_PATH = os.path.join(project_root, "recognition/checkpoints/1789016080best_cer_0.0044_epoch_491.pth")  # 训练好的模型路径
 KEYS_PATH = os.path.join(project_root, "recognition/keys.txt")  # 字典路径 (必须与训练一致)
@@ -33,11 +35,9 @@ DEFAULT_NUM_CHANNELS = 3  # 新训练使用 RGB；旧 checkpoint 会自动识别
 
 # 3. 推理参数
 BATCH_SIZE = 64  # 批量大小 (显存允许可调大，例如 64, 128)
-NUM_WORKERS = 2  # 数据加载线程数
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+NUM_WORKERS = 2  # 数据加载子进程数；0 表示主进程加载。
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 有可用 CUDA 时使用 GPU，否则 CPU。
 
-
-# ==================================================
 
 def load_network():
     """
@@ -96,7 +96,7 @@ def main():
     model, converter, num_channels = load_network()
 
     # 3. 构建 DataLoader
-    # 输入已经是 detection 文字框，直接等比缩放，不做二次裁剪或按颜色删像素。
+    # 输入为完整 detection 框；共享局部去红章与缩放，不二次裁剪正文。
     dataset = InferenceDataset(
         image_paths=image_paths,
         img_height=IMG_HEIGHT,
@@ -117,7 +117,7 @@ def main():
     print(f"开始推理 (Batch Size: {BATCH_SIZE})...")
 
     with torch.no_grad():
-        # loader 返回: (padded_images, paths)
+        # loader 返回补边图片、路径和不含保护区的真实宽度。
         for images, paths, img_widths in tqdm(loader, unit="batch"):
             images = images.to(DEVICE)
             img_widths = img_widths.to(DEVICE)
@@ -126,7 +126,7 @@ def main():
             preds = model(images, img_widths=img_widths)
 
             # 解码 -> List[str]
-            # converter.decode 内部处理了 Softmax/Argmax 和 CTC 的去重逻辑
+            # converter.decode 直接取 argmax，再合并连续重复和移除 blank。
             pred_texts = converter.decode(preds.cpu(), layout="TBC")
 
             # 收集结果

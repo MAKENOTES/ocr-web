@@ -20,7 +20,7 @@ CROP_DIR = Path("detection_larger/data/crops/onnx")  # 裁片平铺目录，覆�
 
 
 def main():
-    """读取顶部常量；尺寸与预处理以模型内的检查点配置为准。"""
+    """读取顶部常量执行 CPU 推理；尺寸由 detection_larger.inference.INPUT_SIZE 控制。"""
     run_inference(MODEL_PATH, IMAGE_PATH, OUTPUT_DIR, "cpu",
                   threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
                   save_crops=SAVE_CROPS, crop_dir=CROP_DIR, backend=BACKEND,

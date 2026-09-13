@@ -1,88 +1,70 @@
-# 数据集
+# Recognition 数据维护
 
-## 数据集后续计划
+图片使用 PNG，标注为 `relative/path.png<TAB>文字`。共享解析器不做标点替换或外层引号剥离；
+文字首尾空白由加载器去除。流程细节见[数据工具](../../docs/recogniton/data-tools.md)，
+模型输入见[当前架构](../../docs/recogniton/recognition.md)。
 
-### 相似字或符号
-已  和 己  ？ synthesis2_20260910_05454.png
-杳 和 杏
-间 和 问
-日 和 目
-余、佘
-” 和 "
-µ μ 001072-000011.png
+## 常用检查
 
-## 数据集脚步
+以下命令在仓库根目录执行；报告可能覆盖同名结果，运行前核对输入与输出。
 
-### 新增数据集
-1、从数据集txt文件中 提取keys 到 keys-new.txt
-python recognition/utils/dictionary.py
-2、对比 keys-new.txt 与 keys.txt 得到哪些文字是新增的文字
-python recognition/utils/compare_key_files.py
+```bash
+# 从指定标注提取新字典，默认输入实际为 append1_annotation.txt
+.venv/bin/python recognition/utils/dictionary.py --input recognition/data/train_annotation.txt
+# 比较 keys-new 与 keys，结果写 keys-append.txt，不修改 keys
+.venv/bin/python recognition/utils/compare_key_files.py
+# 核对 val 的字典外字符，写报告；不传 --move-unknown 不搬移图片
+.venv/bin/python recognition/utils/check_val_annotation_keys.py
+# 比较 train/val 中文字完全相同的记录；文字相同不等于图片泄漏
+.venv/bin/python recognition/utils/compare_train_val_same_text.py
+```
 
-### 数据集评估
-1、从 不同的数据集txt文件，对模型评估
-python recognition/evaluate_val.py
+新增字典只用于核对，不可直接配旧模型。修改 keys 的内容或顺序后需重新训练、导出及验证。
 
-2、从error_cases.txt中提取 错误字符 到 keys-error.txt
-python recognition/utils/extract_error_keys.py
+## 评估与错误分析
 
-3、核对  keys-error.txt 和  error_cases.txt
-需注意，暂时需人工核对，对识别错误样本进行分类。只有 确定 缺少数据集 再去收集数据集。
+配置 `recognition/evaluate_val.py` 顶部权重、标注和报告路径后运行；确认报告属于本次评估，
+再用下列工具提取真实字符中的错误部分：
 
-### 精简数据集
+```bash
+.venv/bin/python recognition/evaluate_val.py
+.venv/bin/python recognition/utils/extract_error_keys.py
+```
 
-1、 统计字符占比
-python recognition/utils/character_stats.py
+错误字符清单不等于缺数据清单。先结合原图区分错标、裁切、去章、低清及字典问题，
+再决定补图或合成；当前缺少可验证结论的事项见[待办](../../docs/code-doc-todolist.md)。
 
-2、移除非目标keys中字符
-预览
-python recognition/utils/remove_characters_by_stats.py
-真移除
-python recognition/utils/remove_characters_by_stats.py --apply
+## 统计与清理
 
-### 数据集核对工具
-1、recognition/utils/check_val_annotation_keys.py   得到对应数据集中字符， 不在keys.txt ， 并可以移动到 unknown 中
-2、recognition/utils/compare_train_val_same_text.py  对比训练集与验证集中完全相同的识别文字。
-3、recognition/utils/character_stats.py  统计字符占比
-4、recognition/utils/remove_characters_by_stats.py 移除非目标keys中字符
+```bash
+# 默认只统计 train、val、synthesis1、synthesis2 四份标注
+.venv/bin/python recognition/utils/character_stats.py
+# 默认仅预览命中字符、整条标注及图片的删除计划
+.venv/bin/python recognition/utils/remove_characters_by_stats.py
+# 预览 train+val 已覆盖字符构成的合成样本
+.venv/bin/python recognition/utils/remove_common_synthesis.py
+```
 
-4、recognition/split_dataset.py 把某个数据集划分成 训练和验证，首次用后续预计不会用。
-5、recognition/utils/check_dataset_annotations.py  核对多个数据集 ，暂时不能用 all 删除了 而且新增了几个数据集。
-6、被依赖
-convert_annotation_delimiter
+`remove_characters_by_stats.py` 不是“删除 keys 外字符”的工具：它从 keys 内筛选
+train/val 零出现、合成合计不足 10 次或仅在一份合成数据出现的字符。
+显式 `--apply` 会备份并删除整条样本及相应字典行；只校验四份清单，不检查其余训练输入。
+`remove_common_synthesis.py` 默认要求整条文字的每个字符在 train+val 至少出现 100 次，且不修改 keys。
+具体条件、引用检查范围与恢复边界见[数据工具](../../docs/recogniton/data-tools.md)。
 
-### 数据归一化
-2026-09-10 已按以下规则更新 train/val 和字典，并重新生成八组合成数据。
-- 无空格
-- 只有中文括号、冒号
-- ；;  只保留中文分号；
-- ，,  只保留中文逗号，
-- `_`：填空线、文字装饰线不标注；文件名、邮箱、引物名等正文中的下划线保留，字典也保留 `_`。
-- —  这个横杠归一化成 一 ？
+## 划分与格式迁移
 
-本次 train 修改 709 条、val 修改 168 条，合计去掉 246 个版式下划线；图片及样本条数不变。
-字典移除 `;`、`,`，由 3009 字符变为 3007 字符，其余相对顺序保留。
-旧权重必须绑定旧字典，新字典需重新训练和导出。
+`recognition/split_dataset.py` 默认预览，`--apply` 才从完整 all 数据复制出独立 train/val，
+输出非空时拒绝执行。已有人工调整的数据不能直接重跑初始划分。
+`check_dataset_annotations.py` 专门核对 all=train+val+val_unknown；只有这些来源清单齐备才可使用，
+不能用于代替当前九份训练清单的全量一致性检查。
 
-八组合成标注共 77,303 条，当前图片路径为 `../data/synthesis1_images/`、
-`synthesis2_images/`、`synthesis3_images/` 及各专项的 `synthesis_*_images/`。
-图片删除后，可使用 `restore.py` 按现有 txt 和对应 `samples.jsonl` 补回，
-保留文字、文件名、字体、背景及专项效果类别，不改写 txt 和字典；
-用法见 [数据合成说明](synthesis.md)。
-2026-09-10 已按当前八份 txt 补回全部 77,303 张图片，标注与字典哈希保持不变；
-执行参数、逐图记录及全量校验见
-[图片恢复报告](../../outputs/recognition_restore_20260910_135144/README.md)。
-标点规范化时同时纠正了旧 degraded 标注误指向 confusable 图片目录的问题。
-该次标点调整的备份、逐条变更、执行参数和校验结果见
-[`outputs/recognition_symbol_normalization_20260910_132714`](../../outputs/recognition_symbol_normalization_20260910_132714/README.md)。
+`convert_annotation_delimiter.py --check` 只预览首逗号到 Tab 的转换，去掉 `--check` 会覆盖输入。
+该工具不负责去正文外层引号；只适用于已确认格式的旧数据，不能对当前 Tab 文件做 CSV 猜测。
 
+## 合成与历史
 
-### 数据合成
-[synthesis.md](synthesis.md)
-
-## 错误数据集记录
-
-### 20260906
-[errdata20260906.md](analysisdata/errdata20260906.md)
-
-[errdata20260909.md](analysisdata/errdata20260909.md)
+生成、重渲染和补回图片见[合成说明](synthesis.md)。
+[2026-09-10 整理记录](dataset-history-2026-09-10.md)保留当时标点处理和恢复数量，
+不表示加载器会自动归一化文本，也不证明当前磁盘数据与该批次一致。
+历史错误分类见 [2026-09-06](analysisdata/errdata20260906.md)、[2026-09-09](analysisdata/errdata20260909.md)、
+[2026-09-12](analysisdata/errdata20260912.md)。

@@ -15,7 +15,8 @@ except ModuleNotFoundError:  # 支持直接运行当前脚本
     from annotation import ANNOTATION_SEPARATOR
 
 
-RECOGNITION_DIR = Path(__file__).resolve().parents[1]
+RECOGNITION_DIR = Path(__file__).resolve().parents[1]  # recognition 包目录，由当前文件位置推导。
+# 旧分隔符转换的默认五份清单，不包含当前全部合成数据。
 DEFAULT_ANNOTATIONS = (
     RECOGNITION_DIR / "data" / "all_annotation.txt",
     RECOGNITION_DIR / "data" / "append_annotation.txt",

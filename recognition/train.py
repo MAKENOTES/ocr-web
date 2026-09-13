@@ -1,3 +1,5 @@
+"""训练 RGB CRNN；超参数由顶部常量控制，续训与保存由 TrainingRun 管理。"""
+
 import os
 import math
 import sys
@@ -12,7 +14,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
-# ------------------------------------
 
 from recognition.components.converter import LabelConverter
 from recognition.components.dataset import create_dataloader
@@ -20,8 +21,9 @@ from recognition.models.model import CRNN
 from recognition.utils.training_run import TrainingRun, build_training_config, parse_args
 import Levenshtein
 
-# ================= 配置区域 =================
+# 配置区域
 # 1. 路径配置
+# 按顺序合并 train 与八份合成标注；每条路径相对于所属标注文件。
 TRAIN_ANNOTATION = (
     "recognition/data/train_annotation.txt",
     "recognition/data/synthesis1_annotation.txt",
@@ -33,31 +35,31 @@ TRAIN_ANNOTATION = (
     "recognition/data/synthesis_degraded_annotation.txt",
     "recognition/data/synthesis_edge_annotation.txt",
 )
-VALID_ANNOTATION = "recognition/data/val_annotation.txt"
-KEYS_PATH = "recognition/keys.txt"
-CHECKPOINT_DIR = "recognition/checkpoints/"
-LOG_DIR = "recognition/runs"
+VALID_ANNOTATION = "recognition/data/val_annotation.txt"  # 独立验证标注；缺文件时当前流程仅训练，不保存最佳 CER 模型。
+KEYS_PATH = "recognition/keys.txt"  # 当前权重绑定的字符字典，内容和顺序决定类别编号。
+CHECKPOINT_DIR = "recognition/checkpoints/"  # 固定检查点根目录，TrainingRun 在其下新建本次运行目录。
+LOG_DIR = "recognition/runs"  # 固定 TensorBoard 根目录，每次运行独立建目录。
 
 # 2. 数据与模型参数
-IMG_HEIGHT = 32
-IMG_WIDTH = 1800     # 当前数据等比缩放后的最大宽度约 1733，留少量余量
+IMG_HEIGHT = 32  # 输入图片高度，单位 px；当前 CRNN 只支持 32。
+IMG_WIDTH = 1800  # 缩放宽度上限 1800 px；训练和训练期验证超过此值会横向压缩。
 NUM_CHANNELS = 3     # 保留白/红/黑及彩色 UI 文本的色彩对比
 
 # 3. 训练超参数
-BATCH_SIZE = 64     # 适当调整
-EPOCHS = 680
-LEARNING_RATE = 3e-4
-NUM_WORKERS = 4
-RANDOM_SEED = 42
+BATCH_SIZE = 64  # 每批图片数，末批不足 64 张仍保留。
+EPOCHS = 680  # 目标总轮数 680，续训也使用该总数。
+LEARNING_RATE = 3e-4  # 新运行的 AdamW 初始学习率；完整续训恢复检查点中的学习率。
+NUM_WORKERS = 4  # 数据加载子进程数；0 表示主进程加载。
+RANDOM_SEED = 42  # 新运行的 Python、NumPy、PyTorch 随机种子。
 
 # 4. 保存与验证策略
-SAVE_INTERVAL = 5        # 每隔多少轮强制保存一次
+SAVE_INTERVAL = 5  # 第 START_SAVE_EPOCH 轮起，每 5 轮保存周期备份；last.pth 每轮保存。
 START_VALID_EPOCH = 1    # 从第1轮开始验证，学习率调度优先使用验证集 CER
 START_SAVE_EPOCH = 100    # 周期备份和 Top-K 从第100轮开始；last.pth 每轮保存
 KEEP_TOP_K = 3           # 保留保存阶段内验证集 CER 最低的 3 个最佳模型
 
 # 5. 硬件
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 有可用 CUDA 时使用 GPU，否则 CPU。
 
 
 def evaluate(model, dataloader, converter, criterion):
@@ -70,8 +72,8 @@ def evaluate(model, dataloader, converter, criterion):
     total_samples = 0
     total_loss = 0.0
     batch_count = 0
-    total_char_distance = 0  # 新增
-    total_chars = 0  # 新增
+    total_char_distance = 0  # 累计字符编辑距离。
+    total_chars = 0  # 累计去首尾空白后的真值字符数。
 
     with torch.no_grad():
         for images, labels, img_widths in tqdm(dataloader, desc="Validating", leave=False):
@@ -111,7 +113,7 @@ def evaluate(model, dataloader, converter, criterion):
 
     avg_loss = total_loss / batch_count if batch_count > 0 else float('inf')
     accuracy = correct_predictions / total_samples if total_samples > 0 else 0.0
-    cer = total_char_distance / total_chars if total_chars > 0 else 1.0  # 新增
+    cer = total_char_distance / total_chars if total_chars > 0 else 1.0  # 无真值字符时使用失败口径。
 
     return accuracy, cer, avg_loss
 
@@ -157,7 +159,6 @@ def train(argv=None):
     print(f"字典加载完成，类别数量: {num_classes} (含 blank/unk)")
 
     # 2. 初始化模型
-    # 【注意】请确保 model.py 中的 nn.Linear 输出维度已修正为 n_class
     model = CRNN(
         img_height=IMG_HEIGHT,
         nc=NUM_CHANNELS,
@@ -165,7 +166,7 @@ def train(argv=None):
     ).to(DEVICE)
 
     # 3. 损失函数
-    # zero_infinity=True 可以防止长文本导致的 Loss 无穷大导致梯度爆炸
+    # 无法对齐的 CTC 无穷损失置零；不替代有效时间步与标签长度的校验。
     criterion = nn.CTCLoss(blank=0, zero_infinity=True).to(DEVICE)
 
     # 4. 优化器与调度器
@@ -196,7 +197,7 @@ def train(argv=None):
         valid_loader = create_dataloader(
             annotation_path=VALID_ANNOTATION,
             img_height=IMG_HEIGHT,
-            img_width=IMG_WIDTH,  # 验证集不需要太宽，除非有长图
+            img_width=IMG_WIDTH,  # 训练期验证沿用相同宽度上限，超宽图片会横向压缩。
             num_channels=NUM_CHANNELS,
             batch_size=BATCH_SIZE,
             num_workers=NUM_WORKERS,
@@ -210,7 +211,7 @@ def train(argv=None):
     try:
         run.restore_random_state(optimizer)
         for epoch in range(run.start_epoch, EPOCHS + 1):
-            # ================= 训练阶段 =================
+            # 训练阶段
             model.train()
             total_train_loss = 0
             train_batch_count = 0
@@ -262,7 +263,7 @@ def train(argv=None):
             print(f"Epoch {epoch} | Train Loss: {train_avg_loss:.4f}")
             writer.add_scalar('Train/Epoch_Loss', train_avg_loss, epoch)
 
-            # ================= 验证与调度阶段 =================
+            # 验证与调度阶段
             # 默认用训练平均 Loss 调度；本轮执行验证后改用验证集 CER。
             scheduler_metric = train_avg_loss
 

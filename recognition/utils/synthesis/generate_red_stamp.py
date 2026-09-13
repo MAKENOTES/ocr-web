@@ -19,7 +19,7 @@ import unicodedata
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[3]  # 仓库根目录，由当前文件位置推导，不依赖运行目录。
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -34,6 +34,7 @@ from recognition.utils.synthesis.style import Style
 from recognition.utils.synthesis.naming import REPORT_ROOT
 
 
+# 可选红章场景名称，默认全部启用并均分样本。
 SCENES = ("reference", "top", "bottom", "star", "left_edge", "right_edge",
           "rim", "faded", "worn", "dense")
 

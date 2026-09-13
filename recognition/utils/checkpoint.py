@@ -1,4 +1,4 @@
-"""Recognition checkpoint compatibility helpers."""
+"""读取纯参数或封装检查点，并推断识别输入通道。"""
 
 from collections.abc import Mapping
 

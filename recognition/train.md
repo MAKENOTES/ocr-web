@@ -1,6 +1,6 @@
 # Recognition 训练历史
 
-> 当前架构和预处理规范以 [`docs/recogniton/recognition.md`](docs/recogniton/recognition.md) 为准。以下内容保留为历史训练记录，旧方案不代表当前实现。
+> 当前架构和预处理规范以 [`docs/recogniton/recognition.md`](../docs/recogniton/recognition.md) 为准。以下内容保留为历史训练记录，旧方案不代表当前实现。
 
 20260902 在新一轮 RGB 训练前根治混合宽度 batch 问题：
 
@@ -75,7 +75,7 @@ Epoch 50 的 CER 达到了 0.0068 (0.68%)。  模型每识别 10,000 个字符�
 阶段总结： 关于静态量化、动态量化、int8等， 很多情况都不能达到想要精度和速度，通常做成onnx+openvino 足够满足业务场景。
 
 TODO
-    1、发现新问题，原始权重+原始推理脚本， 出现推理批次数量1正常，多的时候出现问题。 recognition/doc/issure_batch.md (已解决) , 可以考虑训练时 不做图片宽度排序与处理。
+    1、发现新问题，原始权重+原始推理脚本， 出现推理批次数量1正常，多的时候出现问题。 [批量推理与补边历史说明](../docs/recogniton/history/batch/batch-padding.md) (已解决) , 可以考虑训练时 不做图片宽度排序与处理。
     2、校验数据，还没有真实的，都是训练数据。
 
 20260623 调整数据处理 黑字红章样本处理  可以优化原来的 majorbio-ocr 项目

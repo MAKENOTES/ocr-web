@@ -4,9 +4,8 @@
 import torch
 
 class LabelConverter:
-    """
-    在文本标签和用于CTC Loss的整数序列之间进行转换。
-    """
+    """按字典原顺序编码字符并执行 CTC 贪心解码。
+    空字典行被跳过，普通空格保留；调用前需用数据工具检查重复字及多字符行。"""
     def __init__(self, keys_path: str):
         self.keys = []
         with open(keys_path, 'r', encoding='utf-8') as f:
@@ -29,7 +28,7 @@ class LabelConverter:
             self.idx2char[idx] = char
 
         self.num_classes = len(self.char2idx)
-        # 3. 【新增】调试打印，确认空格是否被读进来了
+        # 空格占用独立类别，启动时提示以便核对原字典。
         if ' ' in self.char2idx:
             print(f"提示: 检测到 '空格' 字符在字典中，ID为 {self.char2idx[' ']}")
         else:
@@ -61,7 +60,7 @@ class LabelConverter:
             lengths.append(length)
 
         if unknown_warning_count > 0:
-            # 仅在调试时取消注释，防止刷屏
+            # 每批出现字典外字符时打印告警；编码保留为 UNK。
             print(f"警告: 本 Batch 发现 {unknown_warning_count} 个不在字典中的字符，已转换为 [UNK] {unknown_warning_char}")
             pass
 

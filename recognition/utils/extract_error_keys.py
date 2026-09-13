@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-RECOGNITION_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT = RECOGNITION_DIR / "error_cases.txt"
-DEFAULT_OUTPUT = RECOGNITION_DIR / "keys-error.txt"
-REPORT_HEADER = "CER\t文件名\t真实\t预测"
+RECOGNITION_DIR = Path(__file__).resolve().parents[1]  # recognition 包目录，由当前文件位置推导。
+DEFAULT_INPUT = RECOGNITION_DIR / "error_cases.txt"  # 默认待处理输入文件，命令行可指定本次输入。
+DEFAULT_OUTPUT = RECOGNITION_DIR / "keys-error.txt"  # 默认结果文件路径，执行工具时写入或覆盖。
+REPORT_HEADER = "CER\t文件名\t真实\t预测"  # 错误报告要求的 Tab 表头及列顺序。
 
 
 @dataclass(frozen=True)

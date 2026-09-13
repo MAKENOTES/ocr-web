@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[3]  # 仓库根目录，由当前文件位置推导，不依赖运行目录。
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -30,6 +30,7 @@ from recognition.utils.synthesis.generate_red_stamp import reference_paths
 from recognition.utils.synthesis.naming import REPORT_ROOT
 from recognition.utils.synthesis.style import Style
 
+# 边线类别到实际绘制方向的映射，按类别均分样本。
 PATTERNS = {
     "top": ("top",), "bottom": ("bottom",),
     "left": ("left",), "right": ("right",),

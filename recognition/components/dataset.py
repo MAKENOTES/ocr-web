@@ -1,11 +1,7 @@
-"""
-用于文本识别的自定义数据集和数据加载器 (通用封装版)。
-包含:
-1. BucketBatchSampler: 桶采样 (训练用)
-2. dynamic_padding_collate_fn: 动态 Padding (训练/推理通用)
-3. TextRecognitionDataset: 带标签的数据集 (训练用)
-4. InferenceDataset: 纯图片数据集 (推理用)
-"""
+"""识别图片加载、局部去章、缩放、训练增强与动态补边。
+
+TextRecognitionDataset 读取 Tab 标注；InferenceDataset 读取图片列表。
+两者共享基础预处理，训练另加随机增强；collate 返回图片、标签或路径、真实宽度。"""
 import os
 from collections.abc import Sequence
 from pathlib import Path
@@ -19,10 +15,10 @@ from torchvision import transforms
 
 from recognition.utils.annotation import split_annotation_fields
 
-# 防止截断报错 (针对超大图)
+# 允许 Pillow 加载部分截断图片；这是进程级开关，不保证损坏图片完整可用。
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-MIN_IMAGE_WIDTH = 48
+MIN_IMAGE_WIDTH = 48  # 缩放后窄图的背景画布宽度，单位 px；显式 max_width 更小时以上限为准。
 # MobileFeatureExtractor 的横向感受野为 53 px。每张图右侧至少保留 32 px
 # 背景，使有效 CNN 特征不会因 batch 中最长图片不同而看到不同的张量边界。
 CNN_RIGHT_CONTEXT = 32
@@ -38,12 +34,10 @@ def resolve_image_path(image_path: str | os.PathLike) -> str:
 
 
 def load_rgb_image(image_path: str | os.PathLike) -> Image.Image:
-    """
-    安全读取图片为 RGB。
+    """读取图片、应用 EXIF 方向并合成为 RGB。
 
-    PNG 可能带透明通道；直接 ``convert('RGB')`` 会把透明区域变成黑色。
-    这里根据可见内容亮度选择黑/白底进行合成，确保黑字和白字都不会消失。
-    """
+    有透明通道时，按可见前景亮度选择黑或白背景，避免直接丢弃 alpha。
+    完全透明图使用白底；混合明暗前景仍需人工核对可见性，不保证恢复被遮挡内容。"""
     with Image.open(image_path) as source:
         image = ImageOps.exif_transpose(source)
         has_transparency = "A" in image.getbands() or "transparency" in source.info
@@ -256,7 +250,8 @@ def resize_detection_image(
     max_width: int | None = None,
     min_width: int = MIN_IMAGE_WIDTH,
 ) -> Image.Image:
-    """保持宽高比缩放 detection 结果；不再做二次内容裁剪。"""
+    """固定高度缩放完整文字框，不裁剪正文。
+    优先保持宽高比；超过 max_width 时横向压缩。窄于 min_width 时居中补背景。"""
     width, height = image.size
     if width <= 0 or height <= 0:
         raise ValueError(f"非法图片尺寸: {image.size}")
@@ -281,9 +276,7 @@ def resize_detection_image(
     return image
 
 
-# ==========================================
-# 1. 采样与整理工具 (无需修改，完全通用)
-# ==========================================
+# 1. 按宽高比组批次及动态补边
 
 class BucketBatchSampler(Sampler):
     """
@@ -305,6 +298,7 @@ class BucketBatchSampler(Sampler):
                     h = max(1, h)
                     self.aspect_ratios.append(w / h)
             except Exception as e:
+                # 预扫描失败仅影响分桶；实际读取仍由 _load_and_process_image 报错。
                 self.aspect_ratios.append(1.0)
 
         self.aspect_ratios = np.array(self.aspect_ratios)
@@ -377,9 +371,7 @@ def dynamic_padding_collate_fn(batch):
     return padded_imgs, labels_or_paths, img_widths
 
 
-# ==========================================
 # 2. 基础数据集类 (封装通用逻辑)
-# ==========================================
 
 class RandomBackgroundGeometry:
     """轻微旋转和透视；每张图片共用扰动前估计的背景色，避免人工黑白边。"""
@@ -524,14 +516,11 @@ class BaseTextDataset(Dataset):
             raise RuntimeError(f"图片预处理失败: {image_path}") from exc
 
 
-# ==========================================
 # 3. 具体实现类 (训练 vs 推理)
-# ==========================================
 
 class TextRecognitionDataset(BaseTextDataset):
-    """
-    [训练用] 读取标注文件，返回 (Image, Label)
-    """
+    """读取一份或多份 Tab 标注，返回 (图片张量, 文字)。
+    路径相对于所属标注；文字 strip 后为空则跳过。img_width 是缩放宽度上限。"""
 
     def __init__(
         self,
@@ -614,9 +603,7 @@ class TextRecognitionDataset(BaseTextDataset):
 
 
 class InferenceDataset(BaseTextDataset):
-    """
-    [推理用] 直接读取图片列表，返回 (Image, ImagePath)
-    """
+    """读取图片列表，返回 (图片张量, 图片路径)；默认不限宽且不随机增强。"""
 
     def __init__(
         self,
@@ -641,9 +628,7 @@ class InferenceDataset(BaseTextDataset):
         return image, path
 
 
-# ==========================================
 # 4. DataLoader 创建工厂
-# ==========================================
 
 def create_dataloader(annotation_path: str | os.PathLike | Sequence[str | os.PathLike],
                       img_height: int, img_width: int, num_channels: int, batch_size: int,

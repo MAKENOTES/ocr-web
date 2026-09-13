@@ -2,11 +2,7 @@ import torch
 import torch.nn as nn
 
 class DiceLoss(nn.Module):
-    """
-    用于分割任务的 Dice Loss。
-    Dice Loss 对于处理类别不平衡问题（如文本检测中的文本/背景像素）特别有效。
-    它的计算方式是 2 * |X ∩ Y| / (|X| + |Y|)，其中 X 是预测，Y 是真值。
-    """
+    """按整个批次计算 1 - Dice 系数，使用平滑项避免空分母。"""
     def __init__(self, smooth=1e-5):
         """
         初始化 Dice Loss。
@@ -32,16 +28,12 @@ class DiceLoss(nn.Module):
         return 1 - dice_coeff
 
 class EASTLoss(nn.Module):
-    """
-    EAST 模型的损失函数。
-    它由两部分组成：
-    1. 分数图损失 (score_loss): 使用 Dice Loss 计算，用于区分文本和背景。
-    2. 几何图损失 (geo_loss): 使用一个简化的 IoU 损失（基于L1距离）计算，用于回归边界框的位置。
-    """
+    """置信度 Dice 加正样本四方向 log1p 距离的 Smooth L1。
+    lambda_iou 是历史参数名，实际控制 Smooth L1 权重。"""
     def __init__(self, lambda_iou=5.0):
         """
         初始化 EAST 损失函数。
-        :param lambda_iou: float, IoU 损失的权重。
+        :param lambda_iou: float, 正样本 Smooth L1 几何损失的权重。
         """
         print("lambda_iou-----------------------------------------", lambda_iou)
         super(EASTLoss, self).__init__()
@@ -53,8 +45,8 @@ class EASTLoss(nn.Module):
         计算总的 EAST 损失。
         :param y_true_score: 真值分数图，形状为 (批次, 1, H, W)。
         :param y_pred_score: 预测分数图，形状为 (批次, 1, H, W)。
-        :param y_true_geo: 真值几何图，形状为 (批次, 5, H, W)。
-        :param y_pred_geo: 预测几何图，形状为 (批次, 5, H, W)。
+        :param y_true_geo: 真值几何图，形状为 (批次, 4, H, W)。
+        :param y_pred_geo: 预测几何图，形状为 (批次, 4, H, W)。
         :return: tuple, 包含总损失、分数图损失和几何图损失。
         """
         # 计算分数图的损失
@@ -63,12 +55,7 @@ class EASTLoss(nn.Module):
         # 创建一个掩码，只在正样本区域计算几何损失
         mask = (y_true_score > 0).float()
 
-        # y_pred_geo 已经是 ReLU 后的绝对像素距离 (N, 4, H, W)
-        # y_true_geo 也是绝对像素真值 (N, 4, H, W)
-        # 直接算，不需要 sigmoid * scale
-
-        # geo_loss = self.iou_loss_real(y_pred_geo, y_true_geo, mask)
-        # 在 log 空间直接用 Smooth L1
+        # 几何头为线性输出；真值是 log1p 特征图距离，在同一编码空间计算 Smooth L1。
         geo_loss = self.smooth_l1_geo(y_pred_geo, y_true_geo, mask)
         
         # 总损失
@@ -110,7 +97,7 @@ class EASTLoss(nn.Module):
         return torch.sum(masked_l1) / num_positive_pixels
 
     def iou_loss_real(self, pred_aabb, true_aabb, mask):
-        # --- 这里的逻辑必须加固，防止 ReLU 导致的 0 值爆炸 ---
+        # 这里的逻辑必须加固，防止 ReLU 导致的 0 值爆炸
         eps = 1e-6  # 稍微大一点的 epsilon
 
         # 现在的输入形状直接就是 (N, 4, H, W)

@@ -20,7 +20,7 @@ import numpy as np
 from fontTools.ttLib import TTCollection, TTFont
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[3]  # 仓库根目录，由当前文件位置推导，不依赖运行目录。
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -28,8 +28,8 @@ from recognition.utils.annotation import format_annotation_line
 from recognition.utils.synthesis.style import Style, sample_styles
 from recognition.utils.synthesis.naming import REPORT_ROOT, numbered_filename, numbered_outputs
 
-DATA = ROOT / "recognition/data"
-UPSTREAM_COMMIT = "a08835263289c9488ba8c24abacc321318c3f1e0"
+DATA = ROOT / "recognition/data"  # 默认识别数据根目录。
+UPSTREAM_COMMIT = "a08835263289c9488ba8c24abacc321318c3f1e0"  # 合成渲染依赖的参考提交，仅记录来源，不执行在线更新。
 
 
 @dataclass(frozen=True)

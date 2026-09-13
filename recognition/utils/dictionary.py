@@ -13,9 +13,9 @@ except ModuleNotFoundError:  # 支持直接运行当前脚本
     from annotation import split_annotation_fields
 
 
-RECOGNITION_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT = RECOGNITION_DIR / "data" / "append1_annotation.txt"
-DEFAULT_OUTPUT = RECOGNITION_DIR / "keys-new.txt"
+RECOGNITION_DIR = Path(__file__).resolve().parents[1]  # recognition 包目录，由当前文件位置推导。
+DEFAULT_INPUT = RECOGNITION_DIR / "data" / "append1_annotation.txt"  # 默认待处理输入文件，命令行可指定本次输入。
+DEFAULT_OUTPUT = RECOGNITION_DIR / "keys-new.txt"  # 默认结果文件路径，执行工具时写入或覆盖。
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
         "--input",
         type=Path,
         default=DEFAULT_INPUT,
-        help="输入标注文件（默认：recognition/data/train_annotation.txt）。",
+        help="输入标注文件（默认：recognition/data/append1_annotation.txt）。",
     )
     parser.add_argument(
         "--output",

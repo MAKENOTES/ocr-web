@@ -1,3 +1,6 @@
+"""按顶部配置训练小图 ResNet18 EAST，保存纯模型参数。
+当前验证路径指向训练目录，独立评估前须核对并设置验证目录；不支持完整状态续训。"""
+
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -12,28 +15,26 @@ from models.east_model import EASTModel
 from components.loss import EASTLoss
 from torch.optim.lr_scheduler import OneCycleLR
 
-# --- 超参数 ---
-LEARNING_RATE = 1e-4
-# 新数据 99.5% 为横向 UI 小图；256x768 更接近其中位长宽比 2.7，
-# batch 8 的总输入像素量与原 640x640、batch 4 基本相同。
-BATCH_SIZE = 8
-EPOCHS = 200
-INPUT_SIZE = (256, 768)  # (height, width)，两边均为 32 的倍数
+# 超参数
+LEARNING_RATE = 1e-4  # Adam 构造学习率；OneCycleLR 随后接管，峰值在 main 中设为 3e-4。
+BATCH_SIZE = 8  # 每批 8 张图片；修改尺寸或批量后需重新核对显存。
+EPOCHS = 200  # 最多训练 200 轮，早停可能提前结束。
+INPUT_SIZE = (256, 768)  # 模型输入 (高, 宽)，单位 px；两边为 32 的倍数。
 IMAGE_EXTENSIONS = (".png",)  # 明确只训练新 PNG，不混入目录中的旧 JPG
-TRAIN_IMAGE_DIR = "detection/data/train_images"
-TRAIN_LABEL_DIR = "detection/data/train_labels"
-VAL_IMAGE_DIR = "detection/data/train_images"
-VAL_LABEL_DIR = "detection/data/train_labels"
+TRAIN_IMAGE_DIR = "detection/data/train_images"  # 训练图片目录，路径相对于仓库根目录。
+TRAIN_LABEL_DIR = "detection/data/train_labels"  # 训练标签目录，按图片 stem 配对。
+VAL_IMAGE_DIR = "detection/data/train_images"  # 当前指向训练图片，仅能自评；独立验证前需改为验证目录。
+VAL_LABEL_DIR = "detection/data/train_labels"  # 当前指向训练标签，需与独立验证图片目录一起核对。
 
-# --- 模型保存策略优化 ---
-MAX_KEEP_CHECKPOINTS = 5         # 常规检查点：保留最近的 N 个 (用于断点续训)
+# 模型保存策略优化
+MAX_KEEP_CHECKPOINTS = 5  # 常规纯权重保留最近 5 份；不含完整续训状态。
 CHECKPOINT_INTERVAL = 5          # 新数据量较大，每 5 个 epoch 保存一次常规检查点
 BEST_MODELS_TO_KEEP = 3        # 最佳检查点：保留验证集 Loss 最低的 Top 3
-VAL_INTERVAL = 10               # 前期：每 2 个 epoch 验证一次
-START_DENSE_VAL_EPOCH = 80     # 从第 10 epoch 开始每个 epoch 都验证
+VAL_INTERVAL = 10  # 第 80 轮前每 10 轮验证一次。
+START_DENSE_VAL_EPOCH = 80  # 从第 80 轮起逐轮验证，包含该轮。
 GRADIENT_LOG_INTERVAL = 1000   # 避免大数据集下 TensorBoard 直方图写入过密
 
-# --- 早停参数 ---
+# 早停参数
 EARLY_STOP_PATIENCE = 15        # 连续 15 次验证没有改善就停止
 EARLY_STOP_MIN_DELTA = 1e-4     # 改善幅度小于此值不算改善
 
@@ -152,7 +153,7 @@ def validate(model, val_loader, criterion, device, writer, epoch):
     avg_score_loss = val_score_loss / len(val_loader)
     avg_geo_loss = val_geo_loss / len(val_loader)
 
-    # --- TensorBoard 可视化 ---
+    # TensorBoard 可视化
     if writer and vis_images is not None:
         writer.add_images('Vis/Input_Images', vis_images, epoch)
         writer.add_images('Vis/True_Score_Map', vis_true_score.repeat(1, 3, 1, 1), epoch)
@@ -192,16 +193,16 @@ def main():
     """
     主训练函数。
     """
-    # --- TensorBoard 设置 ---
+    # TensorBoard 设置
     log_dir = f"detection/runs/ocr_experiment_{int(time.time())}"
     writer = SummaryWriter(log_dir)
     print(f"TensorBoard 日志将保存在: {log_dir}")
 
-    # --- 设备设置 ---
+    # 设备设置
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"使用设备: {device}")
 
-    # --- 数据加载 ---
+    # 数据加载
     train_transform = get_transforms(is_train=True, input_size=INPUT_SIZE)
     train_dataset = OCRDataset(
         image_dir=TRAIN_IMAGE_DIR,
@@ -233,7 +234,7 @@ def main():
             val_loader = DataLoader(dataset=val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
             print(f"验证集加载完成，共 {len(val_dataset)} 张图片。")
 
-    # --- 模型、损失函数和优化器 ---
+    # 模型、损失函数和优化器
     model = EASTModel(pretrained=True).to(device)
     # model.load_state_dict(torch.load("detection/checkpoints/best_detection_490_loss_0.0880.pth"))
     criterion = EASTLoss(lambda_iou = 3).to(device)
@@ -247,13 +248,13 @@ def main():
         first_batch = next(iter(train_loader))
         writer.add_graph(model, first_batch['image'].to(device))
 
-    # --- 初始化早停 ---
+    # 初始化早停
     early_stopping = EarlyStopping(patience=EARLY_STOP_PATIENCE, min_delta=EARLY_STOP_MIN_DELTA)
 
     regular_checkpoints = []
     best_checkpoints = []
 
-    # --- 训练循环 ---
+    # 训练循环
     for epoch in range(1, EPOCHS + 1):
         model.train()
         epoch_loss = 0
@@ -271,7 +272,7 @@ def main():
             loss, score_loss, geo_loss = criterion(true_score_maps, pred_score_maps, true_geo_maps, pred_geo_maps)
             loss.backward()
 
-            # --- 低频记录梯度信息，避免大数据集下日志和 I/O 过重 ---
+            # 低频记录梯度信息，避免大数据集下日志和 I/O 过重
             if batch_idx % GRADIENT_LOG_INTERVAL == 0:
                 for name, param in model.named_parameters():
                     if param.grad is not None:
@@ -296,7 +297,7 @@ def main():
 
             progress_bar.set_postfix({'loss': f"{loss_val:.4f}", 'score': f"{score_loss_val:.4f}", 'geo': f"{geo_loss_val:.4f}"})
 
-        # --- Epoch 结束统计 ---
+        # Epoch 结束统计
         avg_loss = epoch_loss / len(train_loader)
         avg_score_loss = epoch_score_loss / len(train_loader)
         avg_geo_loss = epoch_geo_loss / len(train_loader)
@@ -304,7 +305,7 @@ def main():
         writer.add_scalar('Learning Rate', current_lr, epoch)
         print(f"Epoch {epoch} 训练结束: Loss: {avg_loss:.4f} (Score: {avg_score_loss:.4f}, Geo: {avg_geo_loss:.4f}) Learning: {current_lr}")
 
-        # --- 验证步骤 ---
+        # 验证步骤
         should_validate = False
         if epoch >= START_DENSE_VAL_EPOCH:
             should_validate = True
@@ -337,7 +338,7 @@ def main():
         else:
             writer.add_scalars('epoch/loss_train', {'train': avg_loss}, epoch)
 
-        # --- 常规检查点保存 ---
+        # 常规检查点保存
         if epoch % CHECKPOINT_INTERVAL == 0 or epoch == EPOCHS:
             checkpoint_dir = "detection/checkpoints/"
             if not os.path.exists(checkpoint_dir): os.makedirs(checkpoint_dir)
@@ -349,7 +350,7 @@ def main():
                 if os.path.exists(oldest):
                     os.remove(oldest)
 
-    # --- 训练结束总结 ---
+    # 训练结束总结
     print("\n" + "="*60)
     if early_stopping.should_stop:
         print(f"训练因早停在 Epoch {epoch} 结束")

@@ -1,5 +1,7 @@
 # converter.py：文字与 CTC 类别编号之间的转换
 
+> 历史分析：结论限于原文注明的代码、数据及权重版本，本次未重做训练或性能测量。当前行为见[架构](recognition.md)和[运行说明](running.md)。
+
 分析对象：[recognition/components/converter.py](../../recognition/components/converter.py)。本文依据 2026-09-07 的工作区代码。
 
 **先记住一句话：`LabelConverter` 管理“哪个编号代表哪个字”，训练时把标签变成整数，推理时把模型预测的整数路径合并成文字。** 它不读取图片，也不运行神经网络。

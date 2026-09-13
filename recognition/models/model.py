@@ -1,25 +1,8 @@
-"""
-轻量级 CRNN 模型 (MobileNet-style CNN + GRU)
-============================================
-替代原始的 ResNet34 + BiLSTM 方案，CPU 推理速度提升约 3-5 倍。
+"""固定高度 32 的 CRNN：Mobile 风格 CNN、单层双向 GRU 和 CTC 分类头。
 
-关键设计：
-1. CNN 骨干: 自定义 MobileNet-style 深度可分离卷积，替代 ResNet-34
-   - 参数量从 ~21M 降至 ~0.5M (CNN 部分)
-   - 使用 Depthwise Separable Conv，大幅减少乘加运算
-2. RNN 部分: 单层 BiGRU (hidden=256) 替代 2层 BiLSTM (hidden=512)
-   - GRU 比 LSTM 少一个门，计算量减少约 25%
-   - 单层 + 更小 hidden 再减 ~75%
-3. 保持与原模型完全相同的接口：
-   - 输入: [B, C, 32, W]，宽度下采样倍率 = 4x
-   - 输出: [SeqLen, B, NumClasses]，log_softmax
-   - 支持 img_widths 驱动的长度感知 BiGRU 和 padding mask
-   - 可直接替换 train.py / inference.py 中的 `from model import CRNN`
-
-参数量对比 (以 n_class=6000 为例):
-  原始模型:  ResNet34(21M) + BiLSTM×2(16M) + Linear(6M)  ≈ 43M
-  轻量模型:  MobileCNN(0.5M) + BiGRU×1(1.2M) + Linear(3M) ≈ 4.7M
-"""
+输入 [B,C,32,W]，输出 [T,B,类别数] 对数概率。传入真实 img_widths 时，
+BiGRU 跳过补边，输出尾部固定为 blank；参数结构与历史 ResNet/BiLSTM 权重不兼容。
+速度取决于字典、图片宽度、后端和硬件，不能由结构直接保证固定加速倍数。"""
 
 import torch
 import torch.nn as nn
@@ -27,15 +10,11 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
-# ==========================================
 # 1. 深度可分离卷积模块
-# ==========================================
 
 class DepthwiseSeparableConv(nn.Module):
-    """
-    深度可分离卷积 = Depthwise Conv + Pointwise Conv
-    计算量约为标准卷积的 1/k² (k=kernel_size)
-    """
+    """逐通道空间卷积后接 1×1 通道混合、BatchNorm 和 ReLU6。
+    相同输入输出通道下，卷积乘加量约为标准卷积的 1/out_ch + 1/kernel_size²。"""
 
     def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=1):
         super().__init__()
@@ -55,41 +34,18 @@ class DepthwiseSeparableConv(nn.Module):
         return x
 
 
-# ==========================================
 # 2. 轻量级 CNN 特征提取器
-# ==========================================
 
 class MobileFeatureExtractor(nn.Module):
-    """
-    基于深度可分离卷积的轻量 CNN 特征提取器。
+    """将 [B,nc,32,W] 转为 [B,output_channel,1,T]，默认输出通道为 256。
 
-    设计目标：
-    - 输入: [B, nc, 32, W]
-    - 输出: [B, 256, 1, W/4]
-    - 高度下采样: 32x (32 -> 1)
-    - 宽度下采样: 4x  (与原 ResNet 版本一致)
-
-    下采样路径 (H × W):
-    ┌─ stem conv   stride=(2,2) -> H/2, W/2  => 16, W/2
-    ├─ block1      stride=(2,1) -> H/4, W/2  =>  8, W/2
-    ├─ block2      stride=(2,1) -> H/8, W/2  =>  4, W/2
-    ├─ block3      stride=(2,1) -> H/16,W/2  =>  2, W/2
-    ├─ block4      stride=(2,1) -> H/32,W/2  =>  1, W/2
-    └─ 总计: 高度 32x, 宽度 2x (stem) × 1 × 1 × 1 × 1 = 2x
-       但我们需要宽度 4x，所以 stem 用 stride=(2,2) 即可让 MaxPool 再 /2
-
-    实际路径：
-    stem(s2,s2) -> 16, W/2
-    maxpool(s2,s2) -> 8, W/4    ← 宽度在此变为 W/4
-    block1(s2,s1) -> 4, W/4
-    block2(s2,s1) -> 2, W/4
-    block3(s2,s1) -> 1, W/4     ← 高度压到 1
-    """
+    stem 步长 2 后接步长 2 的池化，宽度 T=floor((W+1)/4)；
+    三个后续模块只继续缩小高度，依次为 4、2、1，不再缩小宽度。"""
 
     def __init__(self, input_channel=1, output_channel=256):
         super().__init__()
 
-        # Stem: 标准卷积 (第一层不用可分离卷积，效率差异不大但特征更好)
+        # 首层标准卷积将输入映射为 32 通道，同时缩小高宽。
         self.stem = nn.Sequential(
             nn.Conv2d(input_channel, 32, kernel_size=3, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(32),
@@ -128,20 +84,11 @@ class MobileFeatureExtractor(nn.Module):
         return x
 
 
-# ==========================================
-# 3. 轻量 CRNN (保持与原版完全相同的接口)
-# ==========================================
+# 3. 长度感知 CRNN
 
 class CRNN(nn.Module):
-    """
-    轻量级 CRNN: MobileNet-style CNN + BiGRU + CTC Head
-
-    接口与原 CRNN 完全兼容:
-    - __init__(img_height, nc, n_class, nh=256)
-    - forward(input, img_widths=None) -> [SeqLen, B, NumClasses]
-
-    注意: nh 默认值改为 256 (原版 512)，如需与原版一致请显式传参。
-    """
+    """Mobile 风格 CNN 与单层 BiGRU；nh 是每方向隐藏维度，默认 256。
+    调用 forward 时传入 img_widths 才启用长度感知与尾部 blank 掩码。"""
 
     def __init__(self, img_height, nc, n_class, nh=256):
         super(CRNN, self).__init__()
@@ -157,8 +104,7 @@ class CRNN(nn.Module):
         # CNN → RNN Dropout
         self.cnn_dropout = nn.Dropout(p=0.1)
 
-        # 使用 GRU 替代 LSTM: 更快、参数更少
-        # 单层 BiGRU (原版: 2层 BiLSTM)
+        # 单层双向 GRU；两个方向的输出拼接后送入分类头。
         self.rnn = nn.GRU(
             input_size=cnn_out_channels,
             hidden_size=nh,
@@ -167,14 +113,6 @@ class CRNN(nn.Module):
             bidirectional=True,
             batch_first=False,
         )
-        # self.rnn = nn.GRU(
-        #     input_size=cnn_out_channels,
-        #     hidden_size=nh,  # 256 → 384
-        #     num_layers=2,  # 1 → 2
-        #     dropout=0.15,  # 多层需要 inter-layer dropout
-        #     bidirectional=True,
-        #     batch_first=False,
-        # )
 
         # RNN → Linear Dropout
         self.rnn_dropout = nn.Dropout(p=0.1)
@@ -280,22 +218,20 @@ class CRNN(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
 
-# ==========================================
-# 4. 测试 & 对比
-# ==========================================
+# 4. 随机输入的 CPU 前向计时，不评估识别精度
 
 if __name__ == '__main__':
     import time
 
-    IMG_H = 32
-    IMG_W = 512
-    NUM_CHANNELS = 1
-    NUM_CLASSES = 6000
-    BATCH_SIZE = 8
+    IMG_H = 32  # 计时样例高度，单位 px。
+    IMG_W = 512  # 计时样例有效宽度，单位 px。
+    NUM_CHANNELS = 1  # 随机灰度样例通道数，不代表训练默认 RGB。
+    NUM_CLASSES = 6000  # 计时样例类别数，不从真实字典推导。
+    BATCH_SIZE = 8  # 随机计时样例每批图片数。
 
     device = torch.device('cpu')  # 专门测 CPU 速度
 
-    # -------- 轻量模型 --------
+    # 轻量模型
     model_lite = CRNN(img_height=IMG_H, nc=NUM_CHANNELS, n_class=NUM_CLASSES).to(device)
     model_lite.eval()
 
@@ -313,7 +249,7 @@ if __name__ == '__main__':
             _ = model_lite(dummy, img_widths=dummy_widths)
 
     # 速度测试
-    N_RUNS = 50
+    N_RUNS = 50  # 正式计时的前向次数，不含预热。
     start = time.perf_counter()
     with torch.no_grad():
         for _ in range(N_RUNS):
@@ -327,6 +263,7 @@ if __name__ == '__main__':
     print(f"每张图片: {elapsed/N_RUNS/BATCH_SIZE*1000:.1f} ms")
 
     seq_len = output.shape[0]
+    # 连续重复字符需要 blank 分隔；此处只是保守估计，不是所有文本的字符上限。
     max_chars = (seq_len - 1) // 2
     print(f"时间步: {seq_len}, 最大可识别字符数: ~{max_chars}")
     print(f"{'='*50}")

@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 
 from recognition.components.dataset import load_rgb_image
 
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}  # 支持的图片扩展名，枚举前转小写。
 
 
 def read_boxes(path: Path, size: tuple[int, int], label_format="bbox4"):
@@ -47,7 +47,7 @@ def read_boxes(path: Path, size: tuple[int, int], label_format="bbox4"):
 
 
 class OCRDataset(Dataset):
-    """沿用 majorbio 的目录接口，同时加载 JPG、JPEG 和 PNG，不做划分。"""
+    """枚举 JPG/JPEG/PNG/TIFF/BMP，严格配对一份标签；不划分或搬移数据。"""
     def __init__(self, image_dir, label_dir, transform=None, label_format="bbox4"):
         self.image_dir, self.label_dir = Path(image_dir), Path(label_dir)
         self.transform, self.label_format = transform, label_format

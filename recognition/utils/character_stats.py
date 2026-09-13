@@ -15,14 +15,15 @@ except ModuleNotFoundError:  # 支持直接运行当前脚本，不依赖 torch
     from annotation import split_annotation_fields
 
 
-RECOGNITION_DIR = Path(__file__).resolve().parents[1]
-SYNTHESIS_DATASET1 = "synthesis1"
-SYNTHESIS_DATASET2 = "synthesis2"
+RECOGNITION_DIR = Path(__file__).resolve().parents[1]  # recognition 包目录，由当前文件位置推导。
+SYNTHESIS_DATASET1 = "synthesis1"  # 第一份合成数据的统计列前缀，同时供字符清理工具使用。
+SYNTHESIS_DATASET2 = "synthesis2"  # 第二份合成数据的统计列前缀，同时供字符清理工具使用。
+# 默认仅统计 train、val、synthesis1/2，不自动读取训练入口的全部清单。
 DEFAULT_ANNOTATIONS = [
     RECOGNITION_DIR / "data" / f"{name}_annotation.txt"
     for name in ("train", "val", SYNTHESIS_DATASET1, SYNTHESIS_DATASET2)
 ]
-DEFAULT_OUTPUT_DIR = RECOGNITION_DIR.parent / "outputs" / "recognition_character_stats"
+DEFAULT_OUTPUT_DIR = RECOGNITION_DIR.parent / "outputs" / "recognition_character_stats"  # 统计 CSV 的默认输出目录，重复运行覆盖同名结果。
 
 
 def load_keys(keys_path: Path) -> list[str]:

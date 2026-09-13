@@ -66,7 +66,7 @@ def create_model(pretrained=False):
 
 
 def checkpoint_config(input_size):
-    """将调用方传入的像素尺寸写入模型契约，供推理和导出恢复训练配置。"""
+    """记录调用方尺寸及预处理/几何契约；加载时校验格式，推理尺寸仍由入口常量决定。"""
     return {"format": MODEL_FORMAT, "input_size": list(normalize_input_size(input_size)),
             "stride": STRIDE, "geometry": "log1p-trbl-feature-pixels",
             "preprocess": "rgb-imagenet-center-auto-v1"}

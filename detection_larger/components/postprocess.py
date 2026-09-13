@@ -20,7 +20,7 @@ def box_from_small_region(ys, xs, geo_map_np, stride):
     """
     针对小连通域（√ 等单字符/符号）的出框策略。
     取所有像素 geo 预测的中位数，比边缘采样更稳定。
-    geo_map_np 此时已经过 expm1 还原，是真实像素距离。
+    geo_map_np 已经 expm1 还原，单位为特征图像素；乘 stride 后为输入图片像素。
     """
     d_top    = np.median(geo_map_np[0, ys, xs])
     d_right  = np.median(geo_map_np[1, ys, xs])
@@ -44,7 +44,7 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
     """
     单轮连通域检测：
 
-      - 大连通域（面积 >= small_region_area）：边缘像素采样，精度高
+      - 大连通域（面积 >= small_region_area）：边缘像素中位数采样
         ★ 不做宽高比过滤，正文长文本行天然是扁长条
       - 小连通域（面积 < small_region_area）：全像素中位数出框
         文档缩放后的编号、日期可能只有一行特征像素，不能按连通域长宽比过滤。
@@ -64,14 +64,14 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
 
         ys, xs = np.where(labels == label_id)
 
-        # ── 小连通域（单符号）──────────────────────────────
+        # 小连通域（单符号）
         if area < small_region_area:
             box = box_from_small_region(ys, xs, geo_map_np, stride)
             if box[2] - box[0] > 1 and box[3] - box[1] > 1:
                 boxes.append(box)
             continue
 
-        # ── 大连通域（文本行）：边缘像素采样出框 ────────────
+        # 大连通域（文本行）：边缘像素采样出框
         # ★ 不加宽高比过滤，正文长文本行宽高比本来就大
         x_min_r, x_max_r = xs.min(), xs.max()
         y_min_r, y_max_r = ys.min(), ys.max()

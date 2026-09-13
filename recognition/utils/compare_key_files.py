@@ -8,10 +8,10 @@ import sys
 from pathlib import Path
 
 
-RECOGNITION_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_KEYS = RECOGNITION_DIR / "keys.txt"
-DEFAULT_NEW_KEYS = RECOGNITION_DIR / "keys-new.txt"
-DEFAULT_OUTPUT = RECOGNITION_DIR / "keys-append.txt"
+RECOGNITION_DIR = Path(__file__).resolve().parents[1]  # recognition 包目录，由当前文件位置推导。
+DEFAULT_KEYS = RECOGNITION_DIR / "keys.txt"  # 默认原字典路径，用于字符差集比较。
+DEFAULT_NEW_KEYS = RECOGNITION_DIR / "keys-new.txt"  # 默认待比较的新字典路径。
+DEFAULT_OUTPUT = RECOGNITION_DIR / "keys-append.txt"  # 默认结果文件路径，执行工具时写入或覆盖。
 
 
 def parse_args() -> argparse.Namespace:

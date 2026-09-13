@@ -1,3 +1,7 @@
+# 历史模型：CRNN 前向传播
+
+> 本文保留旧模型/旧批处理方案的说明，不作为当前实现。原文未注明版本时不可据此修改现有权重或预处理；当前契约见[架构](../../recognition.md)。
+
 ```python
     def forward(self, input):
         conv = self.cnn(input)

@@ -9,13 +9,13 @@ import cv2
 import numpy as np
 from PIL import Image, ImageFilter
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[3]  # 仓库根目录，由当前文件位置推导，不依赖运行目录。
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from recognition.utils.synthesis import error_common as common
 
-PATTERNS = ('low_resolution', 'joined_strokes', 'broken_strokes', 'scan_band')
+PATTERNS = ('low_resolution', 'joined_strokes', 'broken_strokes', 'scan_band')  # 四种低清干扰类别，按类别均分样本。
 
 
 def degrade(image, style, pattern, rng):

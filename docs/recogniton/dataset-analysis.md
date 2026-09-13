@@ -1,5 +1,7 @@
 # dataset.py：从图片和标注到模型输入
 
+> 历史分析：结论限于原文注明的代码、数据及权重版本，本次未重做训练或性能测量。当前行为见[架构](recognition.md)和[运行说明](running.md)。
+
 分析对象：[recognition/components/dataset.py](../../recognition/components/dataset.py)。本文依据 2026-09-07 的工作区代码。
 
 **先记住一句话：这个文件把大小不同的 detection 文字框，整理成可以一起送入模型的图片张量，同时保留每张图自己的真实宽度。** 训练与推理共享图片处理逻辑，区别主要是是否增强、返回标签还是路径。

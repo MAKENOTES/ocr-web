@@ -35,8 +35,7 @@ class ResizeAndPad:
         if self.padding_color != "auto":
             return self.padding_color
 
-        # UI 裁剪通常是白底、灰底或彩色按钮。使用边缘像素中位数填充，
-        # 避免固定灰色在小图四周制造一圈训练时并不存在的强边界。
+        # 文档与表格可能是白底或浅灰底；用边缘中位色补边，避免固定灰边。
         pixels = np.asarray(image)
         border = np.concatenate([
             pixels[0, :, :], pixels[-1, :, :],
@@ -96,6 +95,7 @@ class ColorJitterTransform:
 
 
 def normalize_input_size(input_size):
+    """返回 (高, 宽) 像素尺寸；各边至少 64 且为 32 的倍数。"""
     if isinstance(input_size, int):
         input_size = (input_size, input_size)
     if len(input_size) != 2 or any(not isinstance(v, int) or v < 64 or v % 32 for v in input_size):
@@ -123,6 +123,7 @@ def prepare_image(image, input_size):
 
 
 def restore_boxes(boxes, metadata, image_size):
+    """将输入图上的 xyxy 框减去居中偏移、除以缩放比例，并裁到原图边界。"""
     scale, (offset_x, offset_y) = metadata
     result = boxes.copy()
     result[:, [0, 2]] = np.clip((result[:, [0, 2]] - offset_x) / scale, 0, image_size[0])

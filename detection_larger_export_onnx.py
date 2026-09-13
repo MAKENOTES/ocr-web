@@ -16,7 +16,7 @@ from detection_larger.models.east_model import ONNX_CONFIG_KEY, checkpoint_confi
 CHECKPOINT_PATH = Path("detection_larger/checkpoints/best_detection_epoch_618_loss_0.01213.pth")  # 待导出的大图检查点，必须包含 config 和 model。
 OUTPUT_PATH = Path("best_detection_larger.onnx")  # 导出 ONNX 文件路径；目标已存在时拒绝覆盖。
 INPUT_SIZE = 640  # 导出输入边长，单位 px；也可设为 (高, 宽)，各边至少 64 且为 32 的倍数，推理常量须与此一致。
-BENCHMARK_ENABLED = True  # 启用时额外比较 CPU batch=1 前向速度；默认跳过测速，数值校验始终执行。
+BENCHMARK_ENABLED = True  # 启用时额外比较 CPU batch=1 前向速度；当前默认开启，数值校验始终执行。
 BENCHMARK_WARMUP = 5  # 每个后端正式测速前的预热次数。
 BENCHMARK_RUNS = 20  # 每个后端计入平均前向耗时的运行次数。
 OPSET_VERSION = 18  # 两种导出器统一使用的 ONNX 算子集版本。

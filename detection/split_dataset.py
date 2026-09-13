@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
-"""Create a persistent train/validation split for the detection dataset.
-
-The CSV manifest is the source of truth: once a sample has been assigned to
-``train`` or ``val``, later runs keep that assignment.  Newly discovered samples
-are assigned so that the complete manifest remains as close as possible to the
-requested validation ratio.
-"""
+"""按持久化 manifest 固定小图训练/验证归属，仅为新增样本分组。
+默认执行移动；先用 --dry-run 核对目标目录，数据传输成功后再写清单。"""
 
 from __future__ import annotations
 
@@ -21,8 +16,8 @@ from pathlib import Path
 from typing import Iterable
 
 
-DEFAULT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp")
-MANIFEST_FIELDS = ("sample_id", "image_name", "label_name", "split")
+DEFAULT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp")  # 划分时支持的图片扩展名，大小写不敏感。
+MANIFEST_FIELDS = ("sample_id", "image_name", "label_name", "split")  # 持久化划分清单字段及写出顺序。
 
 
 @dataclass(frozen=True)

@@ -20,8 +20,8 @@ except ModuleNotFoundError:  # 支持直接运行当前脚本
     from annotation import split_annotation_fields
 
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-OUTPUT_PATH = DATA_DIR / "train_val_same_text.txt"
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"  # 识别数据目录，由脚本位置推导。
+OUTPUT_PATH = DATA_DIR / "train_val_same_text.txt"  # 固定报告输出路径，运行时写入或覆盖。
 
 
 @dataclass(frozen=True)

@@ -1,18 +1,7 @@
-"""
-eval_metrics.py — OCR 检测评估指标模块
-=========================================
-提供 box-level 的 Precision / Recall / F1 计算。
+"""小图检测的独立评估：连通域解码、匈牙利匹配、Precision/Recall/F1。
 
-核心流程:
-  1. 从模型输出的 score_map + geo_map 解码出预测框 (复用推理逻辑)
-  2. 从 ground truth 的 quads 得到真值框
-  3. 用 IoU 矩阵做匈牙利匹配 (或贪心匹配)
-  4. 统计 TP / FP / FN，计算 P / R / F1
-
-使用方式:
-  - 在训练循环中调用 evaluate_dataset() 获得整个验证集的指标
-  - 或在单张图上调用 evaluate_single_image() 做调试
-"""
+批量入口为 evaluate_detection，单图入口为 evaluate_single_image。
+本模块使用八连通域和固定小区域阈值，与根目录矩形推理不完全一致。"""
 
 import numpy as np
 import cv2
@@ -20,16 +9,14 @@ import torch
 from scipy.optimize import linear_sum_assignment
 
 
-# ============================================================
-#  1. 从 score_map + geo_map 解码预测框 (与推理脚本一致)
-# ============================================================
+#  1. 本模块独立解码预测框
 
 # 默认参数 (可在调用时覆盖)
-DEFAULT_SCORE_THRESHOLD = 0.7
-DEFAULT_MIN_AREA = 2
-DEFAULT_SMALL_REGION_AREA = 15
-DEFAULT_SMALL_MAX_ASPECT = 5.0
-DEFAULT_STRIDE = 4.0
+DEFAULT_SCORE_THRESHOLD = 0.7  # 置信度严格超过 0.7 的网格参与连通域。
+DEFAULT_MIN_AREA = 2  # 最小连通域面积，单位为特征图像素数。
+DEFAULT_SMALL_REGION_AREA = 15  # 小区域面积分界，单位为特征图像素数；当前不随输入尺寸调整。
+DEFAULT_SMALL_MAX_ASPECT = 5.0  # 仅小区域使用的长边/短边比例上限，无单位。
+DEFAULT_STRIDE = 4.0  # 特征图距离还原为输入图片像素的倍率。
 
 
 def _box_from_small_region(ys, xs, geo_map_np, stride):
@@ -57,7 +44,7 @@ def decode_predictions(score_map_np, geo_map_np,
                        small_max_aspect=DEFAULT_SMALL_MAX_ASPECT):
     """
     从 score_map 和 geo_map (numpy) 解码出预测框列表。
-    geo_map_np 应已经过 expm1 还原为真实像素距离。
+    geo_map_np 应已 expm1 还原为特征图像素距离，输出框再乘步长。
 
     返回: np.ndarray, shape (N, 4), 每行 [x_min, y_min, x_max, y_max]
           坐标在 input_size 空间 (例如 640x640)
@@ -75,7 +62,7 @@ def decode_predictions(score_map_np, geo_map_np,
 
         ys, xs = np.where(labels == label_id)
 
-        # ── 小连通域 ──
+        # 小连通域
         if area < small_region_area:
             w_cc = stats[label_id, cv2.CC_STAT_WIDTH]
             h_cc = stats[label_id, cv2.CC_STAT_HEIGHT]
@@ -86,7 +73,7 @@ def decode_predictions(score_map_np, geo_map_np,
                 boxes.append(box)
             continue
 
-        # ── 大连通域：边缘采样 ──
+        # 大连通域：边缘采样
         x_min_r = xs.min(); x_max_r = xs.max()
         y_min_r = ys.min(); y_max_r = ys.max()
         rw = x_max_r - x_min_r + 1
@@ -115,9 +102,7 @@ def decode_predictions(score_map_np, geo_map_np,
     return np.array(boxes) if boxes else np.array([]).reshape(0, 4)
 
 
-# ============================================================
 #  2. IoU 计算 + 匹配
-# ============================================================
 
 def compute_iou_matrix(boxes_a, boxes_b):
     """
@@ -194,9 +179,7 @@ def match_boxes(pred_boxes, gt_boxes, iou_threshold=0.5):
     return tp, fp, fn, matched_ious
 
 
-# ============================================================
 #  3. 从 GT quads 提取 AABB 框 (用于与预测框对比)
-# ============================================================
 
 def quads_to_aabb(quads, scale, pad_x, pad_y):
     """
@@ -218,9 +201,7 @@ def quads_to_aabb(quads, scale, pad_x, pad_y):
     return np.stack([x_min, y_min, x_max, y_max], axis=1)
 
 
-# ============================================================
 #  4. 单张图评估
-# ============================================================
 
 def evaluate_single_image(score_map_np, geo_map_np, gt_boxes,
                           score_threshold=DEFAULT_SCORE_THRESHOLD,
@@ -256,9 +237,7 @@ def evaluate_single_image(score_map_np, geo_map_np, gt_boxes,
     }
 
 
-# ============================================================
 #  5. 整个验证集评估 (集成到训练循环)
-# ============================================================
 
 def evaluate_detection(model, val_dataset, device,
                        input_size=640,
@@ -374,9 +353,8 @@ def evaluate_detection(model, val_dataset, device,
 
 
 def _parse_label_file(label_path):
-    """
-    解析标签文件，返回 quads (与 dataset.py 一致的逻辑)。
-    """
+    """历史 bbox4 解析：只读空白分隔的前四项并取整；缺文件或坏行返回空/跳过。
+    与训练加载器的浮点、逗号和 quad8 支持不同，不适合作为严格数据校验器。"""
     import os
     quads = []
 
@@ -409,9 +387,7 @@ def _parse_label_file(label_path):
     return np.array(quads, dtype=np.float32) if quads else np.array([], dtype=np.float32)
 
 
-# ============================================================
 #  6. 多阈值评估 (可选，用于分析最佳阈值)
-# ============================================================
 
 def evaluate_multi_threshold(model, val_dataset, device,
                              input_size=640,

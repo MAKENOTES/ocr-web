@@ -25,8 +25,8 @@ from recognition.utils.synthesis.generate_lines import measure_style
 from recognition.utils.synthesis.generate_red_stamp import load_corpus, text_units
 from recognition.utils.synthesis.naming import REPORT_ROOT
 
-ANALYSIS = ROOT / 'recognition/datadoc/analysisdata/errdata20260909.md'
-TITLES = {'edge': '裁切或边缘残字', 'degraded': '低清或笔画粘连', 'confusable': '汉字形近误识'}
+ANALYSIS = ROOT / 'recognition/datadoc/analysisdata/errdata20260909.md'  # 默认历史错误分析，提供类别、参考图链接及形近目标。
+TITLES = {'edge': '裁切或边缘残字', 'degraded': '低清或笔画粘连', 'confusable': '汉字形近误识'}  # 各合成类别在错误分析中的二级标题，按精确标题匹配。
 
 
 def read_references(path: Path, kind: str) -> list[dict]:

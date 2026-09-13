@@ -20,8 +20,8 @@ except ModuleNotFoundError:  # 支持直接运行，不依赖 torch 或合成渲
     from remove_characters_by_stats import RemovalPlan, apply_plan, load_statistics, read_lines
 
 
-TARGETS = ("synthesis1", "synthesis2")
-DATASETS = ("train", "val", *TARGETS)
+TARGETS = ("synthesis1", "synthesis2")  # 按常见字规则清理的两份合成数据。
+DATASETS = ("train", "val", *TARGETS)  # 用于校验 CSV 和保留图片引用的四份清单。
 
 
 def build_plan(csv_path: Path, data_dir: Path, threshold: int = 100,
