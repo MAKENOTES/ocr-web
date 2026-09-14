@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from detection_larger.components.onnx_runtime import CPU_THREADS, session_options
-from detection_larger.models.east_model import ONNX_CONFIG_KEY, checkpoint_config, load_checkpoint
+from detection_larger.utils import ONNX_CONFIG_KEY, checkpoint_config, load_checkpoint
 
 
 CHECKPOINT_PATH = Path("detection_larger/checkpoints/best_detection_epoch_618_loss_0.01213.pth")  # 待导出的大图检查点，必须包含 config 和 model。

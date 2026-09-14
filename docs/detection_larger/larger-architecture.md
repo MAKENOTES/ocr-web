@@ -20,6 +20,9 @@
 损失为 Dice + 3 × 正样本 Smooth L1；不切片、不恢复表格结构。
 
 检查点只保存 `config` 和 `model`，配置格式为 `document-east-resnet18-full-image-v2`。
+格式常量、配置构造与校验、`save_checkpoint` 和 `load_checkpoint` 都在
+`detection_larger/utils/checkpoint.py`，由 `detection_larger/utils/__init__.py` 汇总导出；
+`detection_larger/models/east_model.py` 只定义网络。训练、推理、导出和 ONNX 元数据校验共用同一份契约。
 `--weights` 可初始化纯参数或含 model 的权重，但不恢复优化器和轮次。
 训练、推理、导出各自的 `INPUT_SIZE` 独立配置，当前均为 640；推理不从检查点继承尺寸。
 ONNX/OpenVINO 还会检查模型实际输入形状与推理常量一致。

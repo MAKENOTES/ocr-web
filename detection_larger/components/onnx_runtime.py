@@ -4,7 +4,7 @@ import json
 
 import numpy as np
 
-from detection_larger.models.east_model import ONNX_CONFIG_KEY, validate_config
+from detection_larger.utils import ONNX_CONFIG_KEY, validate_config
 
 
 CPU_THREADS = 4  # CPU 推理最多使用的工作线程数；避免大图推理占满整机。

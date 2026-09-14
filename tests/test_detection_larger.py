@@ -12,7 +12,8 @@ from detection_larger.components.ground_truth import generate_ground_truth
 from detection_larger.components.loss import EASTLoss
 from detection_larger.components.transforms import get_transforms, normalize_input_size, prepare_image, restore_boxes
 from detection_larger.inference import DocumentDetector, decode_maps, suppress_boxes
-from detection_larger.models.east_model import checkpoint_config, create_model, load_checkpoint, save_checkpoint
+from detection_larger.models.east_model import create_model
+from detection_larger.utils import checkpoint_config, load_checkpoint, save_checkpoint
 
 
 @pytest.mark.parametrize('use_directory,save_crops', [(False, False), (True, True)])

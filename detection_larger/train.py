@@ -15,7 +15,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from detection_larger.components.dataset import OCRDataset
 from detection_larger.components.transforms import get_transforms, normalize_input_size
-from detection_larger.models.east_model import EASTModel, save_checkpoint
+from detection_larger.models.east_model import EASTModel
+from detection_larger.utils import save_checkpoint
 from detection_larger.components.loss import EASTLoss
 from torch.optim.lr_scheduler import OneCycleLR
 from detection_larger.components.training_options import parse_args, load_initial_weights

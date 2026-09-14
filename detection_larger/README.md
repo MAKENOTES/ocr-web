@@ -25,7 +25,9 @@ detection_larger/
 │   ├── eval_metrics.py       # 总体及图片格式分组的框级指标
 │   └── training_options.py   # 初始权重和本次输出目录参数
 ├── models/
-│   └── east_model.py         # 独立 ResNet18 EAST 与检查点契约
+│   └── east_model.py         # 独立 ResNet18 EAST 网络
+├── utils/
+│   └── checkpoint.py         # 检查点配置契约、校验与读写，训练/推理/导出共用
 ├── data/                     # 已准备好的训练/验证图片与标签，不提交
 ├── checkpoints/              # 按运行保存的本地模型权重，不提交
 └── runs/                     # TensorBoard 运行日志，不提交

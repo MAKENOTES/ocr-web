@@ -18,7 +18,7 @@ from detection_larger.components.dataset import IMAGE_EXTENSIONS
 from detection_larger.components.onnx_runtime import OpenVINOBackend, session_options, validate_onnx_metadata
 from detection_larger.components.transforms import STRIDE, normalize_input_size, prepare_image, restore_boxes
 from detection_larger.components.postprocess import MIN_AREA, boxes_from_connected_components, scaled_small_region_area
-from detection_larger.models.east_model import load_checkpoint
+from detection_larger.utils import load_checkpoint
 
 
 # 文档专用检查点或 ONNX 模型；更换训练结果时修改此路径。

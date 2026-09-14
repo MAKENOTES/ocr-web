@@ -9,7 +9,8 @@ from PIL import Image
 
 import detection_larger_export_onnx as exporter
 from detection_larger.inference import DocumentDetector
-from detection_larger.models.east_model import create_model, save_checkpoint
+from detection_larger.models.east_model import create_model
+from detection_larger.utils import save_checkpoint
 
 
 @pytest.mark.parametrize('fallback', [False, True])
