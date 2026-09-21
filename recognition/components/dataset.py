@@ -443,11 +443,11 @@ class BaseTextDataset(Dataset):
             # 训练使用轻微几何扰动，再模拟颜色、极性、清晰度与轻噪声变化。
             train_transforms = [
                 # 旋转 ±2°、透视扰动 30%；按当前图片背景填充新增边缘。
-                RandomBackgroundGeometry(
-                    degrees=2,
-                    distortion_scale=0.1,
-                    p=0.3,
-                ),
+                # RandomBackgroundGeometry(
+                #     degrees=2,
+                #     distortion_scale=0.1,
+                #     p=0.3,
+                # ),
                 # 颜色扰动（70%）：模拟曝光、纸面反差、印刷浓淡和轻微偏色。
                 transforms.RandomApply(
                     [transforms.ColorJitter(

@@ -24,7 +24,7 @@ from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 from recognition.utils.annotation import split_annotation_fields
 
 # 配置区域
-MODEL_PATH = "recognition/checkpoints/best_cer_0.003755_epoch_666.pth"  # 本次评估的 CRNN 权重，需与 KEYS_PATH 配套。
+MODEL_PATH = "recognition/checkpoints/best_cer_0.005048_epoch_635.pth"  # 本次评估的 CRNN 权重，需与 KEYS_PATH 配套。
 KEYS_PATH = "recognition/keys.txt"  # 权重训练时的字符字典，内容及顺序必须一致。
 # VAL_ANNOTATION = "recognition/data/train_annotation.txt"
 VAL_ANNOTATION = "recognition/data/val_annotation.txt"  # 本次评估的 Tab 标注，图片路径相对于该文件。
