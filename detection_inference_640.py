@@ -18,9 +18,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 参数配置
 
 DEFAULT_MODEL_PATH  = "best_detection.onnx"  # 默认小图 ONNX 权重路径，不与大图模型通用。
-DEFAULT_IMAGE_PATH  = "detection/data/test/1"  # 默认待推理图片目录。
-DEFAULT_OUTPUT_DIR  = "detection/data/test_results/optimized/1"  # 默认画框预览目录，覆盖同名结果。
-DEFAULT_CROP_DIR    = "detection/data/crops/optimized/1"  # 开启裁片时的固定目录，独立于 --output_dir。
+DEFAULT_IMAGE_PATH  = "detection/data/test/4"  # 默认待推理图片目录。
+DEFAULT_OUTPUT_DIR  = "detection/data/test_results/optimized/4"  # 默认画框预览目录，覆盖同名结果。
+DEFAULT_CROP_DIR    = "detection/data/crops/optimized/4"  # 开启裁片时的固定目录，独立于 --output_dir。
 
 INPUT_SIZE          = (256, 768)  # (height, width)，与训练配置一致
 SCORE_THRESHOLD     = 0.7  # 置信度严格超过此值的网格参与连通域。
