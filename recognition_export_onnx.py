@@ -440,7 +440,7 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="导出动态宽度、长度感知的 CRNN ONNX")
-    parser.add_argument("--model_path", default="recognition/checkpoints/best_cer_0.003755_epoch_666.pth")
+    parser.add_argument("--model_path", default="recognition/checkpoints/ocr_exp_1790169909626811297/epoch_655.pth")
     parser.add_argument("--output_path", default="best_recognition.onnx")
     parser.add_argument("--keys_path", default="recognition/keys.txt")
     parser.add_argument("--img_height", type=int, default=32)
