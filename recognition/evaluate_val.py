@@ -26,8 +26,8 @@ from recognition.utils.annotation import split_annotation_fields
 # 配置区域
 MODEL_PATH = "recognition/checkpoints/ocr_exp_1790169909626811297/epoch_655.pth"  # 本次评估的 CRNN 权重，需与 KEYS_PATH 配套。
 KEYS_PATH = "recognition/keys.txt"  # 权重训练时的字符字典，内容及顺序必须一致。
-# VAL_ANNOTATION = "recognition/data/train_annotation.txt"
-VAL_ANNOTATION = "recognition/data/val_annotation.txt"  # 本次评估的 Tab 标注，图片路径相对于该文件。
+VAL_ANNOTATION = "recognition/data/train_annotation.txt"
+# VAL_ANNOTATION = "recognition/data/val_annotation.txt"  # 本次评估的 Tab 标注，图片路径相对于该文件。
 # VAL_ANNOTATION = "recognition/data/synthesis1_annotation.txt"
 # VAL_ANNOTATION = "recognition/data/synthesis2_annotation.txt"
 # VAL_ANNOTATION = "recognition/data/synthesis3_annotation.txt"
