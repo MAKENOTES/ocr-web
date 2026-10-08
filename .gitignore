@@ -43,6 +43,7 @@ best_detection.pth
 best_recognition.onnx
 best_recognition.onnx.data
 best_recognition.pth
+best_recognition_layer.onnx
 
 best_detection_larger.onnx
 

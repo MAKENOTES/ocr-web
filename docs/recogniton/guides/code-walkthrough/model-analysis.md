@@ -2,7 +2,7 @@
 
 本文帮助新手理解 CRNN 的数据流、张量形状和有效序列长度，以及 CNN、双向 GRU 与 CTC 分类头如何配合。
 
-代码入口：[recognition/models/model.py](../../../../recognition/models/model.py)。已于 2026-09-13 对照当前实现核对；修改相关实现时同步更新本页。
+代码入口：[recognition/models/model.py](../../../../recognition/models/model.py)。已于 2026-10-08 对照当前实现核对；修改相关实现时同步更新本页。
 
 **`CRNN` 用 CNN 把图片变成从左到右的特征序列，用双向 GRU 理解上下文，再为每个时间步输出各字符类别的对数概率。** 最终字符串由 converter 解码，训练损失由训练脚本计算。
 
@@ -35,7 +35,7 @@ texts = converter.decode(log_probs, layout="TBC")
 | --- | --- |
 | `DepthwiseSeparableConv` | 深度卷积、逐点卷积、BatchNorm、ReLU6 的组合 |
 | `MobileFeatureExtractor` | 将高度 32 的图片压成高度 1 的特征图 |
-| `CRNN.__init__` | 连接 CNN、Dropout、单层 BiGRU 和分类头 |
+| `CRNN.__init__` | 连接 CNN、Dropout、多层 BiGRU（`num_layers`，默认 2）和分类头 |
 | `_calc_cnn_output_width` | 从一个真实像素宽度算有效时间步 |
 | `_calc_cnn_output_widths` | 同一公式的批量张量版本 |
 | `CRNN.forward` | 图片到序列、长度打包、GRU、分类、blank mask、log_softmax |
@@ -51,7 +51,7 @@ flowchart TD
     W["img_widths：B 个真实像素宽度"] --> LEN["计算有效时间步 real_seq_lens"]
     D1 --> PACK["pack_padded_sequence"]
     LEN --> PACK
-    PACK --> GRU["单层双向 GRU"]
+    PACK --> GRU["多层双向 GRU"]
     GRU --> UNPACK["pad_packed_sequence：T × B × 2nh"]
     UNPACK --> D2["RNN Dropout：p=0.1"]
     D2 --> FC["Linear：2nh 到 K"]
@@ -201,12 +201,12 @@ flowchart TD
 
 ## 6. BiGRU、分类头和两种 forward 路径
 
-当前启用的是**单层双向 GRU**：输入特征为 `256` 维，每个方向隐藏维度默认 `nh=256`，因此输出是 `512` 维。前向看左侧上下文，反向看右侧上下文，两者拼接后交给分类头。
+当前启用的是**2 层双向 GRU**（`num_layers=2`）：输入特征为 `256` 维，每个方向隐藏维度默认 `nh=256`，因此输出是 `512` 维。前向看左侧上下文，反向看右侧上下文，两者拼接后交给分类头；层数必须与 checkpoint 一致，`infer_num_layers` 可按权重键推断。
 
 | 阶段 | 默认维度变化 | 说明 |
 | --- | --- | --- |
 | CNN 后 Dropout | `[T, B, 256]` 不变 | `p=0.1` |
-| 单层 BiGRU | `256 → 2 × 256` | `batch_first=False`，内部层间 dropout 为 `0` |
+| 2 层 BiGRU | `256 → 2 × 256` | `batch_first=False`，层间 dropout 为 `0.15`（推理时不生效） |
 | RNN 后 Dropout | `[T, B, 512]` 不变 | `p=0.1` |
 | `embedding` | `512 → K` | 实际是 `nn.Linear` 分类头，不是词嵌入查表 |
 | `log_softmax(dim=2)` | `[T, B, K]` 不变 | 沿类别维归一化，直接供 CTC 使用 |

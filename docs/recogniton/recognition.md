@@ -6,7 +6,7 @@
 
 Recognition 接收 detection 输出的单个文字框，输出 Unicode 文本。支持彩色/深浅背景、PNG 和动态宽度处理。
 
-当前基线为 MobileNet 风格 CNN + 单层双向 GRU + CTC head，输入高度固定为 32，宽度通常按比例缩放并在 batch 内动态 padding；超过调用方宽度上限时会横向压缩。
+当前基线为 MobileNet 风格 CNN + 2 层双向 GRU（`CRNN(num_layers=2)`，层间 dropout 0.15） + CTC head，输入高度固定为 32，宽度通常按比例缩放并在 batch 内动态 padding；超过调用方宽度上限时会横向压缩。
 操作见[包入口](../../recognition/README.md)、[运行说明](guides/running.md)和[数据工具](guides/data-tools.md)，术语见[术语表](../terminology.md)。
 
 ## 数据与预处理
@@ -114,7 +114,7 @@ flowchart LR
     W[img_widths B] --> LEN[真实序列长度]
     T --> PACK[PackedSequence]
     LEN --> PACK
-    PACK --> GRU[长度感知单层 BiGRU]
+    PACK --> GRU[长度感知多层 BiGRU]
     GRU --> FC[Linear classes]
     FC --> LS[LogSoftmax]
     LEN --> LS
@@ -133,10 +133,12 @@ flowchart LR
 
 `LabelConverter.decode` 已要求显式 `layout="TBC"` 或 `"BTC"`。部署入口会用已知 batch size 和类别数把后端输出规范为 TBC，不再用维度大小关系猜测。
 
-每张图片右侧固定增加 32 px 背景保护区，隔离 CNN 感受野与动态 batch 边界；BiGRU 使用 `PackedSequence`，正反向都只处理各图片的有效时间步。自动测试要求同一图片在 batch=1 和混合宽度 batch 中的有效输出一致，并验证 ONNX GRU 带有 `sequence_lens` 输入。
+每张图片右侧固定增加 32 px 背景保护区，隔离 CNN 感受野与动态 batch 边界；BiGRU 使用 `PackedSequence`，正反向都只处理各图片的有效时间步。自动测试要求同一图片在 batch=1 和混合宽度 batch 中的有效输出一致，并验证导出 ONNX 的每个 GRU 节点都带有 `sequence_lens` 输入。多层模型在 `recognition_export_onnx_layer.py` 中按层拆成多个串联的 ONNX GRU 节点，因为 ONNX GRU 的 W 只描述单层且各层输入维度不同。
 
 CNN 有效时间步精确为 `floor((W + 1) / 4)`，不能直接用浮点 `W/4` 代替。
-默认 CNN 特征为 256 维，单层 BiGRU 每方向隐藏维度 256，分类头输入 512 维。
+默认 CNN 特征为 256 维，BiGRU 每方向隐藏维度 256、共 2 层，分类头输入 512 维。
+GRU 层数由 `CRNN(num_layers=...)` 决定，默认 2；训练、导出和推理必须使用与
+checkpoint 相同的层数，`infer_num_layers` 可按权重键推断该值。
 `forward` 可不传 `img_widths`，但此时不会跳过补边或强制 padding 为 blank；实际流水线必须传宽度。
 CTC 可对齐条件为时间步至少等于标签字符数加相邻重复字符对数，不是固定“每字两步”。
 

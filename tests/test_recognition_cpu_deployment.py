@@ -37,7 +37,8 @@ def test_calibration_matches_inference_on_transparent_long_and_dark_images(tmp_p
 
 def test_logits_export_preserves_decoding_and_padding():
     torch.manual_seed(19)
-    model = CRNN(32, 3, 11).eval()
+    # 该导出包装器只支持单层 BiGRU；多层模型由 recognition_export_onnx_layer.py 导出。
+    model = CRNN(32, 3, 11, num_layers=1).eval()
     images, _, widths = dynamic_padding_collate_fn([
         (torch.rand(3, 32, 48), 'short'), (torch.rand(3, 32, 153), 'long')])
     with torch.inference_mode():

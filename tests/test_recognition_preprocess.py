@@ -17,7 +17,7 @@ from recognition.components.dataset import (
     remove_red_seal,
     resolve_image_path,
 )
-from recognition.utils.checkpoint import infer_num_channels
+from recognition.utils.checkpoint import infer_num_channels, infer_num_layers
 
 
 @pytest.mark.parametrize("operation", ["rotation", "perspective"])
@@ -343,6 +343,24 @@ def test_evaluation_dataset_uses_same_no_crop_rgb_preprocess(tmp_path):
 def test_checkpoint_channel_detection_supports_old_grayscale_and_new_rgb_weights():
     assert infer_num_channels({"cnn.stem.0.weight": torch.empty(32, 1, 3, 3)}) == 1
     assert infer_num_channels({"cnn.stem.0.weight": torch.empty(32, 3, 3, 3)}) == 3
+
+
+def test_checkpoint_layer_detection_counts_gru_layers_and_keeps_fallback():
+    assert infer_num_layers({
+        "rnn.weight_ih_l0": torch.empty(3, 3),
+        "rnn.weight_ih_l0_reverse": torch.empty(3, 3),
+    }) == 1
+    # 反向键不参与计数：层数只由去掉 _reverse 后的最大层号加一决定。
+    assert infer_num_layers({
+        "rnn.weight_ih_l0": torch.empty(3, 3),
+        "rnn.weight_ih_l0_reverse": torch.empty(3, 3),
+        "rnn.weight_ih_l1": torch.empty(3, 6),
+        "rnn.weight_ih_l1_reverse": torch.empty(3, 6),
+    }) == 2
+    # 没有递归权重的模型使用调用方给出的默认层数，无法推断时报错。
+    assert infer_num_layers({"cnn.stem.0.weight": torch.empty(32, 3, 3, 3)}, default=2) == 2
+    with pytest.raises(ValueError, match="BiGRU 层数"):
+        infer_num_layers({"cnn.stem.0.weight": torch.empty(32, 3, 3, 3)})
 
 
 def test_resolve_image_path_requires_the_exact_annotated_extension(tmp_path):

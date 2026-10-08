@@ -20,9 +20,10 @@ def _collate(*images: torch.Tensor):
     )
 
 
-def _make_model() -> CRNN:
+def _make_model(num_layers: int = 1) -> CRNN:
+    """构造测试模型；默认单层以匹配 recognition_export_onnx.py 的导出包装器。"""
     torch.manual_seed(20260902)
-    model = CRNN(img_height=32, nc=3, n_class=19)
+    model = CRNN(img_height=32, nc=3, n_class=19, num_layers=num_layers)
 
     # 非零 bias 能稳定复现旧实现中反向 GRU 穿过 padding 后污染有效状态的问题。
     with torch.no_grad():
@@ -32,9 +33,10 @@ def _make_model() -> CRNN:
     return model
 
 
-def test_crnn_output_is_invariant_to_mixed_width_batch_padding():
+@pytest.mark.parametrize("num_layers", [1, 2])
+def test_crnn_output_is_invariant_to_mixed_width_batch_padding(num_layers):
     """短图的有效输出不能因同批出现长图而变化。"""
-    model = _make_model()
+    model = _make_model(num_layers)
     model.eval()
 
     short = torch.rand(3, 32, 64)
@@ -61,9 +63,10 @@ def test_crnn_output_is_invariant_to_mixed_width_batch_padding():
     )
 
 
-def test_length_aware_crnn_supports_training_backward_pass():
+@pytest.mark.parametrize("num_layers", [1, 2])
+def test_length_aware_crnn_supports_training_backward_pass(num_layers):
     """PackedSequence 路径必须可用于正式训练和反向传播。"""
-    model = _make_model()
+    model = _make_model(num_layers)
     model.train()
 
     short = torch.rand(3, 32, 64)
@@ -83,7 +86,8 @@ def test_exported_onnx_uses_sequence_lengths_and_is_batch_invariant(
     tmp_path, capfd, recwarn, output_type,
 ):
     """ONNX 的 GRU 也必须跳过 padding，不能只修复 PyTorch。"""
-    model = _make_model()
+    # 旧导出包装器只支持单层；多层导出见 test_recognition_export_onnx_layer.py。
+    model = _make_model(num_layers=1)
     model.eval()
     wrapper = OnnxExportWrapper(model, output_type=output_type).eval()
     original_state = {key: value.clone() for key, value in model.state_dict().items()}
@@ -179,7 +183,7 @@ def test_exported_onnx_uses_sequence_lengths_and_is_batch_invariant(
 
 
 def test_openvino_backend_finds_renamed_lengths_input_and_is_batch_invariant(tmp_path):
-    model = _make_model()
+    model = _make_model(num_layers=1)
     model.eval()
     wrapper = OnnxExportWrapper(model).eval()
 

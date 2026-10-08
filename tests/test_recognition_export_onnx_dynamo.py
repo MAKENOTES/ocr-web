@@ -15,7 +15,8 @@ def test_dynamo_export_preserves_dynamic_shapes_and_source_training(
     tmp_path, recwarn, channels, output_type, trace_width,
 ):
     torch.manual_seed(20260909)
-    model = CRNN(32, channels, 7, nh=32).train()
+    # dynamo 导出包装器只支持单层 BiGRU；多层模型由 recognition_export_onnx_layer.py 导出。
+    model = CRNN(32, channels, 7, nh=32, num_layers=1).train()
     with torch.no_grad():
         for name, parameter in model.rnn.named_parameters():
             if "bias" in name:
@@ -64,7 +65,7 @@ def test_dynamo_export_preserves_dynamic_shapes_and_source_training(
 
 
 def test_failed_dynamo_validation_preserves_existing_output(tmp_path, monkeypatch):
-    model = CRNN(32, 3, 7, nh=32).eval()
+    model = CRNN(32, 3, 7, nh=32, num_layers=1).eval()
     keys = tmp_path / "keys.txt"
     keys.write_text("甲\n乙\n丙\n丁\n戊\n", encoding="utf-8")
     output = tmp_path / "existing.onnx"

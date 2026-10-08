@@ -3,7 +3,7 @@
 本文介绍文字识别包的用途、工程目录和常用操作，并提供架构、工具、新手导读及历史文档索引。
 
 本包将完整 detection 文字框识别为 Unicode 文本。当前模型为 Mobile 风格 CNN、
-单层双向 GRU 和 CTC，默认输入 RGB、高度 32 像素。
+2 层双向 GRU 和 CTC，默认输入 RGB、高度 32 像素。
 
 ## 工程目录层级
 
@@ -21,7 +21,7 @@ recognition/
 │   ├── dataset.py            # 图片加载、预处理、增强、分桶与动态补边
 │   └── converter.py          # 字符编码与 CTC 解码
 ├── models/
-│   ├── model.py              # 当前 Mobile CNN + BiGRU 模型
+│   ├── model.py              # 当前 Mobile CNN + 多层 BiGRU 模型
 │   └── model_resnet50.py      # 历史模型，实际使用 ResNet34 + BiLSTM
 ├── utils/
 │   ├── annotation.py         # Tab 标注解析与格式化
@@ -41,6 +41,8 @@ recognition/
 
 包外的 `docs/recogniton/` 保存架构、运行说明和历史模型文档，见下方快速索引。
 根目录 `recognition_inference.py`、`recognition_export_onnx.py` 分别负责多后端推理和导出；
+多层 BiGRU 模型用 `recognition_inference_layer.py` 和 `recognition_export_onnx_layer.py`
+（导出默认生成 `best_recognition_layer.onnx`，不覆盖单层产物）；
 `recognition_benchmark_cpu.py`、`recognition_quantize_static.py` 负责 CPU 评测和静态量化。
 
 ## 常用入口
@@ -63,6 +65,7 @@ recognition/
 - 路径相对于每份标注文件所在目录，必须精确匹配；不猜扩展名、不用缺图替代张量。
 - 共享透明合成、局部去红章和动态补边，不二次裁剪正文。
 - `img_widths` 不含右侧 32 像素保护区和 batch 补边；混合宽度推理必须传入真实宽度。
+- GRU 层数与 checkpoint 绑定，默认 2 层；加载旧单层权重需显式 `CRNN(num_layers=1)`。
 - 字典内容与顺序绑定权重。完整续训还校验源码全文哈希，注释改动也会影响旧检查点恢复。
 
 ## 文档快速索引

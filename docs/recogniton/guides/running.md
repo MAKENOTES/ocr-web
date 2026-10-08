@@ -2,7 +2,7 @@
 
 本文指导识别模型的训练、续训、评估、导出、CPU 部署与量化，并说明各入口的默认配置和使用边界。
 
-核对日期：2026-09-13。参数、默认值和处理边界以链接的当前实现为依据。
+核对日期：2026-10-08。参数、默认值和处理边界以链接的当前实现为依据。
 
 操作入口见 [包说明](../../../recognition/README.md)，输入与张量契约见[当前架构](../recognition.md)。
 以下命令在仓库根目录执行，权重占位路径须替换为实际文件。
@@ -25,8 +25,11 @@ flowchart LR
 - `../../../recognition/train.py`：训练与训练期验证；
 - `../../../recognition/evaluate_val.py`：独立 manifest 的 Accuracy/CER/错误样本；
 - `../../../recognition/inference.py`：PyTorch checkpoint 调试；
-- `../../../recognition_export_onnx.py`：带 `img_widths`、动态 batch/width 的 ONNX；
+- `../../../recognition_export_onnx.py`：带 `img_widths`、动态 batch/width 的 ONNX，仅支持单层 BiGRU；
 - `../../../recognition_inference.py`：ONNX/OpenVINO/PyTorch 部署推理。
+- `../../../recognition_export_onnx_layer.py`：多层 BiGRU 的 ONNX 导出，层数取自 checkpoint，
+  按层拆成串联的 GRU 节点，默认输出 `best_recognition_layer.onnx`，不覆盖单层产物；
+- `../../../recognition_inference_layer.py`：配合多层导出使用，PyTorch 后端按 checkpoint 推断层数；
 - `../../../recognition_benchmark_cpu.py`：带标注的 CPU CER、整行准确率、耗时和逐图预测报告；
 - `../../../recognition_quantize_static.py`：共享预处理的 NNCF 静态量化，以及基于真实 CER 的精度恢复。
 
@@ -117,7 +120,9 @@ ONNX 导出包装器直接生成带 `sequence_lens` 和动态 `initial_h` 的标
 导出过程不再经过 `prim::PackPadded/PadPacked`，避免中间节点形状推断和通用 GRU
 批次警告。此转换仅在 ONNX 导出时启用；训练、验证和普通 PyTorch 推理仍使用原有
 `PackedSequence` 路径，模型参数、checkpoint 格式、CTC 长度和预处理契约均不变，
-已有权重无需重新训练。当前专用映射支持单层、带 bias 的双向 GRU；其他配置明确报错。
+已有权重无需重新训练。`recognition_export_onnx.py` 的专用映射只支持单层、带 bias 的
+双向 GRU；模型改成多层后由 `recognition_export_onnx_layer.py` 导出，它按 checkpoint
+的层数逐层生成 GRU 节点并写入 `num_layers` 元数据，其他配置明确报错。
 仍使用 `dynamo=False` 导出器，其弃用提示与批次一致性无关，未作全局警告屏蔽。
 
 独立的新版入口是 `../../../recognition_export_onnx_dynamo.py`，需要 PyTorch >= 2.9、

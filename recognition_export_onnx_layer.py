@@ -1,21 +1,20 @@
 """
-recognition_export_onnx.py — 将训练好的 CRNN PyTorch 模型导出为 ONNX 格式 (修复版)
+recognition_export_onnx_layer.py — 导出多层 CRNN 为 ONNX（逐层 BiGRU 版）
 =====================================================================
-修复问题:
-  1. GRU 的 h0 在 batch_size=1 时被 trace 为常量，导致 batch>1 推理时
-     hidden state 形状不匹配，反向 GRU 输出错乱 → 字符重复（如 "乙乙方"）
-  2. ONNX 不支持 img_widths 的 Python for-loop 动态计算，
-     改用纯 tensor 算术使有效长度可导出
-  3. 双向 GRU 必须接收 sequence_lens，彻底跳过每张图片的右侧 padding
+与 recognition_export_onnx.py 的差异：按 checkpoint 的 GRU 层数构建模型，
+并把多层 BiGRU 按层拆成多个标准 ONNX 双向 GRU 节点串联导出。
+ONNX GRU 节点的 W 只描述单层，且各层输入维度不同（首层 256，第 2 层起 512），
+因此不能写入一个多层 GRU 节点。
 
-解决方案:
-  用 OnnxExportWrapper 包装原始模型:
-  - h0 改为由输入 batch 维度动态构建（expand 而非 zeros(b,...)）
-  - img_widths 作为第二个输入传入 ONNX，驱动 GRU sequence_lens 和输出 mask
-  - CNN 宽度下采样公式用 torch 算术替代 Python int 循环
+同时保留原导出器的三个修复:
+  1. h0 由输入 batch 维动态构建，避免 batch=1 trace 后被烧成常量
+  2. img_widths 作为第二个输入传入 ONNX，用纯 tensor 算术计算有效长度
+  3. 每个 GRU 节点都接收 sequence_lens，彻底跳过每张图片的右侧 padding
+
+默认输出 best_recognition_layer.onnx，不覆盖 recognition_export_onnx.py 的产物。
 
 用法:
-    .venv/bin/python recognition_export_onnx.py --model_path recognition/checkpoints/<model>.pth
+    .venv/bin/python recognition_export_onnx_layer.py --model_path recognition/checkpoints/<model>.pth
 
 依赖:
     pip install onnx onnxruntime onnxsim
@@ -29,21 +28,22 @@ import numpy as np
 import argparse
 import hashlib
 
-# ---- 路径修正 ----
+# ---- 路径修正：以仓库根目录为基准导入 recognition 包 ----
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from recognition.models.model import CRNN
 from recognition.components.converter import LabelConverter
 from recognition.components.dataset import CNN_RIGHT_CONTEXT, MIN_IMAGE_WIDTH
-from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
+from recognition.utils.checkpoint import extract_state_dict, infer_num_channels, infer_num_layers
 
 
 class _OnnxLengthAwareGRU(torch.autograd.Function):
-    """仅供导出：将完整的长度感知 BiGRU 映射到标准 ONNX GRU。
+    """仅供导出：把单层长度感知 BiGRU 映射到标准 ONNX GRU。
 
-    trace 的前向仍执行原始 GRU；symbolic 直接写入 sequence_lens，避免
+    trace 的前向仍执行单层 GRU；symbolic 直接写入 sequence_lens，避免
     PackPadded/PadPacked 中间节点和通用 RNN 导出器的 batch 警告。
+    多层模型由 OnnxExportWrapper 逐层调用本函数，把上一层输出接到下一层输入。
     不注册全局 symbolic，也不参与训练模型的前向或反向传播。
     """
 
@@ -53,6 +53,8 @@ class _OnnxLengthAwareGRU(torch.autograd.Function):
         # 与 nn.GRU 的 PackedSequence 路径使用相同 ATen 算子，显式传入权重，
         # 避免在 autograd.Function 中捕获模块参数或 trace Python 形状检查。
         sorted_h0 = h0.index_select(1, packed.sorted_indices)
+        # 位置参数依次是 has_biases、num_layers、dropout、train、bidirectional。
+        # 每次只映射一层，推理也不启用层间 dropout，因此 num_layers=1、dropout=0。
         packed_output, _ = torch.ops.aten.gru.data(
             packed.data, packed.batch_sizes, sorted_h0, list(weights),
             True, 1, 0.0, False, True,
@@ -100,13 +102,14 @@ class OnnxExportWrapper(torch.nn.Module):
     """
     ONNX 导出专用包装器。
 
-    解决三个核心问题:
+    解决四个核心问题:
     1. h0 动态化: 用 expand 从 [num_layers*2, 1, hidden] 广播到任意 batch，
-       避免 trace 时 batch 维度被烧死为常量。
+       避免 trace 时 batch 维度被烧死为常量；多层时按层切分 initial_h。
     2. img_widths 支持: 将 _calc_cnn_output_width 的 Python 循环
        替换为纯 tensor 算术，使 padding mask 对 ONNX 可见。
-    3. 导出时直接生成带 sequence_lens 的 ONNX GRU；普通 PyTorch 前向
+    3. 导出时逐层生成带 sequence_lens 的 ONNX GRU；普通 PyTorch 前向
        仍使用 PackedSequence，正反向均跳过每张图片右侧的 batch padding。
+    4. 多层 BiGRU 按层拆成多个 ONNX GRU 节点串联，节点的输入维度与权重一致。
     """
 
     def __init__(self, crnn_model: CRNN, output_type: str = "log_probs"):
@@ -117,9 +120,9 @@ class OnnxExportWrapper(torch.nn.Module):
         self.cnn = crnn_model.cnn
         self.cnn_dropout = crnn_model.cnn_dropout
         self.rnn = crnn_model.rnn
-        if (self.rnn.num_layers != 1 or not self.rnn.bidirectional
+        if (self.rnn.num_layers < 1 or not self.rnn.bidirectional
                 or not self.rnn.bias or self.rnn.batch_first):
-            raise ValueError("ONNX 导出需要单层、带 bias、batch_first=False 的双向 GRU")
+            raise ValueError("ONNX 导出需要层数不小于 1、带 bias、batch_first=False 的双向 GRU")
         self.rnn_dropout = crnn_model.rnn_dropout
         self.embedding = crnn_model.embedding
 
@@ -148,6 +151,17 @@ class OnnxExportWrapper(torch.nn.Module):
         w = (w - 2) // 2 + 1
         return w
 
+    def _layer_weights(self) -> list:
+        """按 nn.GRU 的参数顺序收集每层权重：前向 4 个在前，反向 4 个在后。"""
+        return [
+            [
+                getattr(self.rnn, f"{name}_l{layer}{suffix}")
+                for suffix in ("", "_reverse")
+                for name in ("weight_ih", "weight_hh", "bias_ih", "bias_hh")
+            ]
+            for layer in range(self.rnn.num_layers)
+        ]
+
     def forward(self, input: torch.Tensor, img_widths: torch.Tensor) -> torch.Tensor:
         """
         Args:
@@ -175,14 +189,13 @@ class OnnxExportWrapper(torch.nn.Module):
 
         # ---- 长度感知 GRU ----
         if torch.onnx.is_in_onnx_export():
-            weights = [
-                getattr(self.rnn, f"{name}_l0{suffix}")
-                for suffix in ("", "_reverse")
-                for name in ("weight_ih", "weight_hh", "bias_ih", "bias_hh")
-            ]
-            rnn_out = _OnnxLengthAwareGRU.apply(
-                conv, real_seq_lens, h0, self.rnn.hidden_size, *weights,
-            )
+            # 逐层导出：第 layer 层读取上一层输出，并使用自己那份 initial_h。
+            rnn_out = conv
+            for layer, weights in enumerate(self._layer_weights()):
+                layer_h0 = h0[2 * layer: 2 * layer + 2]
+                rnn_out = _OnnxLengthAwareGRU.apply(
+                    rnn_out, real_seq_lens, layer_h0, self.rnn.hidden_size, *weights,
+                )
         else:
             packed_conv = pack_padded_sequence(
                 conv, real_seq_lens.detach().cpu(), enforce_sorted=False,
@@ -205,6 +218,18 @@ class OnnxExportWrapper(torch.nn.Module):
         return output if self.output_type == "logits" else F.log_softmax(output, dim=2)
 
 
+def _assert_gru_graph(graph, num_layers: int, stage: str) -> None:
+    """校验导出的 ONNX 含每层一个 GRU 节点，且每个节点都带 sequence_lens。"""
+    gru_nodes = [node for node in graph.graph.node if node.op_type == "GRU"]
+    if len(gru_nodes) != num_layers:
+        raise RuntimeError(
+            f"{stage}的 ONNX 应包含 {num_layers} 个 GRU 节点，实际 {len(gru_nodes)} 个"
+        )
+    for node in gru_nodes:
+        if len(node.input) <= 4 or not node.input[4]:
+            raise RuntimeError(f"{stage}的 ONNX GRU 缺少 sequence_lens 输入")
+
+
 def export_onnx(model_path: str, output_path: str, keys_path: str,
                 img_height: int = 32, img_width: int = 256,
                 output_type: str = "log_probs", num_threads: int = 1):
@@ -212,7 +237,7 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
     将 PyTorch CRNN 模型导出为 ONNX 格式。
     """
     print("=" * 60)
-    print("CRNN 模型 → ONNX 导出工具 (修复版)")
+    print("CRNN 模型 → ONNX 导出工具 (逐层 BiGRU)")
     print("=" * 60)
 
     if num_threads < 1:
@@ -229,12 +254,15 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
     checkpoint = torch.load(model_path, map_location=device)
     state_dict = extract_state_dict(checkpoint)
     num_channels = infer_num_channels(state_dict)
-    model = CRNN(img_height=img_height, nc=num_channels, n_class=num_classes)
+    num_layers = infer_num_layers(state_dict)
+    model = CRNN(img_height=img_height, nc=num_channels, n_class=num_classes,
+                 num_layers=num_layers)
     model.load_state_dict(state_dict)
     model.eval()
     model.to(device)
     print(f"    类别数: {num_classes}")
     print(f"    输入通道: {num_channels} ({'RGB' if num_channels == 3 else '灰度'})")
+    print(f"    BiGRU 层数: {num_layers}")
 
     # 2. 包装模型
     print(f"[2/5] 包装模型 (OnnxExportWrapper)")
@@ -286,9 +314,7 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
     import onnx
     graph_model = onnx.load(output_path)
     onnx.checker.check_model(graph_model)
-    gru_nodes = [node for node in graph_model.graph.node if node.op_type == "GRU"]
-    if len(gru_nodes) != 1 or len(gru_nodes[0].input) <= 4 or not gru_nodes[0].input[4]:
-        raise RuntimeError("导出的 ONNX GRU 缺少 sequence_lens 输入")
+    _assert_gru_graph(graph_model, num_layers, "导出")
 
     # 5. onnxsim 简化
     print(f"[5/5] 尝试使用 onnx-simplifier 进行图优化...")
@@ -298,22 +324,11 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
 
         model_onnx = onnx.load(output_path)
         onnx.checker.check_model(model_onnx)
-
-        gru_nodes = [node for node in model_onnx.graph.node if node.op_type == "GRU"]
-        if len(gru_nodes) != 1 or len(gru_nodes[0].input) <= 4 or not gru_nodes[0].input[4]:
-            raise RuntimeError("导出的 ONNX GRU 缺少 sequence_lens 输入")
+        _assert_gru_graph(model_onnx, num_layers, "导出")
 
         model_simplified, check = simplify(model_onnx)
         if check:
-            simplified_gru_nodes = [
-                node for node in model_simplified.graph.node if node.op_type == "GRU"
-            ]
-            if (
-                len(simplified_gru_nodes) != 1
-                or len(simplified_gru_nodes[0].input) <= 4
-                or not simplified_gru_nodes[0].input[4]
-            ):
-                raise RuntimeError("简化后的 ONNX GRU 丢失 sequence_lens 输入")
+            _assert_gru_graph(model_simplified, num_layers, "简化后")
             onnx.save(model_simplified, output_path)
             size_mb = os.path.getsize(output_path) / 1024 / 1024
             print(f"    ✓ 简化成功！模型大小: {size_mb:.1f} MB")
@@ -330,6 +345,7 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
         "output_type": output_type, "output_layout": "TBC",
         "keys_sha256": keys_hash, "num_channels": str(num_channels),
         "cnn_right_context": str(CNN_RIGHT_CONTEXT),
+        "num_layers": str(num_layers),
     })
     onnx.save(graph_model, output_path)
 
@@ -439,9 +455,10 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="导出动态宽度、长度感知的 CRNN ONNX")
-    parser.add_argument("--model_path", default="recognition/checkpoints/ocr_exp_1790169909626811297/epoch_655.pth")
-    parser.add_argument("--output_path", default="best_recognition.onnx")
+    parser = argparse.ArgumentParser(description="导出动态宽度、长度感知的多层 CRNN ONNX")
+    parser.add_argument("--model_path", default="recognition/checkpoints/best_cer_0.004061_epoch_603.pth")
+    parser.add_argument("--output_path", default="best_recognition_layer.onnx",
+                        help="默认不覆盖 recognition_export_onnx.py 的单层导出产物")
     parser.add_argument("--keys_path", default="recognition/keys.txt")
     parser.add_argument("--img_height", type=int, default=32)
     parser.add_argument("--img_width", type=int, default=256, help="trace 样例宽度，不限制部署宽度")

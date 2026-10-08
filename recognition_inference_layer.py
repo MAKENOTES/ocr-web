@@ -1,8 +1,10 @@
 """
-recognition_inference.py — 多后端优化识别推理脚本 (修复版)
+recognition_inference_layer.py — 多后端优化识别推理脚本 (逐层 BiGRU 版)
 =====================================================================
-修复: ONNX/OpenVINO 后端接收 img_widths，并统一输出为 TBC。
-导出的 ONNX GRU 使用 sequence_lens，batch>1 时不再读取其他样本造成的 padding。
+与 recognition_inference.py 的差异：PyTorch 后端按 checkpoint 的 GRU 层数构建，
+配合 recognition_export_onnx_layer.py 导出的多层 ONNX 使用。
+ONNX/OpenVINO 后端接收 img_widths，统一输出为 TBC；导出的 ONNX 每个 GRU 节点
+都带 sequence_lens，batch>1 时不再读取其他样本造成的 padding。
 """
 
 import os
@@ -24,13 +26,14 @@ if project_root not in sys.path:
 # 强制复用核心模块，保证逻辑一致
 from recognition.components.converter import LabelConverter
 from recognition.components.dataset import CNN_RIGHT_CONTEXT, InferenceDataset, dynamic_padding_collate_fn
-from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
+from recognition.models.model import DEFAULT_NUM_LAYERS
+from recognition.utils.checkpoint import extract_state_dict, infer_num_channels, infer_num_layers
 
 # ============================================================
 # 参数配置
 # ============================================================
 
-DEFAULT_MODEL_PATH  = "best_recognition.onnx"
+DEFAULT_MODEL_PATH  = "best_recognition_layer.onnx"  # 多层 BiGRU 的导出产物
 # DEFAULT_MODEL_PATH  = "recognition_quantized_model/int8/crnn_int8.xml"
 
 DEFAULT_IMAGE_PATH  = "recognition/data/test_images"
@@ -81,6 +84,12 @@ class ONNXBackend:
             print(f"  ✓ ONNX 模型包含 img_widths 输入 (sequence_lens 已启用)")
         else:
             print(f"  ⚠ ONNX 模型不包含 img_widths 输入 (旧版导出，batch>1 可能不准)")
+
+        # 层数来自导出时写入的元数据；缺省说明是未记录层数的旧产物。
+        metadata = self.session.get_modelmeta().custom_metadata_map
+        declared_layers = metadata.get("num_layers", "")
+        if declared_layers.isdigit():
+            print(f"  ✓ ONNX 模型为 {declared_layers} 层 BiGRU")
 
         self._warmup()
         print(f"  ✓ ONNX Runtime 后端加载完成")
@@ -177,7 +186,7 @@ class OpenVINOBackend:
 
 
 class PyTorchBackend:
-    """原始 PyTorch 后端"""
+    """原始 PyTorch 后端：按 checkpoint 的实际 GRU 层数构建模型。"""
     def __init__(self, model_path: str, keys_path: str, num_threads: int = 1):
         if num_threads < 1:
             raise ValueError("num_threads 必须大于 0")
@@ -187,14 +196,16 @@ class PyTorchBackend:
         checkpoint = torch.load(model_path, map_location="cpu")
         state_dict = extract_state_dict(checkpoint)
         self.num_channels = infer_num_channels(state_dict, default=DEFAULT_NUM_CHANNELS)
+        num_layers = infer_num_layers(state_dict, default=DEFAULT_NUM_LAYERS)
         self.model = CRNN(
             img_height=IMG_HEIGHT,
             nc=self.num_channels,
             n_class=converter.num_classes,
+            num_layers=num_layers,
         )
         self.model.load_state_dict(state_dict)
         self.model.eval()
-        print(f"  ✓ PyTorch 后端加载完成")
+        print(f"  ✓ PyTorch 后端加载完成 (BiGRU {num_layers} 层)")
 
     def infer(self, images: torch.Tensor, img_widths: torch.Tensor):
         with torch.inference_mode():
@@ -231,7 +242,7 @@ def load_backend(model_path: str, backend: str, keys_path: str, num_threads: int
 # ============================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="CRNN 优化推理 (修复版)")
+    parser = argparse.ArgumentParser(description="CRNN 优化推理 (逐层 BiGRU)")
     parser.add_argument("--model_path",  type=str,
                         default=DEFAULT_MODEL_PATH)
     parser.add_argument("--image_path",  type=str,
@@ -241,7 +252,7 @@ def main():
     parser.add_argument("--output_file", type=str,
                         default=None)
     parser.add_argument("--backend",     type=str, choices=["auto", "onnx", "openvino", "pytorch"],
-                        default="auto")
+                        default="openvino")
     parser.add_argument("--batch_size",  type=int,
                         default=1, help="批量大小")
     parser.add_argument("--num_threads", type=int, default=1, help="CPU 推理线程数，建议实测 1/2/4")
@@ -256,7 +267,7 @@ def main():
     torch.set_num_threads(1)
 
     print("=" * 60)
-    print("CRNN 优化推理 (修复版 - 支持 batch>1)")
+    print("CRNN 优化推理 (逐层 BiGRU - 支持 batch>1)")
     print("=" * 60)
 
     # 1. 收集图片

@@ -1,13 +1,20 @@
-"""固定高度 32 的 CRNN：Mobile 风格 CNN、单层双向 GRU 和 CTC 分类头。
+"""固定高度 32 的 CRNN：Mobile 风格 CNN、双向 GRU 和 CTC 分类头。
 
-输入 [B,C,32,W]，输出 [T,B,类别数] 对数概率。传入真实 img_widths 时，
-BiGRU 跳过补边，输出尾部固定为 blank；参数结构与历史 ResNet/BiLSTM 权重不兼容。
+输入 [B,C,32,W]，输出 [T,B,类别数] 对数概率。GRU 层数由 num_layers 决定（默认 2），
+层间 dropout 只在多层时生效；训练、导出和推理必须使用与 checkpoint 相同的层数。
+传入真实 img_widths 时，BiGRU 跳过补边，输出尾部固定为 blank；
+参数结构与历史 ResNet/BiLSTM 权重不兼容。
 速度取决于字典、图片宽度、后端和硬件，不能由结构直接保证固定加速倍数。"""
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+
+
+# GRU 结构默认值：训练按此处取值建模型，导出和推理按 checkpoint 的实际层数建模型。
+DEFAULT_NUM_LAYERS = 2  # 双向 GRU 层数
+GRU_DROPOUT = 0.15  # 多层 GRU 的层间 dropout 概率，单层时不生效
 
 
 # 1. 深度可分离卷积模块
@@ -87,12 +94,15 @@ class MobileFeatureExtractor(nn.Module):
 # 3. 长度感知 CRNN
 
 class CRNN(nn.Module):
-    """Mobile 风格 CNN 与单层 BiGRU；nh 是每方向隐藏维度，默认 256。
-    调用 forward 时传入 img_widths 才启用长度感知与尾部 blank 掩码。"""
+    """Mobile 风格 CNN 与双向 GRU；nh 是每方向隐藏维度，默认 256。
+    num_layers 是 GRU 层数，默认 2 层并启用层间 dropout；只有与 checkpoint
+    的层数一致才能加载、导出或推理。调用 forward 时传入 img_widths
+    才启用长度感知与尾部 blank 掩码。"""
 
-    def __init__(self, img_height, nc, n_class, nh=256):
+    def __init__(self, img_height, nc, n_class, nh=256, num_layers=DEFAULT_NUM_LAYERS):
         super(CRNN, self).__init__()
         assert img_height == 32, "CRNN 输入高度必须固定为 32"
+        assert num_layers >= 1, "CRNN 的 GRU 层数至少为 1"
 
         # CNN 特征维度
         cnn_out_channels = 256
@@ -104,21 +114,13 @@ class CRNN(nn.Module):
         # CNN → RNN Dropout
         self.cnn_dropout = nn.Dropout(p=0.1)
 
-        # 单层双向 GRU；两个方向的输出拼接后送入分类头。
-        # self.rnn = nn.GRU(
-        #     input_size=cnn_out_channels,
-        #     hidden_size=nh,
-        #     num_layers=1,
-        #     dropout=0.0,  # 单层不需要 inter-layer dropout
-        #     bidirectional=True,
-        #     batch_first=False,
-        # )
-
+        # 多层双向 GRU；两个方向的输出拼接后送入分类头。
+        # 单层时 dropout 没有层间作用，置 0 以避免 PyTorch 忽略参数的告警。
         self.rnn = nn.GRU(
             input_size=cnn_out_channels,
-            hidden_size=nh,  # 256 → 384
-            num_layers=2,  # 1 → 2
-            dropout=0.15,  # 多层需要 inter-layer dropout
+            hidden_size=nh,
+            num_layers=num_layers,
+            dropout=GRU_DROPOUT if num_layers > 1 else 0.0,
             bidirectional=True,
             batch_first=False,
         )
