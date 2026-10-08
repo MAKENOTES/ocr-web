@@ -223,7 +223,7 @@ def export_onnx(model_path: str, output_path: str, input_size=INPUT_SIZE):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="将 EAST PyTorch 模型导出为 ONNX")
-    parser.add_argument("--model_path", default="detection/checkpoints/detection_epoch_180.pth")
+    parser.add_argument("--model_path", default="detection/checkpoints/best_detection_epoch_194_loss_0.00516.pth")
     parser.add_argument("--output_path", default="best_detection.onnx")
     parser.add_argument(
         "--input_size",

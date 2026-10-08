@@ -105,11 +105,20 @@ class CRNN(nn.Module):
         self.cnn_dropout = nn.Dropout(p=0.1)
 
         # 单层双向 GRU；两个方向的输出拼接后送入分类头。
+        # self.rnn = nn.GRU(
+        #     input_size=cnn_out_channels,
+        #     hidden_size=nh,
+        #     num_layers=1,
+        #     dropout=0.0,  # 单层不需要 inter-layer dropout
+        #     bidirectional=True,
+        #     batch_first=False,
+        # )
+
         self.rnn = nn.GRU(
             input_size=cnn_out_channels,
-            hidden_size=nh,
-            num_layers=1,
-            dropout=0.0,  # 单层不需要 inter-layer dropout
+            hidden_size=nh,  # 256 → 384
+            num_layers=2,  # 1 → 2
+            dropout=0.15,  # 多层需要 inter-layer dropout
             bidirectional=True,
             batch_first=False,
         )
