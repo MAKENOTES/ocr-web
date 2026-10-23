@@ -13,7 +13,7 @@ from detection_larger.components.onnx_runtime import CPU_THREADS, session_option
 from detection_larger.utils import ONNX_CONFIG_KEY, checkpoint_config, load_checkpoint
 
 
-CHECKPOINT_PATH = Path("detection_larger/checkpoints/best_detection_epoch_618_loss_0.01213.pth")  # 待导出的大图检查点，必须包含 config 和 model。
+CHECKPOINT_PATH = Path("detection_larger/checkpoints/best_detection_epoch_603_loss_0.01189.pth")  # 待导出的大图检查点，必须包含 config 和 model。
 OUTPUT_PATH = Path("best_detection_larger.onnx")  # 导出 ONNX 文件路径；目标已存在时拒绝覆盖。
 INPUT_SIZE = 640  # 导出输入边长，单位 px；也可设为 (高, 宽)，各边至少 64 且为 32 的倍数，推理常量须与此一致。
 BENCHMARK_ENABLED = True  # 启用时额外比较 CPU batch=1 前向速度；当前默认开启，数值校验始终执行。

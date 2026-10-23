@@ -18,7 +18,7 @@ from torch.optim.lr_scheduler import OneCycleLR
 # 超参数
 LEARNING_RATE = 1e-4  # Adam 构造学习率；OneCycleLR 随后接管，峰值在 main 中设为 3e-4。
 BATCH_SIZE = 8  # 每批 8 张图片；修改尺寸或批量后需重新核对显存。
-EPOCHS = 200  # 最多训练 200 轮，早停可能提前结束。
+EPOCHS = 400  # 最多训练 200 轮，早停可能提前结束。
 INPUT_SIZE = (256, 768)  # 模型输入 (高, 宽)，单位 px；两边为 32 的倍数。
 IMAGE_EXTENSIONS = (".png",)  # 明确只训练新 PNG，不混入目录中的旧 JPG
 TRAIN_IMAGE_DIR = "detection/data/train_images"  # 训练图片目录，路径相对于仓库根目录。
@@ -35,7 +35,7 @@ START_DENSE_VAL_EPOCH = 80  # 从第 80 轮起逐轮验证，包含该轮。
 GRADIENT_LOG_INTERVAL = 1000   # 避免大数据集下 TensorBoard 直方图写入过密
 
 # 早停参数
-EARLY_STOP_PATIENCE = 15        # 连续 15 次验证没有改善就停止
+EARLY_STOP_PATIENCE = 30        # 连续 15 次验证没有改善就停止
 EARLY_STOP_MIN_DELTA = 1e-4     # 改善幅度小于此值不算改善
 
 

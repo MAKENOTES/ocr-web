@@ -22,7 +22,7 @@ from detection_larger.utils import load_checkpoint
 
 
 # 文档专用检查点或 ONNX 模型；更换训练结果时修改此路径。
-MODEL_PATH = Path("detection_larger/checkpoints/best_detection_epoch_618_loss_0.01213.pth")
+MODEL_PATH = Path("detection_larger/checkpoints/best_detection_epoch_603_loss_0.01189.pth")
 IMAGE_PATH = Path("detection_larger/data/test_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
 OUTPUT_DIR = Path("detection_larger/data/test_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
 DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU；可指定 cpu、cuda:0，ONNX 自动使用 CPU。
