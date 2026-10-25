@@ -30,9 +30,9 @@ images, labels_or_paths, img_widths = next(iter(dataloader))
 | --- | --- |
 | `resolve_image_path` | 检查指定路径是否确实是文件 |
 | `load_rgb_image` | 读取图片、修正 EXIF 方向、合成透明背景并转 RGB |
-| `_border_fill_color` | 用图片四周边缘估计窄图补边颜色 |
+| `border_fill_color` | 用图片四周边缘估计窄图补边和几何增强的填充色 |
 | `remove_red_seal` | 根据局部叠印证据去章，保护同行红字 |
-| `RandomBackgroundGeometry` | 用当前背景色填充轻微旋转和透视产生的边缘 |
+| `RandomSourceGeometry` | 缩放前扰动检测框几何，按墨迹外接框重裁 |
 | `resize_detection_image` | 固定高度缩放，限制最大宽度，为窄图补画布 |
 | `AddGaussianNoise` | 给训练张量增加轻微高斯噪声 |
 | `BaseTextDataset` | 共享加载、去章、缩放、增强和归一化逻辑 |
@@ -50,9 +50,12 @@ flowchart TD
     ID --> GET
     GET --> LOAD["BaseTextDataset：load_rgb_image"]
     LOAD --> SEAL["remove_red_seal：按局部叠印证据去章"]
-    SEAL --> SIZE["resize_detection_image：缩放与窄图补边"]
+    SEAL --> GEO{"is_train"}
+    GEO -->|True| SRC["RandomSourceGeometry：源分辨率几何扰动"]
+    GEO -->|False| SIZE["resize_detection_image：缩放与窄图补边"]
+    SRC --> SIZE
     SIZE --> TRAIN{"is_train"}
-    TRAIN -->|True| AUG["几何、颜色、极性、模糊、噪声、少量擦除"]
+    TRAIN -->|True| AUG["颜色、极性、模糊、噪声、少量擦除"]
     TRAIN -->|False| BASIC["基础通道转换与 ToTensor"]
     AUG --> NORM["Normalize"]
     BASIC --> NORM
@@ -187,21 +190,26 @@ resized_width = max(1, round(原图宽 × target_height / 原图高))
 
 `num_channels` 仅支持 `1` 或 `3`。图片总是先经过共享 RGB 加载；若需要兼容灰度模型，再在 transform 中转为单通道。当前训练入口显式使用 `3` 通道。
 
-训练 transform 按以下顺序执行，每个概率只控制对应操作：
+训练前先在**缩放前**用 `RandomSourceGeometry` 改写检测框几何（`recognition/components/geometry.py`），
+再在缩放后执行 transform。以下顺序中，几何扰动是第 0 步：
 
 | 顺序 | 操作 | 当前配置 |
 | --- | --- | --- |
-| 1 | `RandomBackgroundGeometry` | 每张图随机旋转 `±2°`；透视 `p=0.3`、`distortion_scale=0.1` |
-| 2 | `ColorJitter` | `p=0.7`；亮度 `0.2`、对比度 `0.25`、饱和度 `0.35`、色相 `0.03` |
-| 3 | 自动对比度 | `p=0.2` |
-| 4 | 颜色反转 | `p=0.08` |
-| 5 | 可选灰度转换，然后 `ToTensor` | 根据 `num_channels`，变为 `[C_img, H, W]` |
-| 6 | 高斯模糊 | `p=0.15`；核大小 `3`，`sigma=(0.1, 0.8)` |
-| 7 | `AddGaussianNoise` | `p=0.15`；实际使用 `std=0.015`，加噪后截到 `[0, 1]` |
-| 8 | 随机擦除 | `p=0.05`；面积比例 `0.005～0.03`，`value="random"` |
-| 9 | `Normalize` | 各通道 `mean=0.5`、`std=0.5` |
+| 0 | `RandomSourceGeometry`（源分辨率） | 补边 `p=0.5`、每边 `0～3 px`；等比缩放 `p=0.5`、`0.85～1.18`；横向拉伸 `p=0.4`、`0.90～1.10`；旋转 `p=0.5`、`±2°` 且按长宽比收紧；单侧轻裁 `p=0.2`、`1 px`。斜切/透视/弹性扭曲默认 `p=0`，仅保留实现供消融 |
+| 1 | `ColorJitter` | `p=0.7`；亮度 `0.2`、对比度 `0.25`、饱和度 `0.35`、色相 `0.03` |
+| 2 | 自动对比度 | `p=0.2` |
+| 3 | 颜色反转 | `p=0.08` |
+| 4 | 可选灰度转换，然后 `ToTensor` | 根据 `num_channels`，变为 `[C_img, H, W]` |
+| 5 | 高斯模糊 | `p=0.15`；核大小 `3`，`sigma=(0.1, 0.8)` |
+| 6 | `AddGaussianNoise` | `p=0.15`；实际使用 `std=0.015`，加噪后截到 `[0, 1]` |
+| 7 | 随机擦除 | `p=0.05`；面积比例 `0.005～0.03`，`value="random"` |
+| 8 | `Normalize` | 各通道 `mean=0.5`、`std=0.5` |
 
-`AddGaussianNoise` 类自身默认 `std=0.02`，但这里实例化时覆盖成 `0.015`。几何增强共用扰动前估计的背景色；旋转不扩大画布，边缘内容可能移出画布。随机擦除仍可能局部遮挡像素，不等同于完全不改变文字区域。
+`AddGaussianNoise` 类自身默认 `std=0.02`，但这里实例化时覆盖成 `0.015`。
+几何扰动在源分辨率完成：任一操作生效后按墨迹外接框重裁并重新采样留白，每边至少 1 px；
+旋转在扩大的画布上完成，字形不会被截断，角度上限要求垂直跨度不超过文字高度的 30%。
+这些操作会改变图片尺寸，`img_widths` 仍取缩放后的真实宽度，分桶使用的原图宽高比只是近似值。
+随机擦除仍可能局部遮挡像素，不等同于完全不改变文字区域。
 
 验证 / 推理仍执行前述共享加载、去章和缩放；其 transform 只做可选灰度转换、`ToTensor()` 和归一化。对于普通 8 位图片，像素变换是：
 

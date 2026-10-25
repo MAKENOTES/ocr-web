@@ -14,11 +14,13 @@ recognition/
 ├── README.md                 # 包入口与文档快速索引
 ├── train.py                  # 训练与训练期验证
 ├── evaluate_val.py           # 独立标注集评估与错误报告
+├── evaluate_robustness.py    # 几何/成像扰动下的鲁棒性验收
 ├── inference.py              # PyTorch 推理
 ├── split_dataset.py          # 初始训练集/验证集划分
 ├── keys.txt                  # 字符字典，内容与顺序绑定模型
 ├── components/
 │   ├── dataset.py            # 图片加载、预处理、增强、分桶与动态补边
+│   ├── geometry.py           # 源分辨率几何增强与背景/墨迹估计
 │   └── converter.py          # 字符编码与 CTC 解码
 ├── models/
 │   ├── model.py              # 当前 Mobile CNN + 多层 BiGRU 模型
@@ -121,4 +123,6 @@ recognition/
 
 ```bash
 .venv/bin/python -m pytest tests/test_recognition_preprocess.py tests/test_recognition_batch_invariance.py -q
+.venv/bin/python -m pytest tests/test_recognition_geometry_augment.py -q
+.venv/bin/python recognition/evaluate_robustness.py   # 几何/成像扰动下的鲁棒性验收
 ```

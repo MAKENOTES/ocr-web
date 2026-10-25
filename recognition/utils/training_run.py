@@ -37,6 +37,7 @@ def build_training_config(*, train_annotation, valid_annotation, img_height, img
         annotations.append(valid_annotation)
     source_paths = [
         "recognition/components/dataset.py", "recognition/components/converter.py",
+        "recognition/components/geometry.py",
         "recognition/utils/annotation.py",
         "recognition/models/model.py",
     ]

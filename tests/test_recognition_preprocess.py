@@ -4,13 +4,11 @@ import torch
 import numpy as np
 import pytest
 from PIL import Image, ImageDraw, ImageFont
-from torchvision import transforms
 
 from recognition import evaluate_val
 from recognition.components.dataset import (
     CNN_RIGHT_CONTEXT,
     InferenceDataset,
-    RandomBackgroundGeometry,
     TextRecognitionDataset,
     dynamic_padding_collate_fn,
     load_rgb_image,
@@ -18,44 +16,6 @@ from recognition.components.dataset import (
     resolve_image_path,
 )
 from recognition.utils.checkpoint import infer_num_channels, infer_num_layers
-
-
-@pytest.mark.parametrize("operation", ["rotation", "perspective"])
-@pytest.mark.parametrize("mode,background,ink", [
-    ("RGB", (255, 255, 255), (0, 0, 0)),
-    ("RGB", (0, 0, 0), (255, 255, 255)),
-    ("RGB", (20, 110, 180), (255, 255, 255)),
-    ("L", 40, 255),
-])
-def test_geometry_fills_new_edges_with_image_background(monkeypatch, operation, mode, background, ink):
-    image = Image.new(mode, (160, 32), background)
-    ImageDraw.Draw(image).rectangle((40, 8, 110, 23), fill=ink)
-    before = np.asarray(image).copy()
-    monkeypatch.setattr(
-        transforms.RandomRotation, "get_params",
-        staticmethod(lambda degrees: 2.0 if operation == "rotation" else 0.0),
-    )
-    monkeypatch.setattr(
-        transforms.RandomPerspective, "get_params",
-        staticmethod(lambda width, height, distortion_scale: (
-            [[0, 0], [159, 0], [159, 31], [0, 31]],
-            [[4, 1], [155, 1], [155, 30], [4, 30]],
-        )),
-    )
-    geometry = RandomBackgroundGeometry(p=1.0 if operation == "perspective" else 0.0)
-
-    result = geometry(image)
-
-    assert result.mode == mode and result.size == image.size
-    assert result.getpixel((0, 0)) == background
-    assert result.getpixel((159, 31)) == background
-    assert result.getpixel((75, 16)) == ink
-    assert not np.array_equal(np.asarray(result), before)
-    assert np.array_equal(np.asarray(image), before)
-    # 同一个增强实例处理下一张图片时，必须重新估计背景。
-    next_background = (80, 60, 30) if mode == "RGB" else 120
-    next_result = geometry(Image.new(mode, image.size, next_background))
-    assert next_result.getpixel((0, 0)) == next_background
 
 
 def _stamp_case(background=(245, 245, 245)):
@@ -203,8 +163,10 @@ def test_seal_preprocess_is_shared_by_training_validation_and_inference(tmp_path
     assert not np.array_equal(np.asarray(expected), np.asarray(image))
 
     # 拦截增强入口，验证训练也在原始 RGB 尺寸完成去章，且发生在随机增强之前。
+    # 几何扰动逐步随机，这里单独关闭，只比较训练、验证、推理共享的去章结果。
     for is_train in (True, False):
         dataset = TextRecognitionDataset(annotation_path, 80, 240, num_channels, is_train=is_train)
+        dataset.source_augment = None
         dataset.transform = lambda processed: np.asarray(processed)
         assert np.array_equal(dataset[0][0], np.asarray(expected))
 
@@ -374,3 +336,22 @@ def test_resolve_image_path_requires_the_exact_annotated_extension(tmp_path):
         assert str(missing_jpg) in str(exc)
     else:
         raise AssertionError("图片扩展名不一致时应立即失败")
+
+
+def test_remove_red_seal_removes_in_band_fragment_next_to_the_seal():
+    """正文行内、被黑字穿过的小红色残段属于章，不是同行红字，应一并清除。
+
+    复现 error_cases 中"章字碎片正好落在正文行里"的残留：残段比行高矮得多，
+    且所在列有明显黑色正文。"""
+    image = _stamp_case()
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((154, 34, 160, 39), fill=(220, 35, 45))  # 高 6 px，行高约 22 px
+    before = np.asarray(image).copy()
+
+    after = np.asarray(remove_red_seal(image))
+
+    fragment = before[34:40, 154:161]
+    assert np.any(fragment != (245, 245, 245))
+    assert np.all(after[34:40, 154:161] == (245, 245, 245))
+    dark = before.max(axis=2) < 120
+    assert np.array_equal(after[dark], before[dark])

@@ -3,6 +3,7 @@
 TextRecognitionDataset 读取 Tab 标注；InferenceDataset 读取图片列表。
 两者共享基础预处理，训练另加随机增强；collate 返回图片、标签或路径、真实宽度。"""
 import os
+import random
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from PIL import Image, ImageFile, ImageOps, ImageStat
 from torch.utils.data import Dataset, DataLoader, Sampler
 from torchvision import transforms
 
+from recognition.components.geometry import RandomSourceGeometry, border_fill_color
 from recognition.utils.annotation import split_annotation_fields
 
 # 允许 Pillow 加载部分截断图片；这是进程级开关，不保证损坏图片完整可用。
@@ -22,6 +24,19 @@ MIN_IMAGE_WIDTH = 48  # 缩放后窄图的背景画布宽度，单位 px；显�
 # MobileFeatureExtractor 的横向感受野为 53 px。每张图右侧至少保留 32 px
 # 背景，使有效 CNN 特征不会因 batch 中最长图片不同而看到不同的张量边界。
 CNN_RIGHT_CONTEXT = 32
+# 训练 DataLoader 的随机基准种子。它只决定各 worker 的随机增强序列，与模型初始化和
+# 主进程中的分桶打乱无关；固定后同一份代码和配置可以复现每个 worker 的增强。
+DATALOADER_SEED = 20260923
+
+# 去章时按平均正文列密度缩放的正文支持下限。细字和末行密度偏低，0.4 会把正常叠印
+# 误判为无正文支持，0.35 在保持"红字旁边没有黑字就不处理"的前提下放行这类样本。
+MIN_DARK_COLUMN_SUPPORT = 0.35
+# 完全落在正文行内的红色区域所需的正文列支持。同行红字通常位于字间空白，支持接近 0；
+# 被黑字穿过的章字支持很高，因此该阈值明显高于行外的 0.15，只放行有充分正文证据的碎片。
+IN_BAND_DARK_SUPPORT = 0.4
+# 行内红色碎片判定为章字残段的最大高度，按正文行高计。完整红字的高度接近行高，
+# 被正文行切开的章字残段则明显更矮，两者由此区分，避免把同行红字一并删掉。
+IN_BAND_FRAGMENT_HEIGHT = 0.35
 
 
 def resolve_image_path(image_path: str | os.PathLike) -> str:
@@ -65,28 +80,6 @@ def load_rgb_image(image_path: str | os.PathLike) -> Image.Image:
         return Image.alpha_composite(background, rgba).convert("RGB")
 
 
-def _border_fill_color(image: Image.Image):
-    """用四周边缘的通道中位数估计背景色，供窄图补边和几何增强填充。"""
-    pixels = np.asarray(image)
-    if pixels.ndim == 2:
-        border = np.concatenate(
-            (pixels[0, :], pixels[-1, :], pixels[:, 0], pixels[:, -1])
-        )
-        return int(np.median(border))
-
-    channels = pixels.shape[2]
-    border = np.concatenate(
-        (
-            pixels[0, :, :].reshape(-1, channels),
-            pixels[-1, :, :].reshape(-1, channels),
-            pixels[:, 0, :].reshape(-1, channels),
-            pixels[:, -1, :].reshape(-1, channels),
-        ),
-        axis=0,
-    )
-    return tuple(int(value) for value in np.median(border, axis=0))
-
-
 def _is_red_seal_arc(component: np.ndarray, text_height: float) -> bool:
     """识别 detection 紧框内的连续弯曲章边；直线、短笔画和杂乱红字不通过。"""
     for oriented in (component, component.T):
@@ -110,10 +103,15 @@ def _is_red_seal_arc(component: np.ndarray, text_height: float) -> bool:
     return False
 
 
-def _is_single_seal_component(component: np.ndarray, text_height: float) -> bool:
-    """单个连通区域需有弧线、椭圆或复杂章形，避免把直线/简单边框当章。"""
+def _is_single_seal_component(
+    component: np.ndarray, text_height: float, *, allow_narrow: bool = False,
+) -> bool:
+    """单个连通区域需有弧线、椭圆或复杂章形，避免把直线/简单边框当章。
+
+    allow_narrow 只放宽宽度判定，供"比行高还窄的组"使用：这类组按定义宽度不足，
+    但高度足够、且轮廓成弧的是被正文行切开的章边。"""
     height, width = component.shape
-    if min(height, width) < 0.8 * text_height:
+    if height < 0.8 * text_height or (not allow_narrow and width < 0.8 * text_height):
         return False
     if _is_red_seal_arc(component, text_height):
         return True
@@ -195,7 +193,7 @@ def remove_red_seal(image: Image.Image) -> Image.Image:
     dark_columns = dark_mask[band].sum(axis=0) >= max(2, 0.08 * text_height)
     # 细字体的有墨迹列本来就少，按正文列密度调整最低支持率。
     # 保留绝对下限，避免几粒黑噪点让整段红字被当作叠印。
-    min_overlap = max(0.12, 0.4 * dark_columns.mean())
+    min_overlap = max(0.12, MIN_DARK_COLUMN_SUPPORT * dark_columns.mean())
     red_columns = np.flatnonzero(red_mask.any(axis=0))
     # 章边、章字、中央星形之间常隔着一两个字宽，需作为局部整体判断。
     # 这里只分组，绝不对待删除像素做闭运算/膨胀；组内仍逐个连通区域复核。
@@ -206,7 +204,7 @@ def remove_red_seal(image: Image.Image) -> Image.Image:
     for columns in groups:
         left, right = columns[0], columns[-1] + 1
         region = red_mask[:, left:right]
-        if region.sum() < 16 or right - left < text_height:
+        if region.sum() < 16:
             continue
         active_columns = columns[red_mask[:, columns].sum(axis=0) >= 2]
         if active_columns.size == 0 or dark_columns[active_columns].mean() < min_overlap:
@@ -221,18 +219,38 @@ def remove_red_seal(image: Image.Image) -> Image.Image:
             int(component_id) for component_id in component_ids
             if stats[component_id, cv2.CC_STAT_AREA] >= max(4, 0.15 * text_height)
         ]
+        # 比一个行高还窄的组只放行本身像章的连通区域：穿过单个高字的章弧宽度
+        # 常常小于行高，而真正的短红字没有弧线或椭圆轮廓。
+        if right - left < text_height and not any(
+            _is_single_seal_component(
+                labels[
+                    stats[component_id, cv2.CC_STAT_TOP]:
+                    stats[component_id, cv2.CC_STAT_TOP] + stats[component_id, cv2.CC_STAT_HEIGHT],
+                    stats[component_id, cv2.CC_STAT_LEFT]:
+                    stats[component_id, cv2.CC_STAT_LEFT] + stats[component_id, cv2.CC_STAT_WIDTH],
+                ] == component_id,
+                text_height,
+                allow_narrow=True,
+            )
+            for component_id in component_ids
+        ):
+            continue
         for component_id in component_ids:
             x, y, width, height, _ = stats[component_id]
             component = labels[y:y + height, x:x + width] == component_id
-            # 完全落在正文行内的小红字仍保留，即使它与章被分到同一区域。
-            # 这也会留下部分对齐的章字碎片，优先避免删除合法红色内容。
-            if y >= text_top and y + height - 1 <= text_bottom:
-                continue
-            if len(component_ids) == 1 and not _is_single_seal_component(component, text_height):
-                continue
             # 区域内的小红字仍须独立检查，不能因旁边有章就整片抹红。
             component_columns = np.flatnonzero(component.any(axis=0)) + x
-            if dark_columns[component_columns].mean() < 0.15:
+            support = dark_columns[component_columns].mean()
+            if y >= text_top and y + height - 1 <= text_bottom:
+                # 完整红字的高度接近行高；只有明显更矮、且被黑字穿过的碎片才是章字残段。
+                if (
+                    height >= IN_BAND_FRAGMENT_HEIGHT * text_height
+                    or support < IN_BAND_DARK_SUPPORT
+                ):
+                    continue
+            elif len(component_ids) == 1 and not _is_single_seal_component(component, text_height):
+                continue
+            if support < 0.15:
                 continue
             erase_mask[y:y + height, x:x + width] |= component
 
@@ -267,7 +285,7 @@ def resize_detection_image(
     # 单字/符号 detection 框可能很窄。只补背景，不拉伸字符形状。
     if resized_width < min_width:
         canvas_width = min_width if max_width is None else min(min_width, max_width)
-        fill = _border_fill_color(image)
+        fill = border_fill_color(image)
         canvas = Image.new(image.mode, (canvas_width, target_height), fill)
         offset_x = (canvas_width - resized_width) // 2
         canvas.paste(image, (offset_x, 0))
@@ -373,25 +391,6 @@ def dynamic_padding_collate_fn(batch):
 
 # 2. 基础数据集类 (封装通用逻辑)
 
-class RandomBackgroundGeometry:
-    """轻微旋转和透视；每张图片共用扰动前估计的背景色，避免人工黑白边。"""
-
-    def __init__(self, degrees=2, distortion_scale=0.1, p=0.3):
-        self.degrees = degrees
-        self.distortion_scale = distortion_scale
-        self.p = p
-
-    def __call__(self, image: Image.Image) -> Image.Image:
-        fill = _border_fill_color(image)
-        # 使用本次调用的局部 transform，不把当前图片背景写入共享状态。
-        image = transforms.RandomRotation(degrees=self.degrees, fill=fill)(image)
-        return transforms.RandomPerspective(
-            distortion_scale=self.distortion_scale,
-            p=self.p,
-            fill=fill,
-        )(image)
-
-
 class AddGaussianNoise(object):
     """模拟扫描颗粒和相机传感器轻噪声；截断到 [0, 1]，避免异常亮暗值。"""
 
@@ -418,6 +417,7 @@ class BaseTextDataset(Dataset):
         num_channels,
         is_train=False,
         max_width=None,
+        source_augment=None,
     ):
         if num_channels not in (1, 3):
             raise ValueError(f"num_channels 仅支持 1 或 3，当前为 {num_channels}")
@@ -425,6 +425,11 @@ class BaseTextDataset(Dataset):
         self.img_height = img_height
         self.num_channels = num_channels
         self.max_width = max_width
+        # 缩放前作用于源分辨率图片的几何扰动。训练默认启用；调用方可传入
+        # 确定性扰动做鲁棒性评估，传 None 且 is_train=False 时完全关闭。
+        if is_train and source_augment is None:
+            source_augment = RandomSourceGeometry()
+        self.source_augment = source_augment
         self.image_paths = []  # 子类填充此列表
 
         channel_transform = (
@@ -440,14 +445,9 @@ class BaseTextDataset(Dataset):
         )
 
         if is_train:
-            # 训练使用轻微几何扰动，再模拟颜色、极性、清晰度与轻噪声变化。
+            # 几何扰动在缩放前的源分辨率完成（见 source_augment），这里只做
+            # 缩放后的颜色、极性、清晰度和轻噪声变化。
             train_transforms = [
-                # 旋转 ±2°、透视扰动 30%；按当前图片背景填充新增边缘。
-                # RandomBackgroundGeometry(
-                #     degrees=2,
-                #     distortion_scale=0.1,
-                #     p=0.3,
-                # ),
                 # 颜色扰动（70%）：模拟曝光、纸面反差、印刷浓淡和轻微偏色。
                 transforms.RandomApply(
                     [transforms.ColorJitter(
@@ -498,13 +498,16 @@ class BaseTextDataset(Dataset):
 
     def _load_and_process_image(self, index: int) -> torch.Tensor:
         """
-        通用处理：读取/透明通道合成 -> 保守去章 -> 等比缩放 -> 增强/归一化。
+        通用处理：读取/透明通道合成 -> 保守去章 -> 源分辨率几何扰动 -> 等比缩放
+        -> 增强/归一化。几何扰动必须在缩放前完成，否则长行旋转会超出画布边界。
         """
         image_path = self.image_paths[index]
         try:
             image = load_rgb_image(image_path)
             # 在缩放和随机颜色扰动前判断原始红色；训练、验证、推理共享。
             image = remove_red_seal(image)
+            if self.source_augment is not None:
+                image = self.source_augment(image)
             image = resize_detection_image(
                 image,
                 target_height=self.img_height,
@@ -611,12 +614,14 @@ class InferenceDataset(BaseTextDataset):
         img_height: int,
         num_channels: int,
         img_width: int | None = None,
+        source_augment=None,
     ):
         super().__init__(
             img_height,
             num_channels,
             is_train=False,
             max_width=img_width,
+            source_augment=source_augment,
         )
         self.image_paths = [resolve_image_path(path) for path in image_paths]
 
@@ -629,6 +634,16 @@ class InferenceDataset(BaseTextDataset):
 
 
 # 4. DataLoader 创建工厂
+
+def _seed_worker(worker_id: int) -> None:
+    """按 worker 的 torch 种子同步 random 和 NumPy。
+
+    torchvision 的随机增强走 torch 自身的 worker 种子，几何增强使用 random；
+    不对齐时同一份配置每次训练的几何扰动序列都不同。"""
+    seed = torch.initial_seed() % 2 ** 32
+    random.seed(seed)
+    np.random.seed(seed)
+
 
 def create_dataloader(annotation_path: str | os.PathLike | Sequence[str | os.PathLike],
                       img_height: int, img_width: int, num_channels: int, batch_size: int,
@@ -651,7 +666,11 @@ def create_dataloader(annotation_path: str | os.PathLike | Sequence[str | os.Pat
             batch_sampler=sampler,
             num_workers=num_workers,
             pin_memory=True,
-            collate_fn=dynamic_padding_collate_fn
+            collate_fn=dynamic_padding_collate_fn,
+            # 固定基准种子只影响增强抽样；每个 epoch 新建迭代器时基准种子继续前进，
+            # 因此每个 epoch 的增强不同，同一份配置的运行之间可复现。
+            generator=torch.Generator().manual_seed(DATALOADER_SEED),
+            worker_init_fn=_seed_worker,
         )
     else:
         dataloader = DataLoader(
