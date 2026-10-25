@@ -1,4 +1,4 @@
-"""读取纯参数或封装检查点，并推断识别输入通道和 BiGRU 层数。"""
+"""读取识别检查点，并推断输入通道和 BiGRU 层数。"""
 
 import re
 from collections.abc import Mapping

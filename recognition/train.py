@@ -1,11 +1,22 @@
-"""训练 RGB CRNN；超参数由顶部常量控制，续训与保存由 TrainingRun 管理。"""
+"""训练 RGB CRNN；训练循环、保存策略与输出目录由本文件控制。
 
-import os
+数据路径、输入尺寸和 DataLoader 构建见 training_data.py；确定性预处理见
+components/preprocessing.py，随机增强见 components/augmentation.py。"""
+
 import math
+import os
+from pathlib import Path
+import random
 import sys
+import tempfile
+import time
+
+import Levenshtein
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 # -- 动态添加项目根目录到 sys.path ---
@@ -16,50 +27,76 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from recognition.components.converter import LabelConverter
-from recognition.components.dataset import create_dataloader
 from recognition.models.model import CRNN
-from recognition.utils.training_run import TrainingRun, build_training_config, parse_args
-import Levenshtein
+from recognition.training_data import IMG_HEIGHT, NUM_CHANNELS, create_training_loaders
 
 # 配置区域
 # 1. 路径配置
-# 按顺序合并 train 与八份合成标注；每条路径相对于所属标注文件。
-TRAIN_ANNOTATION = (
-    "recognition/data/train_annotation.txt",
-    "recognition/data/synthesis1_annotation.txt",
-    "recognition/data/synthesis2_annotation.txt",
-    "recognition/data/synthesis3_annotation.txt",
-    "recognition/data/synthesis_red_annotation.txt",
-    "recognition/data/synthesis_lines_annotation.txt",
-    "recognition/data/synthesis_confusable_annotation.txt",
-    "recognition/data/synthesis_degraded_annotation.txt",
-    "recognition/data/synthesis_edge_annotation.txt",
-)
-VALID_ANNOTATION = "recognition/data/val_annotation.txt"  # 独立验证标注；缺文件时当前流程仅训练，不保存最佳 CER 模型。
 KEYS_PATH = "recognition/keys.txt"  # 当前权重绑定的字符字典，内容和顺序决定类别编号。
-CHECKPOINT_DIR = "recognition/checkpoints/"  # 固定检查点根目录，TrainingRun 在其下新建本次运行目录。
+CHECKPOINT_DIR = "recognition/checkpoints/"  # 固定检查点根目录，每次运行在其下新建独立目录。
 LOG_DIR = "recognition/runs"  # 固定 TensorBoard 根目录，每次运行独立建目录。
 
-# 2. 数据与模型参数
-IMG_HEIGHT = 32  # 输入图片高度，单位 px；当前 CRNN 只支持 32。
-IMG_WIDTH = 1800  # 缩放宽度上限 1800 px；训练和训练期验证超过此值会横向压缩。
-NUM_CHANNELS = 3     # 保留白/红/黑及彩色 UI 文本的色彩对比
-
-# 3. 训练超参数
-BATCH_SIZE = 64  # 每批图片数，末批不足 64 张仍保留。
-EPOCHS = 680  # 目标总轮数 680，续训也使用该总数。
-LEARNING_RATE = 3e-4  # 新运行的 AdamW 初始学习率；完整续训恢复检查点中的学习率。
-NUM_WORKERS = 4  # 数据加载子进程数；0 表示主进程加载。
+# 2. 训练超参数
+EPOCHS = 680  # 目标总轮数 680。
+LEARNING_RATE = 3e-4  # 新运行的 AdamW 初始学习率。
 RANDOM_SEED = 42  # 新运行的 Python、NumPy、PyTorch 随机种子。
 
-# 4. 保存与验证策略
+# 3. 保存与验证策略
 SAVE_INTERVAL = 5  # 第 START_SAVE_EPOCH 轮起，每 5 轮保存周期备份；last.pth 每轮保存。
 START_VALID_EPOCH = 1    # 从第1轮开始验证，学习率调度优先使用验证集 CER
 START_SAVE_EPOCH = 100    # 周期备份和 Top-K 从第100轮开始；last.pth 每轮保存
 KEEP_TOP_K = 3           # 保留保存阶段内验证集 CER 最低的 3 个最佳模型
 
-# 5. 硬件
+# 4. 硬件
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 有可用 CUDA 时使用 GPU，否则 CPU。
+
+
+def prepare_run_directories():
+    """新建本次运行的检查点和 TensorBoard 目录。"""
+    run_name = f"ocr_exp_{time.time_ns()}"
+    checkpoint_dir = (Path(CHECKPOINT_DIR) / run_name).resolve()
+    log_dir = (Path(LOG_DIR) / run_name).resolve()
+    checkpoint_dir.mkdir(parents=True, exist_ok=False)
+    log_dir.mkdir(parents=True, exist_ok=False)
+    return checkpoint_dir, log_dir
+
+
+def atomic_save(payload, destination):
+    """先写同目录临时文件，再替换目标，避免中断损坏已有检查点。"""
+    destination = Path(destination)
+    fd, temporary = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            torch.save(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def save_epoch(model, keys, checkpoint_dir, best_checkpoints, epoch, metric, has_validation):
+    """保存本轮检查点，并维护本次运行的 Top-K 最佳模型。"""
+    best_path = None
+    removed = None
+    if epoch >= START_SAVE_EPOCH and has_validation and np.isfinite(metric):
+        if len(best_checkpoints) < KEEP_TOP_K or metric < best_checkpoints[-1]["metric"]:
+            best_path = checkpoint_dir / f"best_cer_{metric:.6f}_epoch_{epoch}.pth"
+            best_checkpoints.append({"path": str(best_path), "metric": metric, "epoch": epoch})
+            best_checkpoints.sort(key=lambda item: item["metric"])
+            if len(best_checkpoints) > KEEP_TOP_K:
+                removed = Path(best_checkpoints.pop()["path"])
+
+    payload = {"state_dict": model.state_dict(), "epoch": epoch, "keys": list(keys)}
+    if best_path is not None:
+        atomic_save(payload, best_path)
+        print(f"  [保存] 最佳模型: {best_path}")
+    if epoch >= START_SAVE_EPOCH and epoch % SAVE_INTERVAL == 0:
+        atomic_save(payload, checkpoint_dir / f"epoch_{epoch}.pth")
+    atomic_save(payload, checkpoint_dir / "last.pth")
+    if removed is not None:
+        removed.unlink(missing_ok=True)
 
 
 def evaluate(model, dataloader, converter, criterion):
@@ -117,17 +154,16 @@ def evaluate(model, dataloader, converter, criterion):
 
     return accuracy, cer, avg_loss
 
+
 def log_gradient_norms(model, writer, global_step):
     total_norm = 0.0
     max_grad = 0.0
-    param_count = 0
 
-    for name, p in model.named_parameters():
+    for p in model.parameters():
         if p.grad is not None:
             grad_norm = p.grad.data.norm(2)
             total_norm += grad_norm.item() ** 2
             max_grad = max(max_grad, p.grad.data.abs().max().item())
-            param_count += 1
 
     total_norm = total_norm ** 0.5
 
@@ -135,8 +171,7 @@ def log_gradient_norms(model, writer, global_step):
     writer.add_scalar("Grad/Max_Abs_Grad", max_grad, global_step)
 
 
-def train(argv=None):
-    args = parse_args(argv if argv is not None else [])
+def train():
     if EPOCHS < 1 or not math.isfinite(LEARNING_RATE) or LEARNING_RATE <= 0:
         raise ValueError("EPOCHS and LEARNING_RATE must be positive")
     print(f"当前使用的计算设备: {DEVICE}")
@@ -145,20 +180,13 @@ def train(argv=None):
 
     # 1. 初始化 Converter
     converter = LabelConverter(KEYS_PATH)
-    config = build_training_config(
-        train_annotation=TRAIN_ANNOTATION, valid_annotation=VALID_ANNOTATION,
-        img_height=IMG_HEIGHT, img_width=IMG_WIDTH, num_channels=NUM_CHANNELS,
-        batch_size=BATCH_SIZE, num_workers=NUM_WORKERS, start_valid_epoch=START_VALID_EPOCH,
-        start_save_epoch=START_SAVE_EPOCH, save_interval=SAVE_INTERVAL, keep_top_k=KEEP_TOP_K,
-    )
-    run = TrainingRun(args, config, converter.keys, CHECKPOINT_DIR,
-                      epochs=EPOCHS, seed=RANDOM_SEED, log_root=LOG_DIR)
-    if run.complete:
-        return
     num_classes = converter.num_classes
     print(f"字典加载完成，类别数量: {num_classes} (含 blank/unk)")
 
-    # 2. 初始化模型
+    # 2. 初始化模型；固定随机种子后创建参数，保证同配置运行可复现。
+    random.seed(RANDOM_SEED)
+    np.random.seed(RANDOM_SEED)
+    torch.manual_seed(RANDOM_SEED)
     model = CRNN(
         img_height=IMG_HEIGHT,
         nc=NUM_CHANNELS,
@@ -177,40 +205,23 @@ def train(argv=None):
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.8, patience=20, min_lr=1e-6
     )
-    run.restore(model, optimizer, scheduler)
 
     # 5. 数据加载器
-    print("正在加载训练集...")
-    train_loader = create_dataloader(
-        annotation_path=TRAIN_ANNOTATION,
-        img_height=IMG_HEIGHT,
-        img_width=IMG_WIDTH,
-        num_channels=NUM_CHANNELS,
-        batch_size=BATCH_SIZE,
-        num_workers=NUM_WORKERS,
-        is_train=True,
-    )
+    train_loader, valid_loader = create_training_loaders()
 
-    valid_loader = None
-    if VALID_ANNOTATION and os.path.exists(VALID_ANNOTATION):
-        print("正在加载验证集...")
-        valid_loader = create_dataloader(
-            annotation_path=VALID_ANNOTATION,
-            img_height=IMG_HEIGHT,
-            img_width=IMG_WIDTH,  # 训练期验证沿用相同宽度上限，超宽图片会横向压缩。
-            num_channels=NUM_CHANNELS,
-            batch_size=BATCH_SIZE,
-            num_workers=NUM_WORKERS,
-            is_train=False,
-        )
-    else:
-        print("⚠️ 警告: 未找到验证集标注文件，将无法评估 Accuracy 和进行最佳模型保存。")
+    # 6. 本次运行的输出目录与日志
+    checkpoint_dir, log_dir = prepare_run_directories()
+    writer = SummaryWriter(log_dir=str(log_dir))
+    print(f"检查点目录: {checkpoint_dir}")
+    print(f"TensorBoard 目录: {log_dir}")
+    print(f"准备开始训练 - Epoch 1 至 {EPOCHS}")
+    print(f"  - 验证开始: Epoch {START_VALID_EPOCH}")
+    print(f"  - 每轮保存 last.pth；周期备份 / Top-K 开始: Epoch {START_SAVE_EPOCH}")
 
-    writer = run.open_writer()
-    global_step = run.global_step
+    best_checkpoints = []
+    global_step = 0
     try:
-        run.restore_random_state(optimizer)
-        for epoch in range(run.start_epoch, EPOCHS + 1):
+        for epoch in range(1, EPOCHS + 1):
             # 训练阶段
             model.train()
             total_train_loss = 0
@@ -218,7 +229,7 @@ def train(argv=None):
 
             pbar = tqdm(train_loader, desc=f"Epoch [{epoch}/{EPOCHS}]", unit="batch")
 
-            for i, (images, labels, img_widths) in enumerate(pbar):
+            for images, labels, img_widths in pbar:
                 images = images.to(DEVICE)
                 img_widths = img_widths.to(DEVICE)
 
@@ -281,8 +292,8 @@ def train(argv=None):
             scheduler.step(scheduler_metric)
 
             writer.add_scalar("Train/Learning_Rate", optimizer.param_groups[0]["lr"], epoch)
-            run.save_epoch(model, optimizer, scheduler, epoch, global_step,
-                           scheduler_metric, valid_loader is not None)
+            save_epoch(model, converter.keys, checkpoint_dir, best_checkpoints, epoch,
+                       scheduler_metric, valid_loader is not None)
             writer.flush()
 
     finally:
@@ -290,4 +301,4 @@ def train(argv=None):
     print("训练完成。")
 
 if __name__ == "__main__":
-    train(sys.argv[1:])
+    train()

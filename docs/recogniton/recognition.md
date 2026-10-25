@@ -34,12 +34,15 @@ flowchart TD
 
 相关实现：
 
-- `../../recognition/components/dataset.py`：图片路径校验、PNG 透明通道处理、缩放、增强、桶采样和动态 padding；
-- `../../recognition/components/geometry.py`：源分辨率几何增强、背景色估计和墨迹外接框；
+- `../../recognition/train.py`：训练循环、验证调度和检查点保存；
+- `../../recognition/training_data.py`：训练/验证标注配置、输入尺寸、批处理参数和 DataLoader 构建；
+- `../../recognition/components/preprocessing.py`：图片路径校验、PNG 透明通道合成、局部去章与定高缩放；
+- `../../recognition/components/dataset.py`：标注解析、桶采样、动态 padding 和 DataLoader；
+- `../../recognition/components/augmentation.py`：源分辨率几何增强、缩放后光度增强、背景色估计和墨迹外接框；
 - `../../recognition/utils/checkpoint.py`：checkpoint 解包以及旧灰度/新 RGB 模型通道识别；
 - `../../recognition/components/converter.py`：字典编码和显式 TBC/BTC 的 CTC greedy decode。
 
-训练、验证、PyTorch 推理和多后端推理复用同一套不裁剪基础预处理。训练可额外使用随机增强；验证和测试禁止随机增强。
+训练、验证、PyTorch 推理和多后端推理复用同一套不裁剪基础预处理；确定性步骤集中在 `preprocessing.py`，训练随机增强集中在 `augmentation.py`，验证和测试禁止随机增强。训练入口 `recognition/train.py` 调用 `training_data.create_training_loaders()`；标注路径、输入尺寸和 DataLoader 参数在 `training_data.py`，`dataset.py` 负责数据集与补边并调用上述两个模块。
 
 ### 标点与下划线标注规范
 

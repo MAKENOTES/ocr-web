@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 from torch.utils.data import Dataset
 
-from recognition.components.dataset import load_rgb_image
+from recognition.components.preprocessing import load_rgb_image
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}  # 支持的图片扩展名，枚举前转小写。
 

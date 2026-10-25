@@ -12,7 +12,7 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from recognition.components.dataset import load_rgb_image
+from recognition.components.preprocessing import load_rgb_image
 from detection_larger.components.dataset import OCRDataset, read_boxes
 from detection_larger.inference import DocumentDetector
 

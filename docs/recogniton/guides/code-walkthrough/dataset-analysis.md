@@ -4,7 +4,9 @@
 
 代码入口：[recognition/components/dataset.py](../../../../recognition/components/dataset.py)。已于 2026-09-13 对照当前实现核对；修改相关实现时同步更新本页。
 
-**这个文件把大小不同的 detection 文字框，整理成可以一起送入模型的图片张量，同时保留每张图自己的真实宽度。** 训练与推理共享图片处理逻辑，区别主要是是否增强、返回标签还是路径。
+确定性预处理位于 [preprocessing.py](../../../../recognition/components/preprocessing.py)：`resolve_image_path`、`load_rgb_image`、`border_fill_color`、`remove_red_seal` 和 `resize_detection_image` 不在 `dataset.py` 中定义。随机增强位于 [augmentation.py](../../../../recognition/components/augmentation.py)：`RandomSourceGeometry`、`AddGaussianNoise` 和 `build_transform`。`dataset.py` 负责数据集、分桶、补边并调用这两个模块。训练用的标注路径、输入尺寸、批大小和加载进程数由 [training_data.py](../../../../recognition/training_data.py) 配置，并由其 `create_training_loaders()` 调用本页的 `create_dataloader()`。
+
+**`dataset.py` 与 `preprocessing.py`、`augmentation.py` 配合，把大小不同的 detection 文字框整理成可以一起送入模型的图片张量，同时保留每张图自己的真实宽度。** 训练与推理共享图片处理逻辑，区别主要是是否增强、返回标签还是路径。
 
 配套阅读：[model.py 导读](model-analysis.md)说明真实宽度如何控制模型，[converter.py 导读](converter-analysis.md)说明标签如何变成 CTC 编号；整体约定见 [Recognition 架构](../../recognition.md)。
 
@@ -28,13 +30,13 @@ images, labels_or_paths, img_widths = next(iter(dataloader))
 
 | 代码对象 | 负责什么 |
 | --- | --- |
-| `resolve_image_path` | 检查指定路径是否确实是文件 |
-| `load_rgb_image` | 读取图片、修正 EXIF 方向、合成透明背景并转 RGB |
-| `border_fill_color` | 用图片四周边缘估计窄图补边和几何增强的填充色 |
-| `remove_red_seal` | 根据局部叠印证据去章，保护同行红字 |
-| `RandomSourceGeometry` | 缩放前扰动检测框几何，按墨迹外接框重裁 |
-| `resize_detection_image` | 固定高度缩放，限制最大宽度，为窄图补画布 |
-| `AddGaussianNoise` | 给训练张量增加轻微高斯噪声 |
+| `resolve_image_path`（preprocessing.py） | 检查指定路径是否确实是文件 |
+| `load_rgb_image`（preprocessing.py） | 读取图片、修正 EXIF 方向、合成透明背景并转 RGB |
+| `border_fill_color`（preprocessing.py） | 用图片四周边缘估计窄图补边和几何增强的填充色 |
+| `remove_red_seal`（preprocessing.py） | 根据局部叠印证据去章，保护同行红字 |
+| `RandomSourceGeometry`（augmentation.py） | 缩放前扰动检测框几何，按墨迹外接框重裁 |
+| `resize_detection_image`（preprocessing.py） | 固定高度缩放，限制最大宽度，为窄图补画布 |
+| `AddGaussianNoise`（augmentation.py） | 给训练张量增加轻微高斯噪声 |
 | `BaseTextDataset` | 共享加载、去章、缩放、增强和归一化逻辑 |
 | `TextRecognitionDataset` | 读取一个或多个标注文件，返回 `(image, label)` |
 | `InferenceDataset` | 接收图片路径列表，返回 `(image, path)` |
@@ -190,7 +192,7 @@ resized_width = max(1, round(原图宽 × target_height / 原图高))
 
 `num_channels` 仅支持 `1` 或 `3`。图片总是先经过共享 RGB 加载；若需要兼容灰度模型，再在 transform 中转为单通道。当前训练入口显式使用 `3` 通道。
 
-训练前先在**缩放前**用 `RandomSourceGeometry` 改写检测框几何（`recognition/components/geometry.py`），
+训练前先在**缩放前**用 `RandomSourceGeometry` 改写检测框几何（`recognition/components/augmentation.py`），
 再在缩放后执行 transform。以下顺序中，几何扰动是第 0 步：
 
 | 顺序 | 操作 | 当前配置 |
@@ -205,7 +207,7 @@ resized_width = max(1, round(原图宽 × target_height / 原图高))
 | 7 | 随机擦除 | `p=0.05`；面积比例 `0.005～0.03`，`value="random"` |
 | 8 | `Normalize` | 各通道 `mean=0.5`、`std=0.5` |
 
-`AddGaussianNoise` 类自身默认 `std=0.02`，但这里实例化时覆盖成 `0.015`。
+`AddGaussianNoise` 的默认 `std` 由 `augmentation.py` 的 `NOISE_STD` 常量控制，当前为 `0.015`。
 几何扰动在源分辨率完成：任一操作生效后按墨迹外接框重裁并重新采样留白，每边至少 1 px；
 旋转在扩大的画布上完成，字形不会被截断，角度上限要求垂直跨度不超过文字高度的 30%。
 这些操作会改变图片尺寸，`img_widths` 仍取缩放后的真实宽度，分桶使用的原图宽高比只是近似值。

@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[3]  # 仓库根目录，由当前文件�
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from recognition.components.dataset import load_rgb_image
+from recognition.components.preprocessing import load_rgb_image
 from recognition.utils.annotation import format_annotation_line, split_annotation_fields
 from recognition.utils.character_stats import load_keys
 from recognition.utils.synthesis.generate import (

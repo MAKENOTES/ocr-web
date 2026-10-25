@@ -18,8 +18,8 @@ from recognition.models.model import CRNN
 from recognition.components.dataset import (
     InferenceDataset,
     dynamic_padding_collate_fn,
-    resolve_image_path,
 )
+from recognition.components.preprocessing import resolve_image_path
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 from recognition.utils.annotation import split_annotation_fields
 

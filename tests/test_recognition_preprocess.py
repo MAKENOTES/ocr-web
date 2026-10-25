@@ -11,6 +11,8 @@ from recognition.components.dataset import (
     InferenceDataset,
     TextRecognitionDataset,
     dynamic_padding_collate_fn,
+)
+from recognition.components.preprocessing import (
     load_rgb_image,
     remove_red_seal,
     resolve_image_path,

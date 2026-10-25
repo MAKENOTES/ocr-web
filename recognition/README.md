@@ -12,24 +12,24 @@
 ```text
 recognition/
 ├── README.md                 # 包入口与文档快速索引
-├── train.py                  # 训练与训练期验证
+├── train.py                  # 训练循环、验证调度与检查点保存
+├── training_data.py          # 训练数据路径、输入尺寸与 DataLoader 构建
 ├── evaluate_val.py           # 独立标注集评估与错误报告
 ├── evaluate_robustness.py    # 几何/成像扰动下的鲁棒性验收
 ├── inference.py              # PyTorch 推理
 ├── split_dataset.py          # 初始训练集/验证集划分
 ├── keys.txt                  # 字符字典，内容与顺序绑定模型
 ├── components/
-│   ├── dataset.py            # 图片加载、预处理、增强、分桶与动态补边
-│   ├── geometry.py           # 源分辨率几何增强与背景/墨迹估计
+│   ├── dataset.py            # 数据集、分桶、动态补边与 DataLoader
+│   ├── preprocessing.py      # 路径校验、RGB 合成、去红章与定高缩放
+│   ├── augmentation.py       # 源分辨率几何增强与缩放后光度增强
 │   └── converter.py          # 字符编码与 CTC 解码
 ├── models/
 │   ├── model.py              # 当前 Mobile CNN + 多层 BiGRU 模型
 │   └── model_resnet50.py      # 历史模型，实际使用 ResNet34 + BiLSTM
 ├── utils/
 │   ├── annotation.py         # Tab 标注解析与格式化
-│   ├── checkpoint.py         # 权重解包与输入通道推断
-│   ├── training_run.py       # 训练运行配置及恢复流程
-│   ├── training_checkpoint.py # 完整训练状态的保存与校验
+│   ├── checkpoint.py         # 检查点读取与通道/层数推断
 │   ├── openvino.py           # 长度感知 GRU 的 OpenVINO 图适配
 │   ├── character_stats.py    # 字符统计；同目录另有校对和清理工具
 │   └── synthesis/            # 补字、红章、边线及定向合成入口
@@ -57,8 +57,8 @@ recognition/
 .venv/bin/python recognition/inference.py
 ```
 
-训练只提供续训检查点、初始权重及原字典、本次检查点目录参数；超参数在 `train.py`。
-评估和包内推理使用顶部常量，不提供命令行参数。
+训练数据路径、输入尺寸和加载参数在 `training_data.py`，训练轮数与保存策略在 `train.py`；
+评估和包内推理使用各自顶部常量，均不提供命令行参数。
 根目录 [recognition_inference.py](../recognition_inference.py) 提供多后端命令行入口。
 
 ## 关键约束
@@ -68,7 +68,7 @@ recognition/
 - 共享透明合成、局部去红章和动态补边，不二次裁剪正文。
 - `img_widths` 不含右侧 32 像素保护区和 batch 补边；混合宽度推理必须传入真实宽度。
 - GRU 层数与 checkpoint 绑定，默认 2 层；加载旧单层权重需显式 `CRNN(num_layers=1)`。
-- 字典内容与顺序绑定权重。完整续训还校验源码全文哈希，注释改动也会影响旧检查点恢复。
+- 字典内容与顺序绑定权重；修改 `keys.txt` 后必须重新训练、导出并验证模型。
 
 ## 文档快速索引
 
@@ -82,7 +82,7 @@ recognition/
 | 内容 | 文档 |
 | --- | --- |
 | 图片、模型、张量与解码 | [当前架构](../docs/recogniton/recognition.md) |
-| 训练、续训、评估、导出与 CPU 部署 | [运行说明](../docs/recogniton/guides/running.md) |
+| 训练、评估、导出与 CPU 部署 | [运行说明](../docs/recogniton/guides/running.md) |
 | 划分、统计、字典和清理工具 | [数据维护](datadoc/dataset.md) |
 | 统计列、清理条件、备份和引用检查范围 | [数据工具详解](../docs/recogniton/guides/data-tools.md) |
 | 补字、红章、边线和错误定向合成 | [合成说明](datadoc/synthesis.md) |
@@ -123,6 +123,7 @@ recognition/
 
 ```bash
 .venv/bin/python -m pytest tests/test_recognition_preprocess.py tests/test_recognition_batch_invariance.py -q
-.venv/bin/python -m pytest tests/test_recognition_geometry_augment.py -q
+.venv/bin/python -m pytest tests/test_recognition_augmentation.py -q
+.venv/bin/python -m pytest tests/test_recognition_training.py tests/test_recognition_training_data.py -q
 .venv/bin/python recognition/evaluate_robustness.py   # 几何/成像扰动下的鲁棒性验收
 ```

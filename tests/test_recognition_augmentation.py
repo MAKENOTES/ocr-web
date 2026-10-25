@@ -1,23 +1,25 @@
-"""源分辨率几何增强的标签安全性和随机可控性。
+"""训练增强的标签安全性和随机可控性。
 
-重点关注两件事：旋转不能裁掉字形，几何扰动只在训练集启用。"""
+几何扰动不能裁掉字形；随机增强只在训练集启用；验证变换保持确定性。"""
 
 import random
 
 import numpy as np
 import pytest
+import torch
 from PIL import Image, ImageDraw
 
 from recognition.components.dataset import (
     InferenceDataset,
     TextRecognitionDataset,
 )
-from recognition.components.geometry import (
+from recognition.components.augmentation import (
     MAX_ROTATED_SPAN,
     RandomSourceGeometry,
-    border_fill_color,
+    build_transform,
     ink_extent,
 )
+from recognition.components.preprocessing import border_fill_color
 
 BACKGROUND = (237, 242, 250)  # 浅蓝灰纸面，与失败样本一致的背景色。
 INK = (30, 30, 30)  # 深灰正文，和背景的通道差远大于墨迹阈值。
@@ -239,3 +241,18 @@ def test_trim_keeps_a_column_holding_too_much_ink():
 def test_augmentation_rejects_non_rgb_input():
     with pytest.raises(ValueError, match="需要 RGB"):
         RandomSourceGeometry()(_text_image().convert("L"))
+
+
+def test_validation_transform_is_deterministic():
+    image = _text_image()
+    transform = build_transform(is_train=False, num_channels=3)
+    first, second = transform(image), transform(image)
+    torch.testing.assert_close(first, second)
+    assert first.shape[0] == 3
+
+
+def test_transform_adapts_single_channel_and_rejects_others():
+    tensor = build_transform(is_train=False, num_channels=1)(_text_image())
+    assert tensor.shape[0] == 1
+    with pytest.raises(ValueError, match="num_channels 仅支持"):
+        build_transform(is_train=False, num_channels=2)

@@ -19,7 +19,8 @@ import torch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from recognition.components.converter import LabelConverter
-from recognition.components.dataset import CNN_RIGHT_CONTEXT, MIN_IMAGE_WIDTH, dynamic_padding_collate_fn
+from recognition.components.dataset import CNN_RIGHT_CONTEXT, dynamic_padding_collate_fn
+from recognition.components.preprocessing import MIN_IMAGE_WIDTH
 from recognition.models.model import CRNN
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 

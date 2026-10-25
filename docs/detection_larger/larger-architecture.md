@@ -3,7 +3,7 @@
 本文说明大图文字检测的数据加载、模型训练、整图推理与导出契约，供核对各入口的行为。
 
 本页以 `detection_larger` 与两个同名前缀的根目录入口为准，操作见[包说明](../../detection_larger/README.md)。
-本包不导入 `detection`；当前仅复用 recognition 的 `load_rgb_image` 做透明合成，
+本包不导入 `detection`；当前仅复用 recognition `preprocessing.py` 的 `load_rgb_image` 做透明合成，
 不调用识别去红章、缩放或模型。术语见[术语表](../terminology.md)。
 
 ## 数据、模型与训练

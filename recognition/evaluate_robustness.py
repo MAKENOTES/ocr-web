@@ -29,12 +29,12 @@ from recognition.components.dataset import (
     InferenceDataset,
     dynamic_padding_collate_fn,
 )
-from recognition.components.geometry import (
+from recognition.components.augmentation import (
     MIN_CROP_MARGIN,
-    border_fill_color,
     ink_extent,
     limited_rotation_degrees,
 )
+from recognition.components.preprocessing import border_fill_color
 from recognition.evaluate_val import levenshtein_distance
 from recognition.models.model import CRNN
 from recognition.utils.annotation import split_annotation_fields

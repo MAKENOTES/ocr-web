@@ -8,7 +8,7 @@ import random
 
 import numpy as np
 
-from recognition.components.dataset import load_rgb_image
+from recognition.components.preprocessing import load_rgb_image
 
 
 @dataclass(frozen=True)

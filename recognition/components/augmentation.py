@@ -1,9 +1,9 @@
-"""源分辨率几何增强和几何辅助。
+"""训练期数据增强：缩放前的源分辨率几何扰动与缩放后的光度扰动。
 
-RandomSourceGeometry 在缩放前改写检测框：边缘补边、内容缩放、横向拉伸、
-旋转/斜切/透视、弹性扭曲和边缘轻裁。所有操作都保持标签文字完整，不裁剪
-可识别的字形；新增边缘使用图片四周的中位色填充。
-识别流程的其它环节（读取、去章、缩放、padding）见 dataset.py。"""
+图片加载、去章和缩放见 preprocessing.py，数据集与补边见 dataset.py；
+本模块只提供随机增强。RandomSourceGeometry 在缩放前改写检测框，
+build_transform 返回缩放后的 torchvision 变换。验证和推理不启用随机增强。
+"""
 
 from __future__ import annotations
 
@@ -12,7 +12,13 @@ import random
 
 import cv2
 import numpy as np
+import torch
 from PIL import Image
+from torchvision import transforms
+
+from recognition.components.preprocessing import border_fill_color
+
+# ---- 源分辨率几何增强 ----
 
 INK_THRESHOLD = 40  # 与背景中位色的最大通道差；超过该值视为墨迹，用于重裁外接框。
 # 重裁后每边至少保留的背景宽度，单位 px。零留白框会让后续按四周边缘估计纸面色的
@@ -46,27 +52,24 @@ ROTATION_RESAMPLE = {
     Image.Resampling.BILINEAR: Image.Resampling.BILINEAR,
 }
 
+# ---- 缩放后光度增强 ----
 
-def border_fill_color(image: Image.Image):
-    """用四周边缘的通道中位数估计背景色，供窄图补边和几何增强填充。"""
-    pixels = np.asarray(image)
-    if pixels.ndim == 2:
-        border = np.concatenate(
-            (pixels[0, :], pixels[-1, :], pixels[:, 0], pixels[:, -1])
-        )
-        return int(np.median(border))
-
-    channels = pixels.shape[2]
-    border = np.concatenate(
-        (
-            pixels[0, :, :].reshape(-1, channels),
-            pixels[-1, :, :].reshape(-1, channels),
-            pixels[:, 0, :].reshape(-1, channels),
-            pixels[:, -1, :].reshape(-1, channels),
-        ),
-        axis=0,
-    )
-    return tuple(int(value) for value in np.median(border, axis=0))
+COLOR_JITTER_PROBABILITY = 0.7  # 训练时触发颜色扰动的概率。
+COLOR_JITTER_BRIGHTNESS = 0.2  # 亮度抖动幅度，相对 ToTensor 前的 [0, 1] 取值。
+COLOR_JITTER_CONTRAST = 0.25  # 对比度抖动幅度，模拟浅字和灰底扫描。
+COLOR_JITTER_SATURATION = 0.35  # 饱和度抖动幅度，模拟彩字与背景的浓淡变化。
+COLOR_JITTER_HUE = 0.03  # 色相抖动幅度，覆盖轻微白平衡和设备偏色。
+AUTOCONTRAST_PROBABILITY = 0.2  # 训练时触发自动对比度的概率。
+INVERT_PROBABILITY = 0.08  # 训练时触发反色的概率，覆盖深色主题和黑底白字。
+BLUR_PROBABILITY = 0.15  # 训练时触发高斯模糊的概率。
+BLUR_KERNEL_SIZE = 3  # 高斯模糊核大小，单位 px，必须为奇数。
+BLUR_SIGMA = (0.1, 0.8)  # 高斯模糊 sigma 的随机范围，单位 px。
+NOISE_PROBABILITY = 0.15  # 训练时叠加轻噪声的概率。
+NOISE_MEAN = 0.0  # 噪声均值，作用在 [0, 1] 浮点张量上。
+NOISE_STD = 0.015  # 噪声标准差，作用在 [0, 1] 浮点张量上。
+ERASING_PROBABILITY = 0.05  # 训练时触发小块擦除的概率。
+ERASING_SCALE = (0.005, 0.03)  # 擦除面积占整图的比例范围。
+ERASING_RATIO = (0.3, 3.3)  # 擦除矩形的宽高比范围。
 
 
 def ink_extent(image: Image.Image, fill) -> tuple[int, int, int, int]:
@@ -318,7 +321,7 @@ class RandomSourceGeometry:
                 resample,
             )
 
-        # 4. 倾斜族：旋转、斜切、透视同属页面倾斜，每次最多施加一种。
+        # 3. 倾斜族：旋转、斜切、透视同属页面倾斜，每次最多施加一种。
         shape_operations = [
             (self.rotate_p, self._rotate),
             (self.shear_p, self._shear),
@@ -331,7 +334,7 @@ class RandomSourceGeometry:
                 applied = True
                 break
 
-        # 5. 弹性扭曲：可与倾斜叠加，模拟纸张弯曲。
+        # 4. 弹性扭曲：可与倾斜叠加，模拟纸张弯曲。
         if random.random() < self.elastic_p:
             image = self._elastic(image, fill, resample)
             applied = True
@@ -339,7 +342,7 @@ class RandomSourceGeometry:
         if not applied:
             return image
 
-        # 6. 按墨迹外接框重裁并加留白。画布先四周外扩，外扩量取留白上限和最小留白的
+        # 5. 按墨迹外接框重裁并加留白。画布先四周外扩，外扩量取留白上限和最小留白的
         #    较大者，保证重裁不越界；每边至少保留 MIN_CROP_MARGIN，零留白会让后续
         #    无法再估计纸面色，crop 越界也会被 PIL 补成黑色。
         canvas_margin = max(self.pad_px, MIN_CROP_MARGIN)
@@ -359,7 +362,86 @@ class RandomSourceGeometry:
             )
         )
 
-        # 7. 单侧边缘轻裁：模拟检测框贴边或切进字形一像素。
+        # 6. 单侧边缘轻裁：模拟检测框贴边或切进字形一像素。
         if trim:
             cropped = self._trim_one_side(cropped, fill)
         return cropped
+
+
+class AddGaussianNoise:
+    """模拟扫描颗粒和相机传感器轻噪声；截断到 [0, 1]，避免异常亮暗值。"""
+
+    def __init__(self, mean: float = NOISE_MEAN, std: float = NOISE_STD):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, tensor):
+        noise = torch.randn_like(tensor) * self.std + self.mean
+        return (tensor + noise).clamp(0.0, 1.0)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(mean={self.mean}, std={self.std})"
+
+
+def build_transform(*, is_train: bool, num_channels: int) -> transforms.Compose:
+    """构建缩放后的图像变换；验证和推理只做通道适配、张量化与归一化。"""
+    if num_channels not in (1, 3):
+        raise ValueError(f"num_channels 仅支持 1 或 3，当前为 {num_channels}")
+
+    channel_transform = (
+        # 兼容旧的单通道模型；RGB 模型保留颜色信息。这是通道适配，不是增强。
+        [transforms.Grayscale(num_output_channels=1)]
+        if num_channels == 1
+        else []
+    )
+    normalize = transforms.Normalize(
+        # 将 [0, 1] 映射到 [-1, 1]，统一训练和推理数值范围，不是随机增强。
+        mean=[0.5] * num_channels,
+        std=[0.5] * num_channels,
+    )
+
+    if not is_train:
+        return transforms.Compose([
+            *channel_transform,
+            transforms.ToTensor(),
+            normalize,
+        ])
+
+    return transforms.Compose([
+        # 颜色扰动：模拟曝光、纸面反差、印刷浓淡和轻微偏色。
+        transforms.RandomApply(
+            [transforms.ColorJitter(
+                brightness=COLOR_JITTER_BRIGHTNESS,
+                contrast=COLOR_JITTER_CONTRAST,
+                saturation=COLOR_JITTER_SATURATION,
+                hue=COLOR_JITTER_HUE,
+            )],
+            p=COLOR_JITTER_PROBABILITY,
+        ),
+        # 自动对比度：覆盖扫描软件拉伸灰度、截图反差差异。
+        transforms.RandomAutocontrast(p=AUTOCONTRAST_PROBABILITY),
+        # 反色：覆盖深色主题、黑底白字；也会反转残留章的颜色。
+        transforms.RandomInvert(p=INVERT_PROBABILITY),
+        *channel_transform,
+        # 转为 [C, H, W] 的 [0, 1] 浮点张量，供模糊/噪声/擦除使用。
+        transforms.ToTensor(),
+        # 轻度模糊：模拟轻微失焦、低分辨率截图和缩放损失。
+        transforms.RandomApply(
+            [transforms.GaussianBlur(kernel_size=BLUR_KERNEL_SIZE, sigma=BLUR_SIGMA)],
+            p=BLUR_PROBABILITY,
+        ),
+        # 高斯噪声：模拟扫描颗粒、拍照暗部噪点，不改变文字位置。
+        transforms.RandomApply(
+            [AddGaussianNoise()],
+            p=NOISE_PROBABILITY,
+        ),
+        # 小块擦除：模拟污点、磨损和局部遮挡。仍可能遮住小数点或短文本的关键笔画，
+        # 因此保持低概率、小面积。
+        transforms.RandomErasing(
+            p=ERASING_PROBABILITY,
+            scale=ERASING_SCALE,
+            ratio=ERASING_RATIO,
+            value="random",
+        ),
+        normalize,
+    ])

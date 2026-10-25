@@ -13,7 +13,7 @@ from torchvision.ops import nms
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from recognition.components.dataset import load_rgb_image
+from recognition.components.preprocessing import load_rgb_image
 from detection_larger.components.dataset import IMAGE_EXTENSIONS
 from detection_larger.components.onnx_runtime import OpenVINOBackend, session_options, validate_onnx_metadata
 from detection_larger.components.transforms import STRIDE, normalize_input_size, prepare_image, restore_boxes

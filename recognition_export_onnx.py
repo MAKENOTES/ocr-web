@@ -35,7 +35,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from recognition.models.model import CRNN
 from recognition.components.converter import LabelConverter
-from recognition.components.dataset import CNN_RIGHT_CONTEXT, MIN_IMAGE_WIDTH
+from recognition.components.dataset import CNN_RIGHT_CONTEXT
+from recognition.components.preprocessing import MIN_IMAGE_WIDTH
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 

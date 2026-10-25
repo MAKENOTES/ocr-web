@@ -26,7 +26,7 @@ docs/recogniton/
 | 内容 | 文档 |
 | --- | --- |
 | 输入图片、真实宽度、模型与解码 | [当前架构](recognition.md) |
-| 训练、续训、评估、导出与部署 | [运行说明](guides/running.md) |
+| 训练、评估、导出与部署 | [运行说明](guides/running.md) |
 | 划分、字符统计及清理 | [数据工具](guides/data-tools.md) |
 | 数据维护与合成操作 | [数据维护](../../recognition/datadoc/dataset.md)、[合成说明](../../recognition/datadoc/synthesis.md) |
 

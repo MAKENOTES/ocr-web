@@ -1,6 +1,6 @@
 # Recognition 运行说明
 
-本文指导识别模型的训练、续训、评估、导出、CPU 部署与量化，并说明各入口的默认配置和使用边界。
+本文指导识别模型的训练、评估、导出、CPU 部署与量化，并说明各入口的默认配置和使用边界。
 
 核对日期：2026-10-08。参数、默认值和处理边界以链接的当前实现为依据。
 
@@ -33,61 +33,44 @@ flowchart LR
 - `../../../recognition_benchmark_cpu.py`：带标注的 CPU CER、整行准确率、耗时和逐图预测报告；
 - `../../../recognition_quantize_static.py`：共享预处理的 NNCF 静态量化，以及基于真实 CER 的精度恢复。
 
-`train.py` 的 `TRAIN_ANNOTATION` 可配置一个标注路径或多个标注路径；当前训练集按配置顺序
+`training_data.py` 的 `TRAIN_ANNOTATION` 可配置一个标注路径或多个标注路径；当前训练集按配置顺序
 合并 `train_annotation.txt` 与 synthesis1、synthesis2、synthesis3、red、lines、
 confusable、degraded、edge 共八份合成标注，各文件内的图片路径分别相对于
 自身所在目录解析。
 
-### 训练与续训
+### 训练
 
-`recognition/train.py` 保留训练、验证循环，并显式传入顶部配置。
-`recognition/utils/training_run.py` 负责命令行参数、配置核对、运行目录、状态恢复和保存策略；
-`recognition/utils/training_checkpoint.py` 负责检查点序列化、原子读写与字典兼容检查。
+`recognition/train.py` 包含训练、验证循环、原子保存和 Top-K 策略；
+`recognition/training_data.py` 配置训练/验证标注、输入尺寸、批大小和加载进程数；
+`recognition/utils/checkpoint.py` 负责推理与导出读取检查点并推断模型结构。
+训练轮数、学习率、随机种子、检查点和日志目录由 `train.py` 顶部常量控制；
+数据路径与输入尺寸由 `training_data.py` 顶部常量控制，均不提供命令行参数。
+每次训练从随机初始化开始，不支持加载已有权重，也不支持从检查点恢复轮次、优化器或随机状态。
+确定性图片预处理（路径校验、透明合成、去章、缩放）由 `recognition/components/preprocessing.py` 提供；
+训练随机增强由 `recognition/components/augmentation.py` 提供，几何与光度参数在该模块内，`train.py` 不重复配置。
 
 每个完整 epoch 在验证、学习率调度后原子保存 `last.pth`，从第一轮生效；
-第 100 轮起另存每 5 轮备份与 CER 最低的 Top-3。三类文件均包含模型、AdamW、
-ReduceLROnPlateau、已完成轮次、global_step、随机状态、字典与配置，均可用于续训。
-推理和导出通过 `extract_state_dict` 读取其中的模型权重。周期备份不自动限制保留数量。
+第 100 轮起另存每 5 轮备份与 CER 最低的 Top-3。检查点只包含模型参数、轮次和字典，
+不包含优化器、调度器、随机状态或源码摘要。推理和导出通过 `extract_state_dict` 读取其中的模型权重。
+周期备份不自动限制保留数量。
 
 ```bash
-# 新训练；输出路径在启动时打印
+# 启动训练；输出路径在开始时打印
 .venv/bin/python recognition/train.py
-
-# 从检查点下一轮继续，目标总轮数使用 train.py 中的 EPOCHS 常量
-.venv/bin/python recognition/train.py \
-  --resume recognition/checkpoints/<run>/last.pth
-
-# 旧纯权重只能初始化新训练，必须提供该权重训练时使用的原始字典
-.venv/bin/python recognition/train.py \
-  --weights recognition/checkpoints/<old-model>.pth \
-  --weights-keys /path/to/original/keys.txt
 ```
 
-训练轮数、初始学习率、随机种子和日志根目录统一使用 `train.py` 的 `EPOCHS`、
-`LEARNING_RATE`、`RANDOM_SEED`、`LOG_DIR` 常量，不再提供对应命令行参数。
-`--resume` 恢复检查点的学习率、调度等待计数和随机状态；`--weights` 按当前常量
-初始化优化器、调度器和轮次。两者均要求字典内容及顺序一致，不自动迁移输出层；删字符前的旧模型
-不能直接用于删字符后的新字典。旧纯权重未保存优化器等状态，无法补成完整续训。
+训练轮数、初始学习率、随机种子和输出目录使用 `train.py` 的 `EPOCHS`、`LEARNING_RATE`、
+`RANDOM_SEED`、`CHECKPOINT_DIR`、`LOG_DIR` 常量；标注路径、输入尺寸、批大小和加载进程数使用
+`training_data.py` 的 `TRAIN_ANNOTATION`、`VALID_ANNOTATION`、`IMG_HEIGHT`、`IMG_WIDTH`、
+`NUM_CHANNELS`、`BATCH_SIZE`、`NUM_WORKERS` 常量。
+`keys.txt` 的内容及顺序属于权重契约；修改后必须重新训练、导出并验证模型。
 
-续训核对标注文件内容摘要、模型/数据加载/字符转换实现和关键配置，差异时报错。
-源码校验取完整文件 SHA-256，包含注释和 docstring；仅修改被校验文件的注释也会使旧检查点的
-`implementation` 摘要不匹配。继续原实验应使用保存检查点时的源码版本；需要在新版本
-继续学习时使用 `--weights` 初始化新运行，不要直接修改检查点摘要绕过校验。
-图片内容不逐张计算摘要，原地替换图片后应使用 `--weights` 启动新实验。
-随机状态恢复覆盖 Python、NumPy、PyTorch 与 CUDA，续训从完整轮次边界开始；
-中断轮次会重跑，不承诺跨硬件或依赖版本的逐位一致性。
-
-每次启动（包括续训）默认在 `recognition/checkpoints/ocr_exp_<时间戳>/` 和
-`recognition/runs/ocr_exp_<时间戳>/` 新建独立目录；可用 `--checkpoint-dir`
-指定本次检查点空目录，日志目录在 `LOG_DIR` 下自动新建。TensorBoard 的轮次和步数继续递增。续训继承原 Top-K
-排名，但只清理本次输出目录中的淘汰文件，保留原运行产物。完整检查点包含优化器，
-磁盘占用高于旧纯权重文件。
+每次启动在 `recognition/checkpoints/ocr_exp_<时间戳>/` 和
+`recognition/runs/ocr_exp_<时间戳>/` 新建独立目录。
 
 示例：
 
 ```bash
-.venv/bin/python recognition/train.py
-
 # evaluate_val.py 当前仍使用文件顶部常量，不支持命令行参数。
 # 先配置 MODEL_PATH、设置 VAL_ANNOTATION，并为本次评估设置 ERROR_OUTPUT_FILE。
 .venv/bin/python recognition/evaluate_val.py
