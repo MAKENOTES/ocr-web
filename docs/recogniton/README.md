@@ -12,7 +12,8 @@ docs/recogniton/
 ├── README.md           # 本目录索引
 ├── recognition.md      # 当前架构与数据契约，保留固定入口路径
 ├── guides/             # 当前操作与新手导读
-│   ├── running.md      # 训练、评估与部署
+│   ├── running.md      # 训练、评估与导出
+│   ├── deployment.md   # 部署产物构建、依赖与升级
 │   ├── data-tools.md   # 数据校对、统计与清理
 │   └── code-walkthrough/ # dataset、model、converter 代码导读
 └── history/
@@ -26,7 +27,8 @@ docs/recogniton/
 | 内容 | 文档 |
 | --- | --- |
 | 输入图片、真实宽度、模型与解码 | [当前架构](recognition.md) |
-| 训练、评估、导出与部署 | [运行说明](guides/running.md) |
+| 训练、评估与导出 | [运行说明](guides/running.md) |
+| 部署产物、依赖选择与升级 | [部署说明](guides/deployment.md) |
 | 划分、字符统计及清理 | [数据工具](guides/data-tools.md) |
 | 数据维护与合成操作 | [数据维护](../../recognition/datadoc/dataset.md)、[合成说明](../../recognition/datadoc/synthesis.md) |
 

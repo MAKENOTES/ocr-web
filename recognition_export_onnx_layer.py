@@ -457,7 +457,7 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="导出动态宽度、长度感知的多层 CRNN ONNX")
-    parser.add_argument("--model_path", default="recognition/checkpoints/best_cer_0.004061_epoch_603.pth")
+    parser.add_argument("--model_path", default="recognition/checkpoints/best_cer_0.003335_epoch_421.pth")
     parser.add_argument("--output_path", default="best_recognition_layer.onnx",
                         help="默认不覆盖 recognition_export_onnx.py 的单层导出产物")
     parser.add_argument("--keys_path", default="recognition/keys.txt")

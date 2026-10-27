@@ -26,10 +26,13 @@ flowchart LR
 - `../../../recognition/evaluate_val.py`：独立 manifest 的 Accuracy/CER/错误样本；
 - `../../../recognition/inference.py`：PyTorch checkpoint 调试；
 - `../../../recognition_export_onnx.py`：带 `img_widths`、动态 batch/width 的 ONNX，仅支持单层 BiGRU；
-- `../../../recognition_inference.py`：ONNX/OpenVINO/PyTorch 部署推理。
+- `../../../recognition_inference.py`：ONNX/OpenVINO/PyTorch 部署推理；保留旧命令，内部调用 runtime；
 - `../../../recognition_export_onnx_layer.py`：多层 BiGRU 的 ONNX 导出，层数取自 checkpoint，
   按层拆成串联的 GRU 节点，默认输出 `best_recognition_layer.onnx`，不覆盖单层产物；
-- `../../../recognition_inference_layer.py`：配合多层导出使用，PyTorch 后端按 checkpoint 推断层数；
+- `../../../recognition_inference_layer.py`：多层模型的历史入口，保留旧默认值，内部调用 runtime；
+- `../../../recognition/runtime/`：部署推理包，提供 `RecognitionEngine`、后端和
+  `python -m recognition.runtime` 命令行；
+- `../../../tools/build_recognition_bundle.py`：生成自包含部署目录，见[部署说明](deployment.md)；
 - `../../../recognition_benchmark_cpu.py`：带标注的 CPU CER、整行准确率、耗时和逐图预测报告；
 - `../../../recognition_quantize_static.py`：共享预处理的 NNCF 静态量化，以及基于真实 CER 的精度恢复。
 
@@ -142,6 +145,11 @@ batch Gather 按各样本真实长度显式反转反向分支的输入、输出�
 回归测试同时要求 OpenVINO 跨 batch 一致和对齐 PyTorch，不能仅比较两个 OpenVINO 结果。
 单图默认 `--num_workers 0` 避免创建进程开销；离线批处理可开启 `--sort_by_width`
 减少无效 padding，输出恢复原文件排序。显示的后端耗时包含解码，总耗时还包含预处理。
+
+生产部署不要直接拷贝仓库脚本：用 `tools/build_recognition_bundle.py` 生成自包含目录，
+产物只含运行代码、模型、字典和依赖清单，并在隔离环境自检。`recognition_inference.py`
+和 `recognition_inference_layer.py` 保留原命令与默认值，内部调用同一套
+`recognition/runtime/`。完整步骤、依赖选择和升级方式见[部署说明](deployment.md)。
 
 ```bash
 .venv/bin/python recognition_benchmark_cpu.py \

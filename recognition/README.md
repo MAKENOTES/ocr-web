@@ -17,6 +17,7 @@ recognition/
 ├── evaluate_val.py           # 独立标注集评估与错误报告
 ├── evaluate_robustness.py    # 几何/成像扰动下的鲁棒性验收
 ├── inference.py              # PyTorch 推理
+├── runtime/                  # 部署推理：RecognitionEngine、后端与 CLI
 ├── split_dataset.py          # 初始训练集/验证集划分
 ├── keys.txt                  # 字符字典，内容与顺序绑定模型
 ├── components/
@@ -46,6 +47,8 @@ recognition/
 多层 BiGRU 模型用 `recognition_inference_layer.py` 和 `recognition_export_onnx_layer.py`
 （导出默认生成 `best_recognition_layer.onnx`，不覆盖单层产物）；
 `recognition_benchmark_cpu.py`、`recognition_quantize_static.py` 负责 CPU 评测和静态量化。
+两个推理脚本保留旧命令和默认值，内部统一调用 `recognition/runtime/`；部署时用
+`tools/build_recognition_bundle.py` 生成自包含产物，见[部署说明](../docs/recogniton/guides/deployment.md)。
 
 ## 常用入口
 
@@ -83,6 +86,7 @@ recognition/
 | --- | --- |
 | 图片、模型、张量与解码 | [当前架构](../docs/recogniton/recognition.md) |
 | 训练、评估、导出与 CPU 部署 | [运行说明](../docs/recogniton/guides/running.md) |
+| 部署产物、依赖与升级 | [部署说明](../docs/recogniton/guides/deployment.md) |
 | 划分、统计、字典和清理工具 | [数据维护](datadoc/dataset.md) |
 | 统计列、清理条件、备份和引用检查范围 | [数据工具详解](../docs/recogniton/guides/data-tools.md) |
 | 补字、红章、边线和错误定向合成 | [合成说明](datadoc/synthesis.md) |
@@ -123,6 +127,7 @@ recognition/
 
 ```bash
 .venv/bin/python -m pytest tests/test_recognition_preprocess.py tests/test_recognition_batch_invariance.py -q
+.venv/bin/python -m pytest tests/test_recognition_runtime.py tests/test_recognition_bundle.py -q
 .venv/bin/python -m pytest tests/test_recognition_augmentation.py -q
 .venv/bin/python -m pytest tests/test_recognition_training.py tests/test_recognition_training_data.py -q
 .venv/bin/python recognition/evaluate_robustness.py   # 几何/成像扰动下的鲁棒性验收

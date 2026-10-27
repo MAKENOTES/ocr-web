@@ -9,7 +9,7 @@ import pytest
 import torch
 
 from recognition.models.model import CRNN
-from recognition_inference_layer import OpenVINOBackend
+from recognition.runtime.backends import OpenVINOBackend
 from recognition_export_onnx_layer import export_onnx
 
 EXPORT_WIDTH = 96  # 导出样例张量宽度，必须不小于 MIN_IMAGE_WIDTH + CNN_RIGHT_CONTEXT
