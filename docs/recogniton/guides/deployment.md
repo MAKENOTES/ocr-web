@@ -8,6 +8,18 @@
 
 ## 1. 构建产物
 
+`recognition/runtime/` 是单向生成的部署快照：预处理、推理数据集、模型、解码和检查点工具
+来自 `components/`、`models/`、`utils/`，由同步脚本复制并把导入改写为相对路径；只有
+`engine.py`、`backends.py`、`cli.py`、`loader.py` 是手写。修改源文件后先同步：
+
+```bash
+.venv/bin/python tools/sync_recognition_runtime.py          # 重新生成 runtime
+.venv/bin/python tools/sync_recognition_runtime.py --check  # 只检查
+```
+
+构建脚本会在开始前检查同步状态，runtime 与源文件不一致时直接失败，避免把过期代码
+打进部署包。
+
 在仓库根目录执行：
 
 ```bash
@@ -36,7 +48,7 @@
 
 ```text
 dist/recognition_runtime/
-├── recognition/            # 运行所需的最少代码（runtime + 共享预处理）
+├── recognition/            # 自包含 runtime 包：预处理、数据集、模型、解码与后端
 ├── models/model.onnx       # 构建时拷贝的模型
 ├── keys.txt                # 与模型配套的字典
 ├── requirements.txt        # numpy、pillow、opencv-python-headless、torch、torchvision
@@ -47,6 +59,11 @@ dist/recognition_runtime/
 ├── README.md
 └── manifest.json
 ```
+
+产物中的 `recognition/` 只包含 `runtime/` 和空的 `__init__.py`，不包含训练数据集、
+`components/`、`models/` 或 `utils/`。`runtime/` 内部全部使用相对导入，因此也可以
+只把 `recognition/runtime/` 拷进其他 Python 项目并按包重命名（例如 `ocr_runtime`），
+不需要仓库其余代码。
 
 `manifest.json` 记录 `format_version`、构建时间、git commit、模型和字典的 SHA256，
 以及 ONNX 导出元数据中的 `num_layers`、`num_channels`、`keys_sha256` 和 `output_type`。
@@ -64,9 +81,9 @@ pip install -r requirements-openvino.txt   # OpenVINO
 pip install -r requirements-pytorch.txt    # PyTorch checkpoint
 ```
 
-当前 runtime 仍复用训练侧的 PyTorch 预处理与 DataLoader，基础清单已包含
-`torch`/`torchvision`，因此 ONNX/OpenVINO 部署也会安装它们。它们不参与推理，只负责
-张量承载和数据加载；去掉这层依赖属于后续瘦身工作，不在当前产物范围内。
+runtime 目录自包含预处理、数据集、模型、解码和后端，不引用训练代码。基础清单包含
+`torch`/`torchvision`，因为推理管线仍用它们做张量承载和 DataLoader；ONNX/OpenVINO
+部署也需要安装。去掉这层依赖属于后续瘦身工作，不在当前产物范围内。
 
 ## 4. 调用
 
@@ -109,12 +126,27 @@ python -m recognition.runtime \
 原参数和旧默认值，内部调用同一套 runtime；新接入应直接使用 `python -m recognition.runtime`
 或产物内的 `example.py`。
 
+### 直接嵌入其他 Python 项目
+
+不需要 bundle 时，只复制 `recognition/runtime/` 即可。runtime 内部全部使用相对导入，
+可以按目标项目的包名重命名，例如复制为 `my_project/ocr_runtime/`：
+
+```python
+from ocr_runtime import RecognitionEngine
+
+engine = RecognitionEngine("model.onnx", "keys.txt", backend="onnx")
+```
+
+`python -m ocr_runtime --model_path ... --keys_path ... --image_path ...` 同样可用。
+这种方式只带运行代码，模型、字典和依赖仍需由目标项目自行管理；需要可核对的产物时
+仍建议使用 bundle。手动拷贝时排除 `__pycache__`，bundle 构建会自动清理。
+
 ## 5. 升级与回滚
 
 - 模型、字典和运行代码必须同版本构建；不要单独替换产物里的模型或 `keys.txt`。
 - 升级时重新运行构建脚本并保留上一个产物目录，回滚只需切回旧目录。
-- 构建脚本只按白名单拷贝运行代码，不会带出 `recognition/data/`、`checkpoints/`、
-  `runs/` 或 `utils/synthesis/`。
+- 构建脚本只按白名单拷贝 `recognition/runtime/`，不会带出训练数据、`components/`、
+  `models/` 或 `utils/`。
 - `format_version` 变化表示产物布局或 manifest 字段不兼容，接入方需要同步调整。
 
 ## 6. 使用边界

@@ -8,7 +8,8 @@
         --out dist/recognition_runtime
 
 产物包含运行所需的最少代码、模型、字典、依赖清单和 manifest.json；默认会在
-隔离临时目录中实际推理一次，确认 bundle 不依赖仓库路径。
+隔离临时目录中实际推理一次，确认 bundle 不依赖仓库路径。构建前会校验
+recognition/runtime 与源文件同步；修改源文件后先运行 tools/sync_recognition_runtime.py。
 """
 
 import argparse
@@ -28,29 +29,26 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from recognition.components.converter import LabelConverter  # noqa: E402
+from tools.sync_recognition_runtime import check_runtime  # noqa: E402
 
 # 产物布局版本；目录结构或 manifest 字段不兼容时递增，部署方据此判断是否需要更新接入代码。
 BUNDLE_FORMAT_VERSION = "1"
-# 运行代码白名单，按项目根目录的相对路径拷贝；不包含数据、权重、日志和合成工具。
+# 运行代码白名单；runtime 自包含预处理、模型、解码与后端，不需要训练侧模块。
+# 只保留 recognition/__init__.py 是为了让产物仍可按 recognition.runtime 导入。
 PACKAGE_FILES = (
     "recognition/__init__.py",
     "recognition/runtime/__init__.py",
     "recognition/runtime/__main__.py",
     "recognition/runtime/backends.py",
+    "recognition/runtime/checkpoint.py",
     "recognition/runtime/cli.py",
+    "recognition/runtime/converter.py",
+    "recognition/runtime/dataset.py",
     "recognition/runtime/engine.py",
-    "recognition/runtime/preprocess.py",
-    "recognition/components/__init__.py",
-    "recognition/components/augmentation.py",
-    "recognition/components/converter.py",
-    "recognition/components/dataset.py",
-    "recognition/components/preprocessing.py",
-    "recognition/models/__init__.py",
-    "recognition/models/model.py",
-    "recognition/utils/__init__.py",
-    "recognition/utils/annotation.py",
-    "recognition/utils/checkpoint.py",
-    "recognition/utils/openvino.py",
+    "recognition/runtime/loader.py",
+    "recognition/runtime/model.py",
+    "recognition/runtime/openvino.py",
+    "recognition/runtime/preprocessing.py",
 )
 # 所有后端都需要的运行依赖；版本为下限，部署方可按目标系统调整。
 # torch/torchvision 暂时保留在基础依赖中：runtime 仍复用训练侧的 PyTorch 预处理与
@@ -133,9 +131,12 @@ pip install -r requirements-openvino.txt   # OpenVINO
 pip install -r requirements-pytorch.txt    # PyTorch checkpoint
 ```
 
-当前 runtime 仍复用训练侧的 PyTorch 预处理与 DataLoader，基础清单已包含
-torch/torchvision，因此 ONNX/OpenVINO 部署也需要它们。它们不参与推理，只负责
-张量承载与数据加载；后续版本会移除。
+当前 runtime 目录自包含预处理、模型、解码和后端，不依赖训练代码。基础清单包含
+torch/torchvision，因为推理管线仍用它们做张量承载与 DataLoader；ONNX/OpenVINO
+部署也需要安装。后续版本会移除这层依赖。
+
+如需嵌入其他 Python 项目，也可以只拷贝 `recognition/runtime` 目录并重命名包；
+runtime 内部全部使用相对导入，不引用仓库其他文件。
 
 ## 调用
 
@@ -231,6 +232,12 @@ def _write_requirements(output_dir: Path) -> list[str]:
     return written
 
 
+def _remove_bytecode(output_dir: Path) -> None:
+    """删除自检导入产生的 __pycache__，避免产物携带机器相关的 .pyc。"""
+    for cache_dir in output_dir.rglob("__pycache__"):
+        shutil.rmtree(cache_dir)
+
+
 def _prepare_output(output_dir: Path, force: bool) -> None:
     if output_dir.exists() and not output_dir.is_dir():
         raise FileExistsError(f"输出路径不是目录: {output_dir}")
@@ -281,6 +288,13 @@ def build_bundle(model_path, keys_path, output_dir, *, force: bool = False,
                  verify: bool = True, create_zip: bool = False,
                  python_executable: str = sys.executable) -> dict:
     """构建部署目录并返回 manifest；自检失败会抛异常并保留产物供排查。"""
+    runtime_problems = check_runtime()
+    if runtime_problems:
+        raise RuntimeError(
+            "runtime 与源文件不同步，请先运行 tools/sync_recognition_runtime.py：\n"
+            + "\n".join(runtime_problems)
+        )
+
     model_path = Path(model_path).resolve()
     keys_path = Path(keys_path).resolve()
     output_dir = Path(output_dir).resolve()
@@ -324,6 +338,7 @@ def build_bundle(model_path, keys_path, output_dir, *, force: bool = False,
 
     if verify:
         verify_bundle(output_dir, python_executable)
+    _remove_bytecode(output_dir)
     if create_zip:
         shutil.make_archive(
             str(output_dir), "zip", root_dir=output_dir.parent, base_dir=output_dir.name
@@ -357,6 +372,7 @@ def verify_bundle(bundle_dir, python_executable: str = sys.executable) -> str:
 
         environment = os.environ.copy()
         environment["PYTHONPATH"] = str(bundle_dir)
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         environment.pop("PYTHONHOME", None)
         completed = subprocess.run(
             [python_executable, "-c", VERIFY_SCRIPT, str(bundle_dir), str(image_path)],

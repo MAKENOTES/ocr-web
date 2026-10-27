@@ -2,7 +2,7 @@
 
 本文帮助新手理解字符表如何决定类别编号、训练标签如何编码，以及模型输出如何通过 CTC 贪心解码还原成文字。
 
-代码入口：[recognition/components/converter.py](../../../../recognition/components/converter.py)。已于 2026-09-13 对照当前实现核对；修改相关实现时同步更新本页。
+代码入口：[recognition/components/converter.py](../../../../recognition/components/converter.py)。`recognition/runtime/converter.py` 由 `tools/sync_recognition_runtime.py` 生成。已于 2026-09-13 对照当前实现核对；修改相关实现时同步更新本页。
 
 **`LabelConverter` 管理“哪个编号代表哪个字”，训练时把标签变成整数，推理时把模型预测的整数路径合并成文字。** 它不读取图片，也不运行神经网络。
 

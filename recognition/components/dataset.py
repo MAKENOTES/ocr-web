@@ -1,8 +1,8 @@
-"""识别数据集、分桶与动态补边。
+"""训练数据集、分桶与 DataLoader。
 
-TextRecognitionDataset 读取 Tab 标注；InferenceDataset 读取图片列表。
-基础预处理见 preprocessing.py，随机增强见 augmentation.py；
-collate 返回图片、标签或路径、真实宽度。"""
+推理数据集和共享图像预处理管线位于 inference_data.py；本文件保留
+InferenceDataset 与动态补边的兼容导出，训练和推理使用同一份实现。
+随机增强见 augmentation.py，标注解析见 recognition.utils.annotation。"""
 import os
 import random
 from collections.abc import Sequence
@@ -14,17 +14,15 @@ from PIL import Image
 from torch.utils.data import Dataset, DataLoader, Sampler
 
 from recognition.components.augmentation import RandomSourceGeometry, build_transform
-from recognition.components.preprocessing import (
-    load_rgb_image,
-    remove_red_seal,
-    resize_detection_image,
-    resolve_image_path,
+from recognition.components.inference_data import (
+    CNN_RIGHT_CONTEXT,  # noqa: F401 - 兼容旧导入，训练补边常量
+    InferenceDataset,  # noqa: F401 - 兼容旧导入，实现位于 inference_data.py
+    dynamic_padding_collate_fn,
+    load_and_preprocess_image,
 )
+from recognition.components.preprocessing import resolve_image_path
 from recognition.utils.annotation import split_annotation_fields
 
-# MobileFeatureExtractor 的横向感受野为 53 px。每张图右侧至少保留 32 px
-# 背景，使有效 CNN 特征不会因 batch 中最长图片不同而看到不同的张量边界。
-CNN_RIGHT_CONTEXT = 32
 # 训练 DataLoader 的随机基准种子。它只决定各 worker 的随机增强序列，与模型初始化和
 # 主进程中的分桶打乱无关；固定后同一份代码和配置可以复现每个 worker 的增强。
 DATALOADER_SEED = 20260923
@@ -81,51 +79,8 @@ class BucketBatchSampler(Sampler):
             return (self.num_samples + self.batch_size - 1) // self.batch_size
 
 
-def dynamic_padding_collate_fn(batch):
-    """
-    自定义 collate_fn，实现按批次动态 Padding。
-    支持训练模式 (img, label) 和 推理模式 (img, path)。
-
-    返回:
-        padded_imgs: [B, C, H, W_max] 填充后的图像张量；每张图右侧至少
-                     保留 CNN_RIGHT_CONTEXT 像素的背景保护区
-        labels_or_paths: 标签或路径的元组
-        img_widths: [B] 每张图片未包含保护区和 batch padding 的真实宽度（像素），
-                    用于计算每个样本在 CNN 下采样后的真实时间步数，
-                    使 CTC Loss 和解码只关注有效区域，忽略 padding。
-    """
-    images, labels_or_paths = zip(*batch)
-
-    # 记录每张图片的真实宽度
-    img_widths = torch.IntTensor([img.shape[2] for img in images])
-
-    # 最宽图片也必须拥有固定的右侧背景保护区。否则它单独推理时 CNN 会
-    # 看到张量边界，与它和更宽图片组成 batch 时提取到的右边缘特征不同。
-    max_width = max(img_widths).item() + CNN_RIGHT_CONTEXT
-
-    # 宽度补齐到 8 的倍数
-    max_width = ((max_width + 7) // 8) * 8
-
-    num_channels = images[0].shape[0]
-    height = images[0].shape[1]
-    batch_size = len(images)
-
-    padded_imgs = torch.empty((batch_size, num_channels, height, max_width))
-
-    for i, img in enumerate(images):
-        w = img.shape[2]
-        padded_imgs[i, :, :, :w] = img
-        if w < max_width:
-            # detection 框既可能是白底黑字，也可能是深色/彩色底白字。
-            # 使用右侧边缘的通道中位数补齐，避免统一白边制造额外颜色边界。
-            border_width = min(4, w)
-            fill = img[:, :, w - border_width:w].reshape(num_channels, -1).median(dim=1).values
-            padded_imgs[i, :, :, w:] = fill[:, None, None]
-
-    return padded_imgs, labels_or_paths, img_widths
-
-
 # 2. 基础数据集类 (封装通用逻辑)
+
 
 class BaseTextDataset(Dataset):
     """
@@ -164,15 +119,11 @@ class BaseTextDataset(Dataset):
         """
         image_path = self.image_paths[index]
         try:
-            image = load_rgb_image(image_path)
-            # 在缩放和随机颜色扰动前判断原始红色；训练、验证、推理共享。
-            image = remove_red_seal(image)
-            if self.source_augment is not None:
-                image = self.source_augment(image)
-            image = resize_detection_image(
-                image,
-                target_height=self.img_height,
-                max_width=self.max_width,
+            image = load_and_preprocess_image(
+                image_path,
+                self.img_height,
+                self.max_width,
+                self.source_augment,
             )
             return self.transform(image)
         except Exception as exc:
@@ -264,34 +215,6 @@ class TextRecognitionDataset(BaseTextDataset):
         image = self._load_and_process_image(index)
         label = self.labels[index]
         return image, label
-
-
-class InferenceDataset(BaseTextDataset):
-    """读取图片列表，返回 (图片张量, 图片路径)；默认不限宽且不随机增强。"""
-
-    def __init__(
-        self,
-        image_paths: list,
-        img_height: int,
-        num_channels: int,
-        img_width: int | None = None,
-        source_augment=None,
-    ):
-        super().__init__(
-            img_height,
-            num_channels,
-            is_train=False,
-            max_width=img_width,
-            source_augment=source_augment,
-        )
-        self.image_paths = [resolve_image_path(path) for path in image_paths]
-
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, str]:
-        # 调用基类方法处理图片
-        image = self._load_and_process_image(index)
-        # 推理时没有 Label，返回路径作为 ID，方便对应结果
-        path = self.image_paths[index]
-        return image, path
 
 
 # 4. DataLoader 创建工厂

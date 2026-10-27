@@ -16,6 +16,7 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
+from recognition.components.inference_data import build_eval_transform
 from recognition.components.preprocessing import border_fill_color
 
 # ---- 源分辨率几何增强 ----
@@ -384,9 +385,12 @@ class AddGaussianNoise:
 
 
 def build_transform(*, is_train: bool, num_channels: int) -> transforms.Compose:
-    """构建缩放后的图像变换；验证和推理只做通道适配、张量化与归一化。"""
+    """构建缩放后的图像变换；验证和推理直接复用 runtime 的确定性管线。"""
     if num_channels not in (1, 3):
         raise ValueError(f"num_channels 仅支持 1 或 3，当前为 {num_channels}")
+
+    if not is_train:
+        return build_eval_transform(num_channels)
 
     channel_transform = (
         # 兼容旧的单通道模型；RGB 模型保留颜色信息。这是通道适配，不是增强。
@@ -399,13 +403,6 @@ def build_transform(*, is_train: bool, num_channels: int) -> transforms.Compose:
         mean=[0.5] * num_channels,
         std=[0.5] * num_channels,
     )
-
-    if not is_train:
-        return transforms.Compose([
-            *channel_transform,
-            transforms.ToTensor(),
-            normalize,
-        ])
 
     return transforms.Compose([
         # 颜色扰动：模拟曝光、纸面反差、印刷浓淡和轻微偏色。

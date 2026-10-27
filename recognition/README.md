@@ -17,11 +17,17 @@ recognition/
 ├── evaluate_val.py           # 独立标注集评估与错误报告
 ├── evaluate_robustness.py    # 几何/成像扰动下的鲁棒性验收
 ├── inference.py              # PyTorch 推理
-├── runtime/                  # 部署推理：RecognitionEngine、后端与 CLI
+├── runtime/                  # 自包含部署快照：生成副本 + 手写入口
+│   ├── engine.py             # RecognitionEngine 稳定 API（手写）
+│   ├── backends.py           # ONNX、OpenVINO、PyTorch 后端（手写）
+│   ├── cli.py                # python -m recognition.runtime（手写）
+│   ├── loader.py             # 图片收集与 DataLoader（手写）
+│   └── ...                   # preprocessing/dataset/model/converter/checkpoint/openvino 由同步脚本生成
 ├── split_dataset.py          # 初始训练集/验证集划分
 ├── keys.txt                  # 字符字典，内容与顺序绑定模型
 ├── components/
-│   ├── dataset.py            # 数据集、分桶、动态补边与 DataLoader
+│   ├── dataset.py            # 训练数据集、分桶与 DataLoader
+│   ├── inference_data.py     # 推理数据集、验证变换与动态补边
 │   ├── preprocessing.py      # 路径校验、RGB 合成、去红章与定高缩放
 │   ├── augmentation.py       # 源分辨率几何增强与缩放后光度增强
 │   └── converter.py          # 字符编码与 CTC 解码
@@ -47,8 +53,15 @@ recognition/
 多层 BiGRU 模型用 `recognition_inference_layer.py` 和 `recognition_export_onnx_layer.py`
 （导出默认生成 `best_recognition_layer.onnx`，不覆盖单层产物）；
 `recognition_benchmark_cpu.py`、`recognition_quantize_static.py` 负责 CPU 评测和静态量化。
-两个推理脚本保留旧命令和默认值，内部统一调用 `recognition/runtime/`；部署时用
-`tools/build_recognition_bundle.py` 生成自包含产物，见[部署说明](../docs/recogniton/guides/deployment.md)。
+两个推理脚本保留旧命令和默认值，内部统一调用 `recognition/runtime/`。`runtime/` 中
+`preprocessing.py`、`dataset.py`、`model.py`、`converter.py`、`checkpoint.py` 和
+`openvino.py` 由 `tools/sync_recognition_runtime.py` 从原路径生成，不要手改；修改源文件后
+运行同步脚本。`runtime/` 内部全部使用相对导入，可只拷贝该目录到其他项目并按包改名导入；
+`tools/build_recognition_bundle.py` 在此基础上附带模型、字典和依赖清单，见
+[部署说明](../docs/recogniton/guides/deployment.md)。
+
+训练、评估和导出继续使用 `components/`、`models/`、`utils/` 中的原实现，runtime 只是
+单向生成的部署快照，不反向影响训练代码。
 
 ## 常用入口
 
@@ -62,7 +75,8 @@ recognition/
 
 训练数据路径、输入尺寸和加载参数在 `training_data.py`，训练轮数与保存策略在 `train.py`；
 评估和包内推理使用各自顶部常量，均不提供命令行参数。
-根目录 [recognition_inference.py](../recognition_inference.py) 提供多后端命令行入口。
+根目录 [recognition_inference.py](../recognition_inference.py) 保留旧命令和默认值；
+新接入使用 `python -m recognition.runtime` 或部署产物中的 `example.py`。
 
 ## 关键约束
 
@@ -127,7 +141,8 @@ recognition/
 
 ```bash
 .venv/bin/python -m pytest tests/test_recognition_preprocess.py tests/test_recognition_batch_invariance.py -q
-.venv/bin/python -m pytest tests/test_recognition_runtime.py tests/test_recognition_bundle.py -q
+.venv/bin/python -m pytest tests/test_recognition_runtime.py tests/test_recognition_runtime_sync.py tests/test_recognition_bundle.py -q
+.venv/bin/python tools/sync_recognition_runtime.py --check   # runtime 快照与源文件一致性
 .venv/bin/python -m pytest tests/test_recognition_augmentation.py -q
 .venv/bin/python -m pytest tests/test_recognition_training.py tests/test_recognition_training_data.py -q
 .venv/bin/python recognition/evaluate_robustness.py   # 几何/成像扰动下的鲁棒性验收

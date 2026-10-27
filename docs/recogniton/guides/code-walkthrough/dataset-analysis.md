@@ -2,11 +2,22 @@
 
 本文帮助新手理解图片与标注如何经过加载、去章、缩放、增强和补边，成为带真实宽度的模型输入。
 
-代码入口：[recognition/components/dataset.py](../../../../recognition/components/dataset.py)。已于 2026-09-13 对照当前实现核对；修改相关实现时同步更新本页。
+代码入口：
 
-确定性预处理位于 [preprocessing.py](../../../../recognition/components/preprocessing.py)：`resolve_image_path`、`load_rgb_image`、`border_fill_color`、`remove_red_seal` 和 `resize_detection_image` 不在 `dataset.py` 中定义。随机增强位于 [augmentation.py](../../../../recognition/components/augmentation.py)：`RandomSourceGeometry`、`AddGaussianNoise` 和 `build_transform`。`dataset.py` 负责数据集、分桶、补边并调用这两个模块。训练用的标注路径、输入尺寸、批大小和加载进程数由 [training_data.py](../../../../recognition/training_data.py) 配置，并由其 `create_training_loaders()` 调用本页的 `create_dataloader()`。
+- 推理数据集与动态补边：[recognition/components/inference_data.py](../../../../recognition/components/inference_data.py)
+- 训练数据集、桶采样与 DataLoader：[recognition/components/dataset.py](../../../../recognition/components/dataset.py)
+- 确定性预处理：[recognition/components/preprocessing.py](../../../../recognition/components/preprocessing.py)
+- 随机增强：[recognition/components/augmentation.py](../../../../recognition/components/augmentation.py)
 
-**`dataset.py` 与 `preprocessing.py`、`augmentation.py` 配合，把大小不同的 detection 文字框整理成可以一起送入模型的图片张量，同时保留每张图自己的真实宽度。** 训练与推理共享图片处理逻辑，区别主要是是否增强、返回标签还是路径。
+确定性函数 `resolve_image_path`、`load_rgb_image`、`border_fill_color`、`remove_red_seal`
+和 `resize_detection_image` 在 `components/preprocessing.py` 中定义；
+`components/inference_data.py` 的 `load_and_preprocess_image` 组合这些步骤，训练与推理共用。
+`components/dataset.py` 负责训练标注数据集、桶采样和 DataLoader。训练用的标注路径、输入尺寸、
+批大小和加载进程数由 [training_data.py](../../../../recognition/training_data.py) 配置，并由其
+`create_training_loaders()` 调用本页的 `create_dataloader()`。`recognition/runtime/` 中的同名
+文件由 `tools/sync_recognition_runtime.py` 生成，不要直接修改。
+
+**components 的预处理、推理数据集与补边，加上 `augmentation.py`，把大小不同的 detection 文字框整理成可以一起送入模型的图片张量，同时保留每张图自己的真实宽度。** 训练与推理共享图片处理逻辑，区别主要是是否增强、返回标签还是路径。
 
 配套阅读：[model.py 导读](model-analysis.md)说明真实宽度如何控制模型，[converter.py 导读](converter-analysis.md)说明标签如何变成 CTC 编号；整体约定见 [Recognition 架构](../../recognition.md)。
 
@@ -30,27 +41,29 @@ images, labels_or_paths, img_widths = next(iter(dataloader))
 
 | 代码对象 | 负责什么 |
 | --- | --- |
-| `resolve_image_path`（preprocessing.py） | 检查指定路径是否确实是文件 |
-| `load_rgb_image`（preprocessing.py） | 读取图片、修正 EXIF 方向、合成透明背景并转 RGB |
-| `border_fill_color`（preprocessing.py） | 用图片四周边缘估计窄图补边和几何增强的填充色 |
-| `remove_red_seal`（preprocessing.py） | 根据局部叠印证据去章，保护同行红字 |
-| `RandomSourceGeometry`（augmentation.py） | 缩放前扰动检测框几何，按墨迹外接框重裁 |
-| `resize_detection_image`（preprocessing.py） | 固定高度缩放，限制最大宽度，为窄图补画布 |
-| `AddGaussianNoise`（augmentation.py） | 给训练张量增加轻微高斯噪声 |
-| `BaseTextDataset` | 共享加载、去章、缩放、增强和归一化逻辑 |
-| `TextRecognitionDataset` | 读取一个或多个标注文件，返回 `(image, label)` |
-| `InferenceDataset` | 接收图片路径列表，返回 `(image, path)` |
-| `BucketBatchSampler` | 按宽高比安排训练 batch，减少无用 padding |
-| `dynamic_padding_collate_fn` | 把单张张量组合成 batch，返回真实宽度 |
-| `create_dataloader` | 创建训练/验证用的 Dataset、Sampler 和 DataLoader |
+| `resolve_image_path`（components/preprocessing.py） | 检查指定路径是否确实是文件 |
+| `load_rgb_image`（components/preprocessing.py） | 读取图片、修正 EXIF 方向、合成透明背景并转 RGB |
+| `border_fill_color`（components/preprocessing.py） | 用图片四周边缘估计窄图补边和几何增强的填充色 |
+| `remove_red_seal`（components/preprocessing.py） | 根据局部叠印证据去章，保护同行红字 |
+| `RandomSourceGeometry`（components/augmentation.py） | 缩放前扰动检测框几何，按墨迹外接框重裁 |
+| `resize_detection_image`（components/preprocessing.py） | 固定高度缩放，限制最大宽度，为窄图补画布 |
+| `load_and_preprocess_image`（components/inference_data.py） | 组合加载、去章、可选几何扰动和缩放 |
+| `build_eval_transform`（components/inference_data.py） | 验证/推理的确定性通道转换、张量化和归一化 |
+| `AddGaussianNoise`（components/augmentation.py） | 给训练张量增加轻微高斯噪声 |
+| `BaseTextDataset`（components/dataset.py） | 训练集共享加载、增强和归一化逻辑 |
+| `TextRecognitionDataset`（components/dataset.py） | 读取一个或多个标注文件，返回 `(image, label)` |
+| `InferenceDataset`（components/inference_data.py） | 接收图片路径列表，返回 `(image, path)` |
+| `BucketBatchSampler`（components/dataset.py） | 按宽高比安排训练 batch，减少无用 padding |
+| `dynamic_padding_collate_fn`（components/inference_data.py） | 把单张张量组合成 batch，返回真实宽度 |
+| `create_dataloader`（components/dataset.py） | 创建训练/验证用的 Dataset、Sampler 和 DataLoader |
 
 ```mermaid
 flowchart TD
-    ANN["标注文件"] --> TD["TextRecognitionDataset：路径与标签"]
-    PATHS["图片路径列表"] --> ID["InferenceDataset：路径"]
+    ANN["标注文件"] --> TD["TextRecognitionDataset（components/dataset）：路径与标签"]
+    PATHS["图片路径列表"] --> ID["InferenceDataset（components/inference_data）：路径"]
     TD --> GET["DataLoader 按索引调用 __getitem__"]
     ID --> GET
-    GET --> LOAD["BaseTextDataset：load_rgb_image"]
+    GET --> LOAD["components/inference_data.py：load_and_preprocess_image"]
     LOAD --> SEAL["remove_red_seal：按局部叠印证据去章"]
     SEAL --> GEO{"is_train"}
     GEO -->|True| SRC["RandomSourceGeometry：源分辨率几何扰动"]
@@ -58,17 +71,19 @@ flowchart TD
     SRC --> SIZE
     SIZE --> TRAIN{"is_train"}
     TRAIN -->|True| AUG["颜色、极性、模糊、噪声、少量擦除"]
-    TRAIN -->|False| BASIC["基础通道转换与 ToTensor"]
+    TRAIN -->|False| BASIC["components/inference_data.py：build_eval_transform"]
     AUG --> NORM["Normalize"]
     BASIC --> NORM
     NORM --> SAMPLE["单张 tensor 与 label 或 path"]
-    SAMPLE --> COLLATE["dynamic_padding_collate_fn"]
+    SAMPLE --> COLLATE["components/inference_data.py：dynamic_padding_collate_fn"]
     COLLATE --> OUT["images、labels_or_paths、img_widths"]
 ```
 
 上图中的训练增强内部也包含可选灰度转换和 `ToTensor()`，完整顺序见第 5 节。
 
-新接手时，建议先读 `_load_and_process_image()` 和 `dynamic_padding_collate_fn()`，弄清一张图片怎样变成一个 batch，再回头读标注解析与采样器。
+新接手时，建议先读 `components/inference_data.py` 的 `load_and_preprocess_image()` 和
+`dynamic_padding_collate_fn()`，以及训练侧 `BaseTextDataset._load_and_process_image()`，
+弄清一张图片怎样变成一个 batch，再回头读标注解析与采样器。
 
 ## 3. 数据集创建时做什么，取样时做什么
 
@@ -115,7 +130,7 @@ relative/path.png<TAB>文字内容
 
 ### InferenceDataset：用路径代替标签
 
-构造时逐个检查路径，始终使用 `is_train=False`；单张返回 `(tensor, path)`。`dynamic_padding_collate_fn()` 不解析第二项的内容，因此同一函数可以同时服务训练与推理。
+构造时逐个检查路径；不启用随机增强，单张返回 `(tensor, path)`。`dynamic_padding_collate_fn()` 不解析第二项的内容，因此同一函数可以同时服务训练与推理。
 
 这里 `img_width` 的默认值是 `None`，表示不限制缩放后的最大宽度；训练数据集则由调用方提供这个参数。共享预处理函数并不意味着所有入口的最大宽度配置一定相同。
 
@@ -213,7 +228,9 @@ resized_width = max(1, round(原图宽 × target_height / 原图高))
 这些操作会改变图片尺寸，`img_widths` 仍取缩放后的真实宽度，分桶使用的原图宽高比只是近似值。
 随机擦除仍可能局部遮挡像素，不等同于完全不改变文字区域。
 
-验证 / 推理仍执行前述共享加载、去章和缩放；其 transform 只做可选灰度转换、`ToTensor()` 和归一化。对于普通 8 位图片，像素变换是：
+验证 / 推理仍执行前述共享加载、去章和缩放；其 transform 只做可选灰度转换、`ToTensor()` 和归一化。
+该变换由 `components/inference_data.py` 的 `build_eval_transform` 提供，训练侧 `build_transform(is_train=False)`
+直接复用同一函数，避免验证和推理各有一套实现。对于普通 8 位图片，像素变换是：
 
 ```text
 原始像素 p -> p / 255 -> (p / 255 - 0.5) / 0.5

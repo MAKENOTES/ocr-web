@@ -25,16 +25,20 @@ def test_bundle_layout_manifest_and_overwrite_guard(tmp_path, tiny_recognition_m
         output, verify=False,
     )
 
-    # 运行代码、模型和字典必须齐全，训练数据与合成工具不能进入产物。
+    # 运行代码必须齐全，训练侧模块不能进入产物。
     assert (output / "recognition" / "runtime" / "engine.py").is_file()
-    assert (output / "recognition" / "components" / "preprocessing.py").is_file()
-    assert (output / "recognition" / "models" / "model.py").is_file()
+    assert (output / "recognition" / "runtime" / "preprocessing.py").is_file()
+    assert (output / "recognition" / "runtime" / "dataset.py").is_file()
+    assert (output / "recognition" / "runtime" / "model.py").is_file()
     assert (output / manifest["model"]["file"]).is_file()
     assert (output / "keys.txt").is_file()
     assert (output / "example.py").is_file()
+    assert not (output / "recognition" / "components").exists()
+    assert not (output / "recognition" / "models").exists()
+    assert not (output / "recognition" / "utils").exists()
     assert not (output / "recognition" / "data").exists()
     assert not (output / "recognition" / "checkpoints").exists()
-    assert not (output / "recognition" / "utils" / "synthesis").exists()
+    assert not list(output.rglob("__pycache__"))
 
     # manifest 必须与磁盘内容一致，部署方可以据此核对模型和字典。
     on_disk = json.loads((output / "manifest.json").read_text(encoding="utf-8"))

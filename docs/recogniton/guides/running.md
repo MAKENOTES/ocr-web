@@ -30,8 +30,10 @@ flowchart LR
 - `../../../recognition_export_onnx_layer.py`：多层 BiGRU 的 ONNX 导出，层数取自 checkpoint，
   按层拆成串联的 GRU 节点，默认输出 `best_recognition_layer.onnx`，不覆盖单层产物；
 - `../../../recognition_inference_layer.py`：多层模型的历史入口，保留旧默认值，内部调用 runtime；
-- `../../../recognition/runtime/`：部署推理包，提供 `RecognitionEngine`、后端和
-  `python -m recognition.runtime` 命令行；
+- `../../../recognition/runtime/`：部署快照，手写 engine/backends/cli/loader，其余模块由
+  同步脚本从原路径生成；提供 `RecognitionEngine` 和 `python -m recognition.runtime`；
+- `../../../tools/sync_recognition_runtime.py`：从 `components/`、`models/`、`utils/` 重新生成
+  runtime 快照，并把项目内导入改写为相对导入；
 - `../../../tools/build_recognition_bundle.py`：生成自包含部署目录，见[部署说明](deployment.md)；
 - `../../../recognition_benchmark_cpu.py`：带标注的 CPU CER、整行准确率、耗时和逐图预测报告；
 - `../../../recognition_quantize_static.py`：共享预处理的 NNCF 静态量化，以及基于真实 CER 的精度恢复。
@@ -147,9 +149,11 @@ batch Gather 按各样本真实长度显式反转反向分支的输入、输出�
 减少无效 padding，输出恢复原文件排序。显示的后端耗时包含解码，总耗时还包含预处理。
 
 生产部署不要直接拷贝仓库脚本：用 `tools/build_recognition_bundle.py` 生成自包含目录，
-产物只含运行代码、模型、字典和依赖清单，并在隔离环境自检。`recognition_inference.py`
-和 `recognition_inference_layer.py` 保留原命令与默认值，内部调用同一套
-`recognition/runtime/`。完整步骤、依赖选择和升级方式见[部署说明](deployment.md)。
+产物只含 runtime 快照、模型、字典和依赖清单，并在隔离环境自检。`recognition/runtime/`
+中的预处理、推理数据集、模型和解码由 `tools/sync_recognition_runtime.py` 从原路径生成，
+修改源文件后必须先同步；构建脚本会校验同步状态。`recognition_inference.py` 和
+`recognition_inference_layer.py` 保留原命令与默认值，内部调用同一套 runtime。
+完整步骤、依赖选择和升级方式见[部署说明](deployment.md)。
 
 ```bash
 .venv/bin/python recognition_benchmark_cpu.py \

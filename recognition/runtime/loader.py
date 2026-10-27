@@ -1,6 +1,6 @@
 """推理输入准备：收集图片并构建共享预处理 DataLoader。
 
-图片读取、透明合成、去章、等比缩放和动态补边全部复用 recognition.components，
+图片读取、透明合成、去章、等比缩放和动态补边由 runtime 内部模块提供，
 保证训练、评估、ONNX、OpenVINO 与 PyTorch 看到相同的输入。
 """
 
@@ -9,8 +9,8 @@ from pathlib import Path
 
 from torch.utils.data import DataLoader
 
-from recognition.components.dataset import InferenceDataset, dynamic_padding_collate_fn
-from recognition.runtime.backends import IMG_HEIGHT
+from .backends import IMG_HEIGHT
+from .dataset import InferenceDataset, dynamic_padding_collate_fn
 
 # 支持的图片扩展名；目录扫描时会同时匹配小写和大写形式。
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp")

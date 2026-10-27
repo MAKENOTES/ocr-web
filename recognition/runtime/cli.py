@@ -8,8 +8,8 @@ import os
 
 import torch
 
-from recognition.runtime.engine import BACKEND_CHOICES, RecognitionEngine
-from recognition.runtime.preprocess import collect_image_paths
+from .engine import BACKEND_CHOICES, RecognitionEngine
+from .loader import collect_image_paths
 
 
 def build_parser(*, description: str, default_model_path: str | None,

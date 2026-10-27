@@ -1,7 +1,7 @@
 """识别数据预处理：路径校验、RGB 合成、去红章与定高缩放。
 
 训练、验证和推理共享这些确定性步骤。随机增强见 augmentation.py，
-数据集与 DataLoader 见 dataset.py。
+推理数据集见 inference_data.py，训练数据集见 dataset.py。
 """
 import os
 from pathlib import Path

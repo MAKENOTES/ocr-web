@@ -10,10 +10,10 @@ import os
 import numpy as np
 import torch
 
-from recognition.components.converter import LabelConverter
-from recognition.components.dataset import CNN_RIGHT_CONTEXT
-from recognition.models.model import DEFAULT_NUM_LAYERS
-from recognition.utils.checkpoint import extract_state_dict, infer_num_channels, infer_num_layers
+from .checkpoint import extract_state_dict, infer_num_channels, infer_num_layers
+from .converter import LabelConverter
+from .dataset import CNN_RIGHT_CONTEXT
+from .model import DEFAULT_NUM_LAYERS
 
 # 识别模型固定输入高度（像素）；训练、导出和推理共用该约束。
 IMG_HEIGHT = 32
@@ -119,7 +119,7 @@ class OpenVINOBackend:
             raise ValueError("num_threads 必须大于 0")
         ie = Core()
         model = ie.read_model(model=model_path)
-        from recognition.utils.openvino import make_gru_length_safe
+        from .openvino import make_gru_length_safe
 
         model = make_gru_length_safe(model)
         config = {
@@ -198,7 +198,7 @@ class PyTorchBackend:
         if num_threads < 1:
             raise ValueError("num_threads 必须大于 0")
         torch.set_num_threads(num_threads)
-        from recognition.models.model import CRNN
+        from .model import CRNN
 
         converter = LabelConverter(keys_path)
         checkpoint = torch.load(model_path, map_location="cpu")

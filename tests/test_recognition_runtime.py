@@ -1,5 +1,10 @@
 """验证 recognition.runtime 的公开入口、顺序保持和字典校验。"""
 
+import ast
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +20,9 @@ from recognition.runtime.backends import (
     load_backend,
     normalize_output_to_tbc,
 )
+
+# 自包含运行包目录；下面的测试会扫描它，或把它整体拷贝到临时项目后导入。
+RUNTIME_DIR = Path(__file__).resolve().parent.parent / "recognition" / "runtime"
 
 
 def _write_images(directory: Path) -> list[Path]:
@@ -194,3 +202,75 @@ def test_cli_requires_explicit_paths_when_no_defaults():
 
     with pytest.raises(SystemExit):
         main(["--model_path", "model.onnx"])
+
+
+def test_inference_dataset_applies_explicit_source_augment(tmp_path):
+    """鲁棒性评估会传入确定性扰动，InferenceDataset 必须保留该参数。"""
+    from recognition.runtime.dataset import InferenceDataset as RuntimeInferenceDataset
+
+    image_path = tmp_path / "source.png"
+    Image.new("RGB", (120, 32), (240, 238, 232)).save(image_path)
+
+    def fill_black(image):
+        return Image.new("RGB", image.size, (0, 0, 0))
+
+    plain = RuntimeInferenceDataset([image_path], 32, 3)[0][0]
+    perturbed = RuntimeInferenceDataset(
+        [image_path], 32, 3, source_augment=fill_black
+    )[0][0]
+
+    assert not torch.equal(plain, perturbed)
+
+
+def test_runtime_folder_has_no_repository_imports():
+    """runtime 只能依赖第三方库和自身模块，不能引用训练或仓库其他代码。"""
+    offenders = []
+    for path in sorted(RUNTIME_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                offenders.extend(
+                    (path.name, alias.name)
+                    for alias in node.names
+                    if alias.name == "recognition" or alias.name.startswith("recognition.")
+                )
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if node.level == 0 and (
+                    module == "recognition" or module.startswith("recognition.")
+                ):
+                    offenders.append((path.name, module))
+
+    assert offenders == []
+
+
+def test_runtime_folder_can_be_copied_and_renamed(tiny_recognition_model, tmp_path):
+    """只拷贝 runtime 目录并改名后仍能导入和推理，证明可嵌入其他项目。"""
+    standalone = tmp_path / "standalone"
+    package = standalone / "ocr_runtime"
+    shutil.copytree(RUNTIME_DIR, package, ignore=shutil.ignore_patterns("__pycache__"))
+
+    image_path = tmp_path / "check.png"
+    Image.new("RGB", (160, 32), (245, 243, 238)).save(image_path)
+
+    script = (
+        "import sys\n"
+        "from ocr_runtime import RecognitionEngine\n"
+        "engine = RecognitionEngine(sys.argv[1], sys.argv[2], backend='onnx')\n"
+        "report = engine.recognize([sys.argv[3]], batch_size=1)\n"
+        "print(len(report))\n"
+    )
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(standalone)
+    completed = subprocess.run(
+        [
+            sys.executable, "-c", script,
+            str(tiny_recognition_model["onnx"]),
+            str(tiny_recognition_model["keys"]),
+            str(image_path),
+        ],
+        cwd=tmp_path, env=environment, capture_output=True, text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip().splitlines()[-1] == "1"

@@ -10,9 +10,9 @@ from dataclasses import dataclass
 
 from PIL import Image
 
-from recognition.components.converter import LabelConverter
-from recognition.runtime.backends import load_backend
-from recognition.runtime.preprocess import build_inference_loader
+from .backends import load_backend
+from .converter import LabelConverter
+from .loader import build_inference_loader
 
 # 可用的后端名称；auto 按模型扩展名选择。
 BACKEND_CHOICES = ("auto", "onnx", "openvino", "pytorch")
