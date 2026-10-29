@@ -1,12 +1,13 @@
-# 小图检测推理
+# 小图检测推理（历史实现）
 
-本文指导小图文字检测的多后端推理，说明运行命令、配置、输出文件和坐标处理约定。
+本文说明历史小图文字检测的多后端推理，包括运行命令、配置、输出文件和坐标处理约定。
+统一 `detection` 是当前主链路，本页不描述统一检测的推理。
 
-当前入口是仓库根目录的 [detection_inference_640.py](../detection_inference_640.py)，
+历史入口是仓库根目录的 [detection_small_inference_640.py](../detection_small_inference_640.py)，
 支持 PyTorch、ONNX Runtime 和 OpenVINO。以下命令均在仓库根目录运行。
 
 ```bash
-.venv/bin/python detection_inference_640.py --model_path best_detection.onnx --backend onnx --image_path detection/data/test/1 --output_dir detection/data/test_results/current
+.venv/bin/python detection_small_inference_640.py --model_path best_detection.onnx --backend onnx --image_path detection_small/data/test/1 --output_dir detection_small/data/test_results/current
 ```
 
 ## 配置与输出
@@ -28,7 +29,7 @@
 ## 导出
 
 ```bash
-.venv/bin/python detection_export_onnx.py --model_path detection/checkpoints/detection_epoch_180.pth --output_path best_detection.onnx --input_size 256x768
+.venv/bin/python detection_small_export_onnx.py --model_path detection_small/checkpoints/detection_epoch_180.pth --output_path best_detection.onnx --input_size 256x768
 ```
 
 导出使用本包 ResNet18 模型。现有脚本存在验证失败仅提示的路径，不能把文件已生成

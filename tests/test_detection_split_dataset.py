@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "detection" / "split_dataset.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "detection_small" / "split_dataset.py"
 
 
 def make_pairs(image_dir: Path, label_dir: Path, start: int, stop: int) -> None:

@@ -4,19 +4,21 @@
 
 ## 项目范围
 
-这是一个两阶段 OCR 项目：`detection` 定位 UI 小图文字，`detection_larger` 定位 PDF 页面和网页表格文字，`recognition` 将文字框识别为 Unicode 文本。根目录中的脚本负责主要的推理、导出和量化入口。
+这是一个两阶段 OCR 项目：`detection` 统一检测 UI 小图、PDF 页面和网页表格文字，`recognition` 将文字框识别为 Unicode 文本。`detection_small` 和 `detection_larger` 是迁移前的两个独立检测系统，只作为历史实现保留。根目录中的脚本负责统一检测和识别的主要推理、导出入口，历史小图的量化入口保留在 `detection_small_quantize_int8.py`。
 
 ## 目录与入口
 
-- `detection/`：EAST 风格检测模型、数据集、损失、训练和历史推理实现。
-- `detection_larger/`：大图文字检测，使用同名的 `components/`、`models/` 包，以及 `train.py`、`inference.py` 入口，直接读取已准备好的训练与验证目录。
+- `detection/`：当前统一检测包。ResNet18 EAST 模型、严格数据加载、真值/损失、训练、推理、评估和导出都在包内独立实现，不导入 `detection_small`、`detection_larger` 或 `recognition`。
+- `detection_small/`：迁移前的 UI 小图检测，保留原有实现、数据和历史脚本，不再作为主链路。
+- `detection_larger/`：迁移前的 PDF 页面和网页表格检测，保留原有实现、数据和历史脚本，不再作为主链路。
 - `recognition/`：CRNN 识别模型、统一图片预处理、训练、评估和历史记录。
-- `detection_inference_640.py`：当前矩形检测推理入口。
+- `detection_export_onnx.py`、`detection_inference_onnx.py`：统一检测的 ONNX 导出和多后端 CPU 推理入口。
+- `detection_small_inference_640.py`、`detection_small_export_onnx.py`、`detection_small_quantize_int8.py`：历史小图检测入口。
+- `detection_larger_export_onnx.py`、`detection_larger_inference_onnx.py`：历史大图检测入口。
 - `recognition_inference.py`：PyTorch、ONNX、OpenVINO 多后端识别入口。
-- `detection_export_onnx.py`、`recognition_export_onnx.py`：模型导出入口。
-- `detection_larger_export_onnx.py`：大图检测模型导出入口。
-- `docs/recogniton/recognition.md`：Recognition 当前架构和数据契约；`recognition/train.md` 只保存历史训练记录。
-- `tests/`：检测数据划分、矩形检测链路和识别预处理测试。
+- `docs/detection/architecture.md`：统一检测的当前架构和数据契约；`docs/detection_small/`、`docs/detection_larger/` 保留历史说明。
+- `tools/prepare_unified_detection_data.py`：一次性数据迁移工具，只读取两个历史检测目录并写入 `detection/data/`，不属于统一检测运行时。
+- `tests/`：统一检测、历史检测链路和识别预处理测试。
 
 ## 开发环境
 
@@ -31,10 +33,13 @@
 .venv/bin/python -m pytest -q
 .venv/bin/python -m pytest tests/test_recognition_preprocess.py -q
 .venv/bin/python -m pytest tests/test_recognition_batch_invariance.py -q
+.venv/bin/python -m pytest tests/test_detection_unified.py -q
+.venv/bin/python -m pytest tests/test_detection_augmentation.py -q
+.venv/bin/python -m pytest tests/test_detection_unified_onnx.py -q
 .venv/bin/python -m pytest tests/test_detection_rectangular_pipeline.py -q
 .venv/bin/python -m pytest tests/test_detection_split_dataset.py -q
 .venv/bin/python -m pytest tests/test_detection_larger.py -q
-.venv/bin/python -m py_compile recognition/components/dataset.py recognition/models/model.py recognition/train.py recognition/evaluate_val.py recognition_export_onnx.py recognition_inference.py
+.venv/bin/python -m py_compile detection/train.py detection/inference.py detection/export_onnx.py detection/components/*.py detection/models/*.py detection/utils/*.py recognition/components/dataset.py recognition/models/model.py recognition/train.py recognition/evaluate_val.py recognition_export_onnx.py recognition_inference.py
 ```
 
 改动哪个子系统，至少运行对应的测试文件。涉及共享预处理、张量 layout、动态 padding 或模型输入通道时，还要运行全部测试。
@@ -47,12 +52,16 @@
 - 新识别模型默认使用 3 通道 RGB。带透明通道的 PNG 必须通过共享的 `load_rgb_image` 合成背景，避免黑字或白字消失。
 - `img_widths` 表示不含 CNN 右侧保护区和 batch padding 的真实像素宽度。collate 必须为每张图片保留固定的右侧背景保护区，BiGRU 必须通过 `PackedSequence` 跳过 padding；修改 CNN 下采样或 padding 时，必须同步检查 CTC 序列长度和 batch 一致性。
 - `recognition/keys.txt` 的字符内容与顺序属于模型 ABI；修改后必须重新训练、导出并验证模型。
-- Detection 图片与标签按 stem 配对，标签可以是 `gt_<stem>.txt` 或 `<stem>.txt`。`detection/` 数据划分以已有 manifest 为准；`detection_larger/` 直接使用已准备好的独立训练、验证目录，不依赖划分文件。不能让同一样本同时进入 train 和 val。
+- Detection 图片与标签按 stem 配对，标签可以是 `gt_<stem>.txt` 或 `<stem>.txt`，同一张图片必须恰好存在一份标签；缺失或歧义立即报错。支持水平 `bbox4` 和水平 `quad8`，旋转四边形直接拒绝；`###` 表示忽略区域，空标签表示已确认的无文字图片。
+- 统一 `detection/` 的数据位于 `detection/data/{train,val}_{images,labels}`，由 `tools/prepare_unified_detection_data.py` 从两个历史检测目录按图片内容 MD5 去重后生成，并用 `split_manifest.csv` 固定归属。同一内容不能同时进入 train 和 val；新增数据应重新生成清单或按同样规则追加，禁止把验证图片复制进训练目录。
+- 统一检测训练使用固定输入尺寸，默认 640×640，可由 `INPUT_SIZE` 改为 `(高, 宽)`；推理可用 `DYNAMIC_INPUT=True` 按原图宽高比选择 32 的倍数尺寸，ONNX 导出对应动态高宽。固定尺寸导出的 ONNX/OpenVINO 模型自动使用导出尺寸。
+- 统一检测训练增强集中在 `detection/components/augmentation.py`，默认 30 种；几何增强在原图执行，光度/遮挡增强在缩放补边后的固定输入执行。几何增强后必须裁剪四边形并删除退化框，旋转/透视/剪切不得进入默认流程。验证集不启用随机增强，批次强度课程只在训练集生效。
+- `detection_small/` 和 `detection_larger/` 的数据契约按各自 README/架构文档执行；历史目录中的重复样本和加载差异不自动同步到统一检测。
 
 ## 修改原则
 
-- **两个检测子系统必须隔离**：`detection` 与 `detection_larger` 的代码、配置、数据、权重、训练、推理、导出和测试分别维护，不允许相互导入、引用或通过根目录入口间接依赖。需要相似功能时，在各自目录内实现并独立维护；修改一方不得要求另一方同步修改或提供运行资源。
-- 优先复用 `recognition/components/dataset.py` 中的加载和预处理逻辑，确保训练、评估、PyTorch、ONNX 和 OpenVINO 行为一致。
+- **三个检测子系统必须隔离**：`detection`、`detection_small`、`detection_larger` 的代码、配置、数据、权重、训练、推理、导出和测试分别维护，不允许相互导入、引用或通过根目录入口间接依赖。统一 `detection` 还禁止导入或读取 `recognition` 的任何文件；透明图片合成、缩放和归一化必须在包内独立实现。修改任一子系统不得要求其他子系统同步修改或提供运行资源。
+- 统一 `detection` 内部优先复用自身的 `components/dataset.py`、`components/transforms.py` 和 `components/image.py`，确保训练、评估、PyTorch、ONNX 和 OpenVINO 使用同一套加载、缩放、补边和归一化。
 - 图片或标注错误应尽早给出包含具体路径的异常，不能静默跳过会污染训练的数据。
 - 修复当前主链路时不要顺手重写带版本号的历史实验脚本；只有在任务明确涉及它们时才同步修改。
 - 行为发生变化时同步更新测试和当前架构文档；历史训练结果保留原意，并明确标注为历史记录。
@@ -75,11 +84,11 @@
 - **同类功能保持一致**：新增实现前先查找已有同类代码，沿用命名、参数顺序、返回结构、错误处理和配置方式。相同规则复用公共实现；确有差异时明确原因，避免无理由并存多套写法。
 - **常量集中且就近**：重复使用且含义相同的路径、字段名、状态字符串和阈值提为具名常量，同一规则只保留一个定义。专属常量放所属模块，跨模块共享的才放公共位置；不要仅因字面值相同就合并不同含义的常量。
 - **常量必须有中文注释**：新增或修改常量时，每个常量都应有同行或紧邻的中文注释，说明用途；涉及数值时写清单位或计数口径，布尔开关写清启用行为。存在覆盖关系、适用条件或容易误解的边界时一并说明，不能只写分组标题代替逐项注释。修改常量值时同步更新注释和相关文档。
-- **命令行保持精简**：已有常量控制的配置直接使用常量，不再提供同义命令行覆盖；只有一个有效选择或由当前流程固定的选项不暴露为参数。仅保留每次运行确有必要指定的输入，例如续训检查点、初始权重及其原始字典、本次输出目录。区分固定的输出根目录常量与本次运行目录，不为固定配置再建立一套参数映射。删减参数时同步入口调用、帮助文本、测试和文档。
+- **命令行保持精简**：已有常量控制的配置直接使用常量，不再提供同义命令行覆盖；只有一个有效选择或由当前流程固定的选项不暴露为参数。仅保留每次运行确有必要指定的输入，例如本次输出目录。区分固定的输出根目录常量与本次运行目录，不为固定配置再建立一套参数映射。删减参数时同步入口调用、帮助文本、测试和文档。
 - **脚本开箱可用**：常用路径和配置提供合理默认值，遵循上述命令行精简规则；保留的参数写清用途、单位和默认行为。无法合理推断的必要输入明确要求提供，涉及数据删除或覆盖的操作默认只预览。
 - **必要测试必须补齐**：新增或修改行为时，覆盖正常路径、关键边界和错误输入；修复缺陷时补能复现问题的回归测试。共享预处理和多后端契约需验证一致性，重构需确认行为不变；测试断言可观察结果，避免绑定内部实现或重复覆盖同一行为。
 - **提交前核对**：检查改动是否易读、分块是否清晰、同类风格是否一致、说明是否同步，并运行上方要求的相关测试。未完成的验证要说明原因和可执行的后续步骤，不能宣称已通过。
 
 ## 数据与产物
 
-`detection/data/`、`recognition/data/`、训练日志、checkpoints、推理输出和大模型产物都不应提交。不要删除、移动或批量改写用户的本地数据集和权重，除非任务明确要求并已核对目标路径。
+`detection/data/`、`detection_small/data/`、`detection_larger/data/`、`recognition/data/`、训练日志、checkpoints、推理输出和大模型产物都不应提交。不要删除、移动或批量改写用户的本地数据集和权重，除非任务明确要求并已核对目标路径。

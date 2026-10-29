@@ -1,9 +1,7 @@
 """
-inference_v3resnet18_640.py — 改进版推理脚本 v3
-================================================
+inference_v2.py — 改进版推理脚本 v3
+=======================================
 核心改动：用「连通域聚类 + 边界统计」替代「逐像素独立出框 + NMS」
-
-当前模型使用 256×768（高×宽）的矩形输入，与 train_resnet.py 保持一致。
 
 v3 修复说明（相对原始版本的改动）：
   1. MIN_AREA 从 5 降到 2，修复 √ 等小符号漏检
@@ -26,54 +24,28 @@ from models.east_model import EASTModel
 from components.transforms import ResizeAndPad
 
 # --- 配置参数 ---
-MODEL_PATH = "detection/checkpoints/best_detection_epoch_194_loss_0.00516.pth"
-
-# IMAGE_PATH = "detection/data/train_images"
-# OUTPUT_DIR = "detection/data/test_results/resnet18/train_images"
-IMAGE_PATH = "detection/data/test/5"
-OUTPUT_DIR = "detection/data/test_results/resnet18/5"
+MODEL_PATH = "detection_small/checkpoints/best_detection_epoch_384_loss_0.01133_resnet_640.pth"
+IMAGE_PATH = "detection_small/data/test/2"
+OUTPUT_DIR = "detection_small/data/test_results/resnet18"
 
 SAVE_CROPS = True
-CROP_DIR_NAME = "detection/data/crops/resnet18/5"
-
-SAVE_LABELS = False
-LABEL_DIR = "detection/data/test_results/resnet18/5"
+CROP_DIR_NAME = "detection_small/data/crops/20260131_v2"
 
 EXPAND_BOX = True
-EXPAND_RATIO_W = 0.05   # 左右扩充 = 字高 * 0.3
-EXPAND_RATIO_H = 0.05   # 上下扩充 = 字高 * 0.1
+EXPAND_RATIO_W = 0.30   # 左右扩充 = 字高 * 0.3
+EXPAND_RATIO_H = 0.10   # 上下扩充 = 字高 * 0.1
 
-INPUT_SIZE = (256, 768)  # (高, 宽)，必须与训练配置一致
+INPUT_SIZE = 1024
 SCORE_THRESHOLD       = 0.7   # 文本行阈值
 MIN_AREA              = 2     # 最小连通域面积（score map 像素数），从 5 降到 2
+SMALL_REGION_AREA     = 15    # 面积 < 此值视为小符号，走不同出框策略
 # 注意：宽高比过滤只用于小连通域噪点过滤，大连通域不受限制
-SMALL_MAX_ASPECT      = 5   # 小连通域宽高比超过此值才过滤（正方形符号宽高比应接近1）
-
-
-def normalize_input_size(input_size):
-    """统一返回 (高, 宽)，同时兼容旧的正方形 int 配置。"""
-    if isinstance(input_size, int):
-        return input_size, input_size
-    if isinstance(input_size, (tuple, list)) and len(input_size) == 2:
-        input_h, input_w = int(input_size[0]), int(input_size[1])
-        if input_h > 0 and input_w > 0:
-            return input_h, input_w
-    raise ValueError(f"input_size 必须是正整数或 (高, 宽)，实际为: {input_size!r}")
-
-
-def scaled_small_region_area(input_size):
-    """按输入总像素面积缩放小连通域阈值，1024×1024 时基准为 15。"""
-    input_h, input_w = normalize_input_size(input_size)
-    scaled_area = round(15 * (input_h * input_w) / (1024 * 1024))
-    return max(MIN_AREA + 1, scaled_area)
-
-
-SMALL_REGION_AREA = scaled_small_region_area(INPUT_SIZE)
+SMALL_MAX_ASPECT      = 5.0   # 小连通域宽高比超过此值才过滤（正方形符号宽高比应接近1）
 
 
 def load_model(model_path, device):
     model = EASTModel(pretrained=False)
-    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
     model.eval()
     return model
@@ -124,13 +96,13 @@ def box_from_small_region(ys, xs, geo_map_np, stride):
 
 
 def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
-                                     min_area, small_region_area):
+                                     min_area):
     """
     单轮连通域检测：
 
-      - 大连通域（面积 >= small_region_area）：边缘像素采样，精度高
+      - 大连通域（面积 >= SMALL_REGION_AREA）：边缘像素采样，精度高
         ★ 不做宽高比过滤，正文长文本行天然是扁长条
-      - 小连通域（面积 < small_region_area） ：全像素中位数出框
+      - 小连通域（面积 < SMALL_REGION_AREA） ：全像素中位数出框
         ★ 对小连通域做宽高比过滤，去除细线噪点
     """
     stride = 4.0
@@ -138,7 +110,7 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
 
     binary_high = (score_map_np > score_threshold).astype(np.uint8)
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-        binary_high, connectivity=4
+        binary_high, connectivity=8
     )
 
     for label_id in range(1, num_labels):
@@ -149,7 +121,7 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
         ys, xs = np.where(labels == label_id)
 
         # ── 小连通域（单符号）──────────────────────────────
-        if area < small_region_area:
+        if area < SMALL_REGION_AREA:
             # 小连通域才做宽高比过滤（去除细线噪点）
             # √ 等符号宽高比接近 1，细线噪点宽高比极大
             w_cc = stats[label_id, cv2.CC_STAT_WIDTH]
@@ -191,16 +163,13 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
     return np.array(boxes) if boxes else np.array([])
 
 
-def detect(model, image_path, output_dir, input_size=INPUT_SIZE, score_threshold=0.7,
-           save_crops=False, expand_box=False, ratio_w=0.0, ratio_h=0.0,
-           save_labels=False):
+def detect(model, image_path, output_dir, input_size=640, score_threshold=0.7,
+           save_crops=False, expand_box=False, ratio_w=0.0, ratio_h=0.0):
     device = next(model.parameters()).device
 
-    img_tensor, resized_image, original_size = preprocess_image(image_path, input_size)
+    img_tensor, resized_image, (orig_w, orig_h) = preprocess_image(image_path, input_size)
     if img_tensor is None:
         return
-    orig_w, orig_h = original_size
-    input_h, input_w = normalize_input_size(input_size)
 
     img_tensor = img_tensor.to(device)
 
@@ -218,7 +187,6 @@ def detect(model, image_path, output_dir, input_size=INPUT_SIZE, score_threshold
         score_map_np, geo_map_np,
         score_threshold=score_threshold,
         min_area=MIN_AREA,
-        small_region_area=scaled_small_region_area(input_size),
     )
 
     # 准备图像
@@ -233,14 +201,14 @@ def detect(model, image_path, output_dir, input_size=INPUT_SIZE, score_threshold
     filename_no_ext = os.path.splitext(filename_full)[0]
 
     # 坐标映射参数（输入图 → 原图）
-    scale             = min(input_w / orig_w, input_h / orig_h)
+    scale             = input_size / max(orig_h, orig_w)
     current_content_w = int(orig_w * scale)
     current_content_h = int(orig_h * scale)
-    pad_x             = (input_w - current_content_w) // 2
-    pad_y             = (input_h - current_content_h) // 2
+    pad_x             = (input_size - current_content_w) // 2
+    pad_y             = (input_size - current_content_h) // 2
 
     if len(final_boxes) > 0:
-        sorted_indices = np.lexsort((final_boxes[:, 0], final_boxes[:, 1]))
+        sorted_indices = np.argsort(final_boxes[:, 1])
         sorted_boxes   = final_boxes[sorted_indices]
 
         if save_crops and not os.path.exists(CROP_DIR_NAME):
@@ -269,14 +237,14 @@ def detect(model, image_path, output_dir, input_size=INPUT_SIZE, score_threshold
 
             if save_crops:
                 crop_img       = img_original[real_y_min:real_y_max, real_x_min:real_x_max]
-                crop_filename  = f"{filename_no_ext}-{i + 1:06d}.png"
+                crop_filename  = f"{filename_no_ext}-{i + 1:06d}.jpg"
                 crop_save_path = os.path.join(CROP_DIR_NAME, crop_filename)
                 cv2.imwrite(crop_save_path, crop_img)
 
             draw_x_min = max(0,          int(x_min))
             draw_y_min = max(0,          int(y_min))
-            draw_x_max = min(input_w, int(x_max))
-            draw_y_max = min(input_h, int(y_max))
+            draw_x_max = min(input_size, int(x_max))
+            draw_y_max = min(input_size, int(y_max))
             cv2.rectangle(img_vis,
                           (draw_x_min, draw_y_min),
                           (draw_x_max, draw_y_max),
@@ -284,42 +252,6 @@ def detect(model, image_path, output_dir, input_size=INPUT_SIZE, score_threshold
 
     save_path = os.path.join(output_dir, "res_" + filename_full)
     cv2.imwrite(save_path, img_vis)
-
-    # ── 生成 label 文件 ──────────────────────────────────
-    if save_labels and len(final_boxes) > 0:
-        if not os.path.exists(LABEL_DIR):
-            os.makedirs(LABEL_DIR)
-
-        sorted_indices = np.lexsort((final_boxes[:, 0], final_boxes[:, 1]))
-        sorted_boxes   = final_boxes[sorted_indices]
-
-        label_lines = []
-        for box in sorted_boxes:
-            x_min, y_min, x_max, y_max = box
-
-            if expand_box:
-                h_box  = y_max - y_min
-                dx     = h_box * ratio_w
-                dy     = h_box * ratio_h
-                x_min -= dx
-                x_max += dx
-                y_min -= dy
-                y_max += dy
-
-            real_x_min = max(0.0,        (x_min - pad_x) / scale)
-            real_y_min = max(0.0,        (y_min - pad_y) / scale)
-            real_x_max = min(float(real_w), (x_max - pad_x) / scale)
-            real_y_max = min(float(real_h), (y_max - pad_y) / scale)
-
-            if real_x_max - real_x_min <= 0 or real_y_max - real_y_min <= 0:
-                continue
-
-            label_lines.append(f"{real_x_min:.1f} {real_y_min:.1f} {real_x_max:.1f} {real_y_max:.1f}")
-
-        label_path = os.path.join(LABEL_DIR, f"gt_{filename_no_ext}.txt")
-        with open(label_path, 'w') as f:
-            f.write('\n'.join(label_lines) + '\n')
-        print(f"  -> label 已保存: {label_path} ({len(label_lines)} 行)")
     print(f"[{filename_full}] (原图: {real_w}x{real_h}) 检测到 {len(final_boxes)} 个文本框")
 
 
@@ -332,13 +264,9 @@ def main():
     print("-" * 30)
     print(f"模型路径:       {MODEL_PATH}")
     print(f"推理模式:       连通域检测 (v3)")
-    print(f"模型输入:       {INPUT_SIZE[1]}×{INPUT_SIZE[0]} (宽×高)")
     print(f"阈值:           {SCORE_THRESHOLD}")
     print(f"最小面积:       {MIN_AREA} px")
     print(f"小符号面积上限: {SMALL_REGION_AREA} px")
-    print(f"生成 label:     {SAVE_LABELS}")
-    if SAVE_LABELS:
-        print(f"label 目录:     {LABEL_DIR}")
     print("-" * 30)
 
     if not os.path.exists(MODEL_PATH):
@@ -362,14 +290,12 @@ def main():
         for img_file in sorted(image_files):
             detect(model, img_file, OUTPUT_DIR, INPUT_SIZE, SCORE_THRESHOLD,
                    save_crops=SAVE_CROPS, expand_box=EXPAND_BOX,
-                   ratio_w=EXPAND_RATIO_W, ratio_h=EXPAND_RATIO_H,
-                   save_labels=SAVE_LABELS)
+                   ratio_w=EXPAND_RATIO_W, ratio_h=EXPAND_RATIO_H)
 
     elif os.path.isfile(IMAGE_PATH):
         detect(model, IMAGE_PATH, OUTPUT_DIR, INPUT_SIZE, SCORE_THRESHOLD,
                save_crops=SAVE_CROPS, expand_box=EXPAND_BOX,
-               ratio_w=EXPAND_RATIO_W, ratio_h=EXPAND_RATIO_H,
-               save_labels=SAVE_LABELS)
+               ratio_w=EXPAND_RATIO_W, ratio_h=EXPAND_RATIO_H)
     else:
         print(f"错误: 路径不存在 -> {IMAGE_PATH}")
 

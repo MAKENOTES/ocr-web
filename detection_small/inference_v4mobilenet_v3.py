@@ -1,13 +1,18 @@
 """
-inference_v2.py — 改进版推理脚本 v3
-=======================================
-核心改动：用「连通域聚类 + 边界统计」替代「逐像素独立出框 + NMS」
+inference_v4mobilenet_v3_single.py — 单阈值推理版本
+=====================================================
+核心改动：移除两轮阈值检测逻辑，统一使用单一阈值。
 
-v3 修复说明（相对原始版本的改动）：
-  1. MIN_AREA 从 5 降到 2，修复 √ 等小符号漏检
-  2. 小连通域（面积 < SMALL_REGION_AREA）用全像素中位数出框，不用边缘采样
-  3. 宽高比过滤【仅对小连通域生效】，大连通域（正文长文本行）绝对不过滤
-     （正文行在 score map 上是扁长条，宽高比天然很大，不能用宽高比过滤）
+设计思路：
+  - 两轮阈值检测本质是推理时的"补丁"，用于弥补训练不足导致的小符号弱激活问题。
+  - 更好的做法是在训练中解决：增加小符号样本、调整 loss 权重、使用 focal loss 等。
+  - 单阈值版本更简洁、更快，且推理行为可预测。
+
+保留的优化：
+  - 连通域聚类 + 边界统计（比逐像素 NMS 更准确）
+  - 大连通域：边缘像素采样出框
+  - 小连通域：全像素中位数出框
+  - 小连通域宽高比过滤（去噪）
 """
 
 import torch
@@ -24,23 +29,22 @@ from models.east_model import EASTModel
 from components.transforms import ResizeAndPad
 
 # --- 配置参数 ---
-MODEL_PATH = "detection/checkpoints/best_detection_epoch_384_loss_0.01133_resnet_640.pth"
-IMAGE_PATH = "detection/data/test/2"
-OUTPUT_DIR = "detection/data/test_results/resnet18"
+MODEL_PATH = "detection_small/checkpoints/best_detection_epoch_441_train_loss_0.01042_mobilenet_640.pth"
+IMAGE_PATH = "detection_small/data/test/2"
+OUTPUT_DIR = "detection_small/data/test_results/mobilenet640"
 
 SAVE_CROPS = True
-CROP_DIR_NAME = "detection/data/crops/20260131_v2"
+CROP_DIR_NAME = "detection_small/data/crops/20260131_v2"
 
 EXPAND_BOX = True
 EXPAND_RATIO_W = 0.30   # 左右扩充 = 字高 * 0.3
 EXPAND_RATIO_H = 0.10   # 上下扩充 = 字高 * 0.1
 
-INPUT_SIZE = 1024
-SCORE_THRESHOLD       = 0.7   # 文本行阈值
-MIN_AREA              = 2     # 最小连通域面积（score map 像素数），从 5 降到 2
+INPUT_SIZE = 640
+SCORE_THRESHOLD       = 0.7   # ★ 单一阈值，适当降低以覆盖小符号
+MIN_AREA              = 5     # 最小连通域面积（score map 像素数）
 SMALL_REGION_AREA     = 15    # 面积 < 此值视为小符号，走不同出框策略
-# 注意：宽高比过滤只用于小连通域噪点过滤，大连通域不受限制
-SMALL_MAX_ASPECT      = 5.0   # 小连通域宽高比超过此值才过滤（正方形符号宽高比应接近1）
+SMALL_MAX_ASPECT      = 5.0   # 小连通域宽高比过滤阈值
 
 
 def load_model(model_path, device):
@@ -76,7 +80,6 @@ def box_from_small_region(ys, xs, geo_map_np, stride):
     """
     针对小连通域（√ 等单字符/符号）的出框策略。
     取所有像素 geo 预测的中位数，比边缘采样更稳定。
-    geo_map_np 此时已经过 expm1 还原，是真实像素距离。
     """
     d_top    = np.median(geo_map_np[0, ys, xs])
     d_right  = np.median(geo_map_np[1, ys, xs])
@@ -95,22 +98,22 @@ def box_from_small_region(ys, xs, geo_map_np, stride):
     return box
 
 
-def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
-                                     min_area):
+def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold, min_area):
     """
     单轮连通域检测：
 
+    统一使用一个阈值，对所有连通域进行分类处理：
       - 大连通域（面积 >= SMALL_REGION_AREA）：边缘像素采样，精度高
         ★ 不做宽高比过滤，正文长文本行天然是扁长条
-      - 小连通域（面积 < SMALL_REGION_AREA） ：全像素中位数出框
+      - 小连通域（面积 < SMALL_REGION_AREA）：全像素中位数出框
         ★ 对小连通域做宽高比过滤，去除细线噪点
     """
     stride = 4.0
     boxes = []
 
-    binary_high = (score_map_np > score_threshold).astype(np.uint8)
+    binary = (score_map_np > score_threshold).astype(np.uint8)
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-        binary_high, connectivity=8
+        binary, connectivity=8
     )
 
     for label_id in range(1, num_labels):
@@ -122,8 +125,6 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
 
         # ── 小连通域（单符号）──────────────────────────────
         if area < SMALL_REGION_AREA:
-            # 小连通域才做宽高比过滤（去除细线噪点）
-            # √ 等符号宽高比接近 1，细线噪点宽高比极大
             w_cc = stats[label_id, cv2.CC_STAT_WIDTH]
             h_cc = stats[label_id, cv2.CC_STAT_HEIGHT]
             if max(w_cc, h_cc) / (min(w_cc, h_cc) + 1e-6) > SMALL_MAX_ASPECT:
@@ -134,7 +135,6 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
             continue
 
         # ── 大连通域（文本行）：边缘像素采样出框 ────────────
-        # ★ 不加宽高比过滤，正文长文本行宽高比本来就大
         x_min_r = xs.min();  x_max_r = xs.max()
         y_min_r = ys.min();  y_max_r = ys.max()
         rw = x_max_r - x_min_r + 1
@@ -263,8 +263,8 @@ def main():
     print(f"使用设备: {device}")
     print("-" * 30)
     print(f"模型路径:       {MODEL_PATH}")
-    print(f"推理模式:       连通域检测 (v3)")
-    print(f"阈值:           {SCORE_THRESHOLD}")
+    print(f"推理模式:       单阈值连通域检测")
+    print(f"置信度阈值:     {SCORE_THRESHOLD}")
     print(f"最小面积:       {MIN_AREA} px")
     print(f"小符号面积上限: {SMALL_REGION_AREA} px")
     print("-" * 30)

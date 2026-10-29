@@ -19,10 +19,10 @@ LEARNING_RATE = 5e-5
 BATCH_SIZE = 12
 EPOCHS = 500
 INPUT_SIZE = 640
-TRAIN_IMAGE_DIR = "detection/data/train_images"
-TRAIN_LABEL_DIR = "detection/data/train_labels"
-VAL_IMAGE_DIR = "detection/data/val_images"
-VAL_LABEL_DIR = "detection/data/val_labels"
+TRAIN_IMAGE_DIR = "detection_small/data/train_images"
+TRAIN_LABEL_DIR = "detection_small/data/train_labels"
+VAL_IMAGE_DIR = "detection_small/data/val_images"
+VAL_LABEL_DIR = "detection_small/data/val_labels"
 
 # --- 模型保存策略 ---
 MAX_KEEP_CHECKPOINTS = 20
@@ -149,7 +149,7 @@ def save_best_checkpoint(model, epoch, loss_value, best_checkpoints_list, loss_t
     保存最佳模型检查点。
     :param loss_type: "train" 或 "val"，标识保存时使用的 loss 类型
     """
-    checkpoint_dir = "detection/checkpoints/"
+    checkpoint_dir = "detection_small/checkpoints/"
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
 
@@ -171,7 +171,7 @@ def save_best_checkpoint(model, epoch, loss_value, best_checkpoints_list, loss_t
           f"(本轮 {loss_type} Loss: {loss_value:.5f})")
 
 def main():
-    log_dir = f"detection/runs/ocr_experiment_{int(time.time())}"
+    log_dir = f"detection_small/runs/ocr_experiment_{int(time.time())}"
     writer = SummaryWriter(log_dir)
     print(f"TensorBoard 日志将保存在: {log_dir}")
     print(f"★ 最佳模型保存标准: {SAVE_BEST_BY}_loss")
@@ -305,7 +305,7 @@ def main():
 
             # 早停仍然运行（内部根据 SAVE_BEST_BY 选择监控哪个 loss）
             if early_stopping(val_loss, avg_loss, epoch):
-                checkpoint_dir = "detection/checkpoints/"
+                checkpoint_dir = "detection_small/checkpoints/"
                 final_path = os.path.join(checkpoint_dir, f"detection_epoch_{epoch}_early_stop.pth")
                 torch.save(model.state_dict(), final_path)
                 print(f"已保存早停时的模型: {final_path}")
@@ -317,13 +317,13 @@ def main():
             # ★ 无验证时也用 train_loss 驱动早停（传 train_loss 作为两个参数）
             if SAVE_BEST_BY == "train" and epoch >= START_DENSE_VAL_EPOCH:
                 if early_stopping(avg_loss, avg_loss, epoch):
-                    checkpoint_dir = "detection/checkpoints/"
+                    checkpoint_dir = "detection_small/checkpoints/"
                     final_path = os.path.join(checkpoint_dir, f"detection_epoch_{epoch}_early_stop.pth")
                     torch.save(model.state_dict(), final_path)
                     print(f"已保存早停时的模型: {final_path}")
                     break
 
-        checkpoint_dir = "detection/checkpoints/"
+        checkpoint_dir = "detection_small/checkpoints/"
         if not os.path.exists(checkpoint_dir): os.makedirs(checkpoint_dir)
         checkpoint_filename = os.path.join(checkpoint_dir, f"detection_epoch_{epoch}.pth")
         torch.save(model.state_dict(), checkpoint_filename)

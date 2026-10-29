@@ -3,10 +3,10 @@ from PIL import Image
 from torchvision.transforms import Normalize
 from torchvision.transforms import functional as F
 
-import detection_export_onnx as export_script
-import detection_inference_640 as inference_script
-import detection_quantize_int8 as quantize_script
-from detection.components.transforms import ResizeAndPad
+import detection_small_export_onnx as export_script
+import detection_small_inference_640 as inference_script
+import detection_small_quantize_int8 as quantize_script
+from detection_small.components.transforms import ResizeAndPad
 
 
 INPUT_SIZE = (256, 768)

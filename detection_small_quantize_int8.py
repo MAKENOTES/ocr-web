@@ -1,5 +1,5 @@
 """
-detection_quantize_int8.py — EAST ONNX 模型 INT8 静态量化 (v4)
+detection_small_quantize_int8.py — EAST ONNX 模型 INT8 静态量化 (v4)
 =====================================================================
 v4 改进:
   - 验证阶段使用固定种子 + 多样本平均，结果完全可复现
@@ -9,10 +9,10 @@ v4 改进:
 
 用法:
     # 推荐：真实图像 + Entropy 校准
-    python detection_quantize_int8.py \
+    python detection_small_quantize_int8.py \
         --input_model best_detection.onnx \
         --output_model best_detection_int8.onnx \
-        --calib_dir detection/data/val_images \
+        --calib_dir detection_small/data/val_images \
         --calib_num 100 \
         --calibrate_method entropy
 
@@ -32,7 +32,7 @@ from pathlib import Path
 # 常量
 # ============================================================
 
-INPUT_SIZE = (256, 768)  # (height, width)，与 detection/train_resnet.py 一致
+INPUT_SIZE = (256, 768)  # (height, width)，与 detection_small/train_resnet.py 一致
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -61,7 +61,7 @@ def normalize_input_size(input_size):
 
 
 # ============================================================
-# 图像预处理（与 detection_inference.py 完全一致）
+# 图像预处理（与 detection_small_inference_640.py 完全一致）
 # ============================================================
 
 def preprocess_image(image_path: str, input_size=INPUT_SIZE) -> np.ndarray:
@@ -382,7 +382,7 @@ def quantize_int8(
     print(f"\n{'='*60}")
     print(f"✓ INT8 静态量化完成: {output_model}")
     print(f"  模型大小: {orig_size:.1f} MB → {quant_size:.1f} MB ({orig_size/quant_size:.1f}x 压缩)")
-    print(f"  用法: python detection_inference.py --model_path {output_model}")
+    print(f"  用法: python detection_small_inference_640.py --model_path {output_model}")
     print(f"{'='*60}")
 
 
@@ -596,30 +596,30 @@ if __name__ == "__main__":
         epilog="""
 示例:
   # 推荐：真实图像 + Entropy 校准
-  python detection_quantize_int8.py \\
+  python detection_small_quantize_int8.py \\
       --input_model best_detection.onnx \\
       --output_model best_detection_int8.onnx \\
-      --calib_dir detection/data/val_images \\
+      --calib_dir detection_small/data/val_images \\
       --calibrate_method entropy
 
   # QOperator 格式 + MinMax（快速）
-  python detection_quantize_int8.py \\
+  python detection_small_quantize_int8.py \\
       --input_model best_detection.onnx \\
       --output_model best_detection_int8.onnx \\
-      --calib_dir detection/data/val_images
+      --calib_dir detection_small/data/val_images
 
   # 高精度配置
-  python detection_quantize_int8.py \\
+  python detection_small_quantize_int8.py \\
       --input_model best_detection.onnx \\
       --output_model best_detection_int8.onnx \\
-      --calib_dir detection/data/val_images \\
+      --calib_dir detection_small/data/val_images \\
       --per_channel --calibrate_method entropy
         """,
     )
 
     parser.add_argument("--input_model", type=str, default="best_detection.onnx")
     parser.add_argument("--output_model", type=str, default="best_detection_int8_static.onnx")
-    parser.add_argument("--calib_dir", type=str, default="detection/data/val_images",
+    parser.add_argument("--calib_dir", type=str, default="detection_small/data/val_images",
                         help="校准图像目录")
     parser.add_argument("--calib_num", type=int, default=157,
                         help="校准样本数量（默认 100）")

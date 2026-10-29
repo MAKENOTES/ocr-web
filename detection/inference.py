@@ -1,309 +1,335 @@
-import torch
-import cv2
-import numpy as np
-import os
-from PIL import Image
+"""统一检测推理：整图缩放、连通域解码、NMS 和原图坐标还原。
+
+PyTorch 检查点默认按原图宽高比动态选择输入尺寸；ONNX/OpenVINO 若导出为
+动态高宽则同样动态，若导出为固定尺寸则使用模型自身尺寸。所有输出坐标均
+还原到原图像素空间。
+"""
 import sys
-from torchvision.transforms import Normalize
+import time
+from pathlib import Path
 
-# 添加项目根目录到 sys.path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import numpy as np
+import torch
+from PIL import ImageDraw
+from torchvision.ops import nms
 
-from models.east_model import EASTModel
-from components.transforms import ResizeAndPad
+# 兼容从仓库根目录直接运行此文件。
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# --- 配置参数 ---
-MODEL_PATH = "detection/checkpoints/best_detection_epoch_473_loss_0.02607.pth"
-IMAGE_PATH = "detection/data/test/1"
-OUTPUT_DIR = "detection/data/test_results/3"
-
-# 1. 裁剪保存开关
-SAVE_CROPS = True
-CROP_DIR_NAME = "detection/data/crops/20260131"
-
-# 2. [修改点] 边框扩大开关 (Padding)
-EXPAND_BOX = True
-# [重要修改] 现在的含义是：左右扩充量 = 高度 * 0.3 (即左右各增加约 1/3 个字高)
-# 之前是 0.05 (宽度的5%)，现在改为 0.30 (高度的30%)，数值调大是因为基数变小了
-EXPAND_RATIO_W = 0.30
-EXPAND_RATIO_H = 0.10  # 上下扩充量 = 高度 * 0.1
-
-INPUT_SIZE = 1024
-SCORE_THRESHOLD = 0.8
-NMS_THRESHOLD = 0.2
-
-
-def load_model(model_path, device):
-    """加载模型"""
-    model = EASTModel(pretrained=False)
-    try:
-        model.load_state_dict(torch.load(model_path, map_location=device))
-    except RuntimeError as e:
-        print("权重加载失败，请检查模型结构是否与权重文件匹配。")
-        raise e
-    model.to(device)
-    model.eval()
-    return model
+from detection.components.image import IMAGE_EXTENSIONS, load_rgb_image
+from detection.components.onnx_runtime import (
+    OpenVINOBackend,
+    session_options,
+    static_spatial_size,
+    validate_onnx_metadata,
+)
+from detection.components.postprocess import MIN_AREA, boxes_from_connected_components, scaled_small_region_area
+from detection.components.transforms import (
+    STRIDE,
+    dynamic_input_size,
+    normalize_input_size,
+    prepare_image,
+    restore_boxes,
+)
+from detection.utils import load_checkpoint
 
 
-def preprocess_image(image_path, input_size):
-    """预处理"""
-    try:
-        image = Image.open(image_path).convert('RGB')
-    except Exception as e:
-        print(f"无法读取图像: {image_path}")
-        return None, None, None
-
-    original_w, original_h = image.size
-    transform = ResizeAndPad(input_size)
-    sample = {'image': image, 'quads': np.array([])}
-    sample = transform(sample)
-    resized_image = sample['image']
-
-    img_tensor = torch.from_numpy(np.array(resized_image)).permute(2, 0, 1).float() / 255.0
-    normalize = Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    img_tensor = normalize(img_tensor)
-    img_tensor = img_tensor.unsqueeze(0)
-
-    return img_tensor, resized_image, (original_w, original_h)
+# 统一检测模型；更换训练结果时修改此路径。默认文件需先通过导出入口生成。
+MODEL_PATH = Path("detection/checkpoints/ocr_experiment_1793192301352512117/best_detection_epoch_608_loss_0.04769.pth")
+IMAGE_PATH = Path("detection/data/val_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
+OUTPUT_DIR = Path("detection/data/test_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
+DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU；ONNX/OpenVINO 使用 CPU。
+INPUT_SIZE = 640  # 输入尺寸上限，单位 px；int 表示正方形，也可设为 (高, 宽)。
+DYNAMIC_INPUT = True  # 启用时按原图宽高比选择 32 的倍数尺寸；固定尺寸导出的 ONNX 自动改为固定输入。
+SCORE_THRESHOLD = 0.7  # 文字置信度阈值，取值范围为 (0, 1)。
+NMS_IOU_THRESHOLD = 0.3  # 重复框抑制的交并比阈值，取值范围为 (0, 1]。
+SAVE_CROPS = False  # 启用时保存原图文字框 PNG 裁片，供识别使用。
+CROP_DIR = Path("detection/data/crops/test_images")  # 裁片平铺目录；启用时覆盖同名裁片并清理该原图多余的旧序号。
+CROP_INDEX_DIGITS = 5  # 裁片文件名序号位数，序号从 1 开始并左侧补零。
 
 
-def detect(model, image_path, output_dir, input_size=1024, score_threshold=0.8, nms_threshold=0.2,
-           save_crops=False, expand_box=False, ratio_w=0.0, ratio_h=0.0):
+def suppress_boxes(boxes, scores, iou_threshold=NMS_IOU_THRESHOLD):
+    """按置信度抑制重叠的 xyxy 框，返回保留框索引；空输入返回空索引。"""
+    if not 0 < iou_threshold <= 1:
+        raise ValueError("iou_threshold must be in (0, 1]")
+    if not len(boxes):
+        return np.empty(0, dtype=np.int64)
+    return nms(torch.as_tensor(boxes, dtype=torch.float32),
+               torch.as_tensor(scores, dtype=torch.float32), iou_threshold).numpy()
+
+
+def decode_maps(score, geometry, threshold=SCORE_THRESHOLD):
+    """由置信度连通域解码输入图像素坐标框，按置信度降序返回。
+
+    score 形状为 (1, H, W)，geometry 为 (4, H, W) 的 log1p 特征图距离。
+    返回 (N, 4) 的 xyxy 框及 (N,) 置信度；非有限预测不参与出框。
     """
-    执行检测，支持从原图裁剪高清图片
-    """
-    device = next(model.parameters()).device
+    if not 0 < threshold < 1:
+        raise ValueError("threshold must be in (0, 1)")
+    score = np.asarray(score).squeeze(0)
+    geometry = np.asarray(geometry)
+    score = np.where(np.isfinite(score) & np.isfinite(geometry).all(axis=0), score, 0)
 
-    # 1. 预处理 (获取 resized_image 用于推理, orig_wh 用于坐标还原)
-    img_tensor, resized_image, (orig_w, orig_h) = preprocess_image(image_path, input_size)
-    if img_tensor is None:
-        return
+    boxes = boxes_from_connected_components(
+        score, np.expm1(np.clip(geometry, 0, 12)), threshold, min_area=MIN_AREA,
+        small_region_area=scaled_small_region_area(tuple(value * STRIDE for value in score.shape)),
+    ).astype(np.float32).reshape(-1, 4)
+    boxes = boxes[np.isfinite(boxes).all(axis=1)]
 
-    img_tensor = img_tensor.to(device)
-
-    # 2. 推理
-    with torch.no_grad():
-        score_map, geo_map = model(img_tensor)
-
-    # 3. 后处理
-    score_map = score_map[0, 0]
-    geo_map_data = geo_map[0, :4, :, :]
-
-    score_map_np = score_map.cpu().numpy()
-    geo_map_np = geo_map_data.cpu().numpy()
-
-    # 【新增】从 log 空间还原为真实像素距离
-    geo_map_np = np.expm1(geo_map_np)        # exp(x) - 1，是 log1p 的逆运算
-    geo_map_np = np.maximum(geo_map_np, 0)   # 确保非负
-
-    # 3.1 阈值过滤
-    xy_text = np.argwhere(score_map_np > score_threshold)
-
-    if len(xy_text) == 0:
-        print(f"[{os.path.basename(image_path)}] 未检测到文本。")
-        return
-
-    # 3.2 恢复边界框
-    boxes = []
-    scores = []
-
-    for y, x in xy_text:
-        score = score_map_np[y, x]
-        dist_top = geo_map_np[0, y, x]
-        dist_right = geo_map_np[1, y, x]
-        dist_bottom = geo_map_np[2, y, x]
-        dist_left = geo_map_np[3, y, x]
-
-        pixel_center_x = x + 0.5
-        pixel_center_y = y + 0.5
-
-        x_min_feature = pixel_center_x - dist_left
-        x_max_feature = pixel_center_x + dist_right
-        y_min_feature = pixel_center_y - dist_top
-        y_max_feature = pixel_center_y + dist_bottom
-
-        stride = 4.0
-        x_min = x_min_feature * stride
-        x_max = x_max_feature * stride
-        y_min = y_min_feature * stride
-        y_max = y_max_feature * stride
-
-        boxes.append([x_min, y_min, x_max, y_max])
-        scores.append(score)
-
-    boxes = np.array(boxes)
-    scores = np.array(scores)
-
-    # 3.3 NMS
-    boxes_xywh = []
+    confidence = []
     for box in boxes:
-        x_min, y_min, x_max, y_max = box
-        w = x_max - x_min
-        h = y_max - y_min
-        boxes_xywh.append([int(x_min), int(y_min), int(w), int(h)])
+        x0, y0 = np.maximum(np.floor(box[:2] / STRIDE), 0).astype(int)
+        x1, y1 = np.minimum(np.ceil(box[2:] / STRIDE), score.shape[::-1]).astype(int)
+        region = score[y0:y1, x0:x1]
+        confidence.append(float(region.max()) if region.size else 0.0)
+    confidence = np.asarray(confidence, dtype=np.float32)
 
-    indices = cv2.dnn.NMSBoxes(boxes_xywh, scores.tolist(), score_threshold, nms_threshold)
+    order = np.argsort(-confidence, kind="stable")
+    return boxes[order], confidence[order]
 
-    final_boxes = []
-    if len(indices) > 0:
-        indices = indices.flatten()
-        final_boxes = boxes[indices]
 
-    # 准备图像：
-    # 1. img_vis: 用于画绿框和显示结果 (resize 后的 1024 版，画图方便)
-    img_vis = cv2.cvtColor(np.array(resized_image), cv2.COLOR_RGB2BGR)
+class DocumentDetector:
+    """加载统一检测模型，共用整图预处理、后处理和原图坐标还原。"""
 
-    # 2. [关键] img_original: 读取原图，用于高清裁剪
-    img_original = cv2.imread(image_path)
-    if img_original is None:
-        print(f"原图读取失败: {image_path}")
-        return
+    def __init__(self, model_path, device="cpu", backend="auto",
+                 max_input_size=None, dynamic_input=None):
+        """backend 按后缀选择；ONNX/OpenVINO 的静态或动态高宽由导出文件决定。
 
-    # 获取原图尺寸
-    real_h, real_w = img_original.shape[:2]
+        max_input_size 和 dynamic_input 为 None 时读取模块常量，便于入口集中配置。
+        """
+        self.max_input_size = normalize_input_size(
+            INPUT_SIZE if max_input_size is None else max_input_size)
+        self.dynamic_input = bool(DYNAMIC_INPUT if dynamic_input is None else dynamic_input)
+        self.static_input_size = None
 
-    filename_full = os.path.basename(image_path)
-    filename_no_ext = os.path.splitext(filename_full)[0]
+        suffix = Path(model_path).suffix.lower()
+        if backend == "auto":
+            backend = "onnx" if suffix == ".onnx" else "pytorch"
+        if backend not in {"onnx", "openvino", "pytorch"}:
+            raise ValueError(f"Unknown detection backend: {backend}")
+        expected_suffix = ".pth" if backend == "pytorch" else ".onnx"
+        if suffix != expected_suffix:
+            raise ValueError(f"Backend {backend} requires {expected_suffix}: {model_path}")
+        self.backend = backend
 
-    # --- 计算 ResizeAndPad 的缩放比例和偏移量，用于坐标映射 ---
-    scale = input_size / max(orig_h, orig_w)
+        if device == "auto":
+            device = "cuda" if backend == "pytorch" and torch.cuda.is_available() else "cpu"
+        self.device = device
+        self.openvino = None
+        self.session = None
 
-    # 计算 resize 后的实际内容宽高
-    current_content_w = int(orig_w * scale)
-    current_content_h = int(orig_h * scale)
+        if backend == "openvino":
+            if device != "cpu":
+                raise ValueError("OpenVINO detection backend requires device='cpu'")
+            self.openvino = OpenVINOBackend(model_path)
+            self._apply_exported_shape(self.openvino.static_input_size, self.openvino.config)
+        elif backend == "onnx":
+            if device != "cpu":
+                raise ValueError("ONNX detection backend requires device='cpu'")
+            import onnxruntime as ort
 
-    # 计算 Padding 的偏移量 (假设是居中 padding)
-    pad_x = (input_size - current_content_w) // 2
-    pad_y = (input_size - current_content_h) // 2
+            self.session = ort.InferenceSession(str(model_path), sess_options=session_options(),
+                                                providers=["CPUExecutionProvider"])
+            config = validate_onnx_metadata(self.session.get_modelmeta().custom_metadata_map, model_path)
+            inputs, outputs = self.session.get_inputs(), self.session.get_outputs()
+            if (len(inputs) != 1 or inputs[0].name != "image" or inputs[0].type != "tensor(float)"
+                    or len(inputs[0].shape) != 4 or inputs[0].shape[1] != 3
+                    or {value.name for value in outputs} != {"score", "geometry"}):
+                raise ValueError(f"Incompatible unified detection ONNX inputs/outputs: {model_path}")
+            static_size = static_spatial_size(inputs[0].shape)
+            if None not in static_size and static_size != tuple(config["input_size"]):
+                raise ValueError(f"ONNX input size {static_size} does not match config "
+                                 f"{config['input_size']}: {model_path}")
+            self._apply_exported_shape(None if None in static_size else static_size, config)
+        else:
+            self.model, _ = load_checkpoint(model_path, device)
 
-    # --- 处理所有框 ---
-    if len(final_boxes) > 0:
-        sorted_indices = np.argsort(final_boxes[:, 1])
-        sorted_boxes = final_boxes[sorted_indices]
+    def _apply_exported_shape(self, static_size, config):
+        """按导出文件确定静态尺寸或动态尺寸上限，避免与导出配置错配。"""
+        dynamic = static_size is None
+        if bool(config["dynamic_spatial"]) != dynamic:
+            raise ValueError(f"ONNX dynamic_spatial={config['dynamic_spatial']} "
+                             f"does not match exported shape {static_size}")
+        if dynamic:
+            self.max_input_size = tuple(config["input_size"])
+            return
+        self.static_input_size = tuple(static_size)
+        self.dynamic_input = False
 
-        # 确保裁剪目录存在
-        if save_crops and not os.path.exists(CROP_DIR_NAME):
-            os.makedirs(CROP_DIR_NAME)
+    @property
+    def input_size(self):
+        """固定导出尺寸或配置的最大输入尺寸。"""
+        return self.static_input_size or self.max_input_size
 
-        for i, box in enumerate(sorted_boxes):
-            # box 是在 1024x1024 图片上的坐标
-            x_min, y_min, x_max, y_max = box
+    def _target_size(self, image_size):
+        """按模型导出方式和原图宽高比选择本次输入尺寸。"""
+        if self.dynamic_input:
+            return dynamic_input_size(image_size, self.max_input_size)
+        return self.input_size
 
-            # --- 1. 计算扩边 (方案一：基于高度的宽度扩充) ---
-            if expand_box:
-                w_box = x_max - x_min
-                h_box = y_max - y_min
+    def infer(self, batch):
+        """执行 NCHW 前向，计时含设备传输及同步，不含图片预处理和解码。"""
+        started = time.perf_counter()
+        if self.openvino is not None:
+            score, geometry = self.openvino.infer(batch.numpy())
+        elif self.session is not None:
+            score, geometry = self.session.run(["score", "geometry"], {"image": batch.numpy()})
+        else:
+            with torch.inference_mode():
+                score, geometry = self.model(batch.to(self.device))
+            score, geometry = score.cpu().numpy(), geometry.cpu().numpy()
+        self.last_infer_ms = (time.perf_counter() - started) * 1000
+        return score, geometry
 
-                # 【修改点】核心逻辑变更：
-                # 宽度扩充量 (dx) 改为使用高度 (h_box) 作为基准。
-                # 这样可以避免长文本 (w_box 很大) 导致左右留白过大的问题。
-                # ratio_w 此时建议设置为 0.2 ~ 0.5 之间。
-                dx = h_box * ratio_w
+    def warmup(self, count):
+        """预热正式推理使用的形状；动态模型额外预热一个宽高互换的形状。"""
+        if not isinstance(count, int) or count < 0:
+            raise ValueError("warmup count must be a nonnegative integer")
+        sizes = {self.input_size}
+        if self.dynamic_input:
+            height, width = self.input_size
+            sizes.add((height, max(64, (width // 2) // 32 * 32)))
+        for height, width in sizes:
+            sample = torch.zeros(1, 3, height, width)
+            for _ in range(count):
+                self.infer(sample)
 
-                # 高度扩充量保持不变，依然基于高度
-                dy = h_box * ratio_h
+    def predict(self, image, threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD):
+        """检测 RGB 图片，返回含原图像素 xyxy 框和置信度的列表，不修改输入图片。
 
-                x_min -= dx
-                x_max += dx
-                y_min -= dy
-                y_max += dy
+        结果经过置信度过滤及 NMS，按从上到下、从左到右排序。
+        """
+        if not 0 < threshold < 1 or not 0 < iou_threshold <= 1:
+            raise ValueError("Invalid detection thresholds")
+        tensor, metadata = prepare_image(image, self._target_size(image.size), dynamic=False)
+        score, geometry = self.infer(tensor[None])
+        boxes, scores = decode_maps(score[0], geometry[0], threshold)
+        boxes = restore_boxes(boxes, metadata, image.size)
+        valid = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
+        boxes, scores = boxes[valid], scores[valid]
+        keep = suppress_boxes(boxes, scores, iou_threshold)
+        # 仅提供便于浏览的视觉顺序，不恢复表格结构。
+        keep = sorted(keep, key=lambda index: (boxes[index, 1], boxes[index, 0]))
+        return [{"box": boxes[index].tolist(), "score": float(scores[index])} for index in keep]
 
-            # --- 2. 坐标映射回原图 ---
-            # 还原公式：(坐标 - padding) / 缩放比例
-            real_x_min = (x_min - pad_x) / scale
-            real_x_max = (x_max - pad_x) / scale
-            real_y_min = (y_min - pad_y) / scale
-            real_y_max = (y_max - pad_y) / scale
 
-            # --- 3. 边界检查 (针对原图尺寸) ---
-            real_x_min = max(0, int(real_x_min))
-            real_y_min = max(0, int(real_y_min))
-            real_x_max = min(real_w, int(real_x_max))
-            real_y_max = min(real_h, int(real_y_max))
+def crop_path(crop_dir, image_stem, index):
+    """按 <原图 stem>-<序号>.png 生成平铺裁片路径；序号从 1 开始。"""
+    return Path(crop_dir) / f"{image_stem}-{index + 1:0{CROP_INDEX_DIGITS}d}.png"
 
-            # 校验有效性
-            if real_x_max - real_x_min <= 0 or real_y_max - real_y_min <= 0:
-                continue
 
-            # --- 4. 高清裁剪 ---
+def remove_stale_crops(crop_dir, image_stem, keep_count):
+    """删除该原图序号超出本次框数的旧裁片，保留其他原图的结果和无关文件。"""
+    prefix = f"{image_stem}-"
+    for path in Path(crop_dir).iterdir():
+        if not path.is_file() or not path.name.startswith(prefix) or path.suffix.lower() != ".png":
+            continue
+        number = path.stem[len(prefix):]
+        if number.isascii() and number.isdigit() and int(number) > keep_count:
+            path.unlink()
+
+
+def expand_predictions(predictions, image_size, ratio_w, ratio_h):
+    """按框高向左右和上下扩边，裁片、标签和预览一致；坐标限制在原图内。"""
+    if not all(np.isfinite(ratio) and ratio >= 0 for ratio in (ratio_w, ratio_h)):
+        raise ValueError("Expansion ratios must be finite and nonnegative")
+    width, height = image_size
+    result = []
+    for prediction in predictions:
+        x0, y0, x1, y1 = prediction["box"]
+        box_height = y1 - y0
+        result.append({**prediction, "box": [
+            max(0, x0 - box_height * ratio_w), max(0, y0 - box_height * ratio_h),
+            min(width, x1 + box_height * ratio_w), min(height, y1 + box_height * ratio_h)]})
+    return result
+
+
+def run_inference(model_path, image_path, output_dir, device="cpu", *,
+                  threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
+                  save_crops=False, crop_dir=None, backend="auto", warmup_runs=0,
+                  expand_ratio_w=0.0, expand_ratio_h=0.0):
+    """批量保存画框图、bbox4 标签及可选裁片，统计包含预处理和后处理的单图耗时。"""
+    if save_crops and crop_dir is None:
+        raise ValueError("crop_dir is required when save_crops=True")
+    if not all(np.isfinite(ratio) and ratio >= 0 for ratio in (expand_ratio_w, expand_ratio_h)):
+        raise ValueError("Expansion ratios must be finite and nonnegative")
+
+    image_path, output_dir = Path(image_path), Path(output_dir)
+    paths = (sorted(path for path in image_path.iterdir()
+                    if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS)
+             if image_path.is_dir() else [image_path])
+    if not paths:
+        raise ValueError(f"No images in {image_path}")
+
+    # 标签和裁片名按 stem 生成，同名不同扩展名的输入不能共用一套产物。
+    stems = {}
+    for path in paths:
+        if path.stem in stems:
+            raise ValueError(f"Duplicate image stem for labels: {stems[path.stem]} and {path}")
+        stems[path.stem] = path
+
+    detector = DocumentDetector(model_path, device, backend=backend)
+    if warmup_runs:
+        detector.warmup(warmup_runs)
+    print(f"模型: {model_path}; 后端: {detector.backend}; 预热: {warmup_runs} 次")
+
+    total_boxes, total_infer_ms, total_detect_ms = 0, 0.0, 0.0
+    wall_started = time.perf_counter()
+    images_dir, labels_dir = output_dir / "images", output_dir / "labels"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    labels_dir.mkdir(exist_ok=True)
+    if save_crops:
+        Path(crop_dir).mkdir(parents=True, exist_ok=True)
+
+    for path in paths:
+        image = load_rgb_image(path)
+        started = time.perf_counter()
+        predictions = detector.predict(image, threshold, iou_threshold)
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        total_boxes += len(predictions)
+        infer_ms = detector.last_infer_ms
+        total_infer_ms += infer_ms
+        total_detect_ms += elapsed_ms
+
+        predictions = expand_predictions(predictions, image.size, expand_ratio_w, expand_ratio_h)
+        visual = image.copy()
+        draw = ImageDraw.Draw(visual)
+        for index, prediction in enumerate(predictions):
+            box = prediction["box"]
+            draw.rectangle(box, outline="red", width=2)
             if save_crops:
-                crop_img = img_original[real_y_min:real_y_max, real_x_min:real_x_max]
+                crop_box = (int(np.floor(box[0])), int(np.floor(box[1])),
+                            int(np.ceil(box[2])), int(np.ceil(box[3])))
+                image.crop(crop_box).save(crop_path(crop_dir, path.stem, index))
+        if save_crops:
+            remove_stale_crops(crop_dir, path.stem, len(predictions))
 
-                # [可选] 小图自动插值放大，防止太糊
-                # if crop_img.shape[0] < 20:
-                #     crop_img = cv2.resize(crop_img, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+        visual.save(images_dir / path.name)
+        # bbox4 使用原图像素坐标，不附置信度或伪造文字；无检测框时写空标签。
+        label_text = "".join(" ".join(str(float(value)) for value in prediction["box"]) + "\n"
+                             for prediction in predictions)
+        (labels_dir / f"gt_{path.stem}.txt").write_text(label_text, encoding="utf-8")
+        print(f"{path}: {len(predictions)} boxes, 前向 {infer_ms:.1f} ms, "
+              f"检测 {elapsed_ms:.1f} ms", flush=True)
 
-                crop_filename = f"{filename_no_ext}-{i + 1:06d}.jpg"
-                crop_save_path = os.path.join(CROP_DIR_NAME, crop_filename)
-                cv2.imwrite(crop_save_path, crop_img)
-
-            # --- 5. 在预览图(1024版)上画框 ---
-            # 为了画图，我们还是要用回 1024 尺度下的整数坐标
-            draw_x_min = max(0, int(x_min))
-            draw_y_min = max(0, int(y_min))
-            draw_x_max = min(input_size, int(x_max))
-            draw_y_max = min(input_size, int(y_max))
-
-            cv2.rectangle(img_vis, (draw_x_min, draw_y_min), (draw_x_max, draw_y_max), (0, 255, 0), 1)
-
-    # 保存检测结果全图
-    save_path = os.path.join(output_dir, "res_" + filename_full)
-    cv2.imwrite(save_path, img_vis)
-
-    print(f"[{filename_full}] (原图: {real_w}x{real_h}) 检测到 {len(final_boxes)} 个文本框")
+    wall_seconds = time.perf_counter() - wall_started
+    summary = {"images": len(paths), "boxes": total_boxes,
+               "mean_infer_ms": total_infer_ms / len(paths),
+               "mean_detect_ms": total_detect_ms / len(paths),
+               "wall_seconds": wall_seconds, "images_per_second": len(paths) / wall_seconds}
+    print(f"完成: {len(paths)} 张, {total_boxes} 框; 前向均值 {summary['mean_infer_ms']:.1f} ms; "
+          f"检测均值 {summary['mean_detect_ms']:.1f} ms; 总耗时 {wall_seconds:.2f} s; "
+          f"吞吐量 {summary['images_per_second']:.2f} 张/s; 输出: {output_dir}")
+    return summary
 
 
 def main():
-    if not os.path.exists(OUTPUT_DIR):
-        os.makedirs(OUTPUT_DIR)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"使用设备: {device}")
-
-    # 打印当前配置
-    print("-" * 30)
-    print(f"模型路径: {MODEL_PATH}")
-    print(f"裁剪保存: {SAVE_CROPS} -> {CROP_DIR_NAME}")
-    print(f"边框扩大: {EXPAND_BOX}")
-    if EXPAND_BOX:
-        print(f"  - 宽度扩大: 左右各 {EXPAND_RATIO_W * 100}% (基于字高)")
-        print(f"  - 高度扩大: 上下各 {EXPAND_RATIO_H * 100}% (基于字高)")
-    print("-" * 30)
-
-    if not os.path.exists(MODEL_PATH):
-        print(f"错误: 模型文件不存在。")
-        return
-
-    model = load_model(MODEL_PATH, device)
-
-    if os.path.isdir(IMAGE_PATH):
-        import glob
-        extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp']
-        image_files = []
-        for ext in extensions:
-            image_files.extend(glob.glob(os.path.join(IMAGE_PATH, ext)))
-
-        if not image_files:
-            print(f"警告: 在目录中未找到图像。")
-
-        print(f"共找到 {len(image_files)} 张图像，开始推理...")
-        for img_file in image_files:
-            detect(model, img_file, OUTPUT_DIR, INPUT_SIZE, SCORE_THRESHOLD, NMS_THRESHOLD,
-                   save_crops=SAVE_CROPS,
-                   expand_box=EXPAND_BOX,
-                   ratio_w=EXPAND_RATIO_W,
-                   ratio_h=EXPAND_RATIO_H)
-
-    elif os.path.isfile(IMAGE_PATH):
-        detect(model, IMAGE_PATH, OUTPUT_DIR, INPUT_SIZE, SCORE_THRESHOLD, NMS_THRESHOLD,
-               save_crops=SAVE_CROPS,
-               expand_box=EXPAND_BOX,
-               ratio_w=EXPAND_RATIO_W,
-               ratio_h=EXPAND_RATIO_H)
-    else:
-        print(f"错误: 路径不存在 -> {IMAGE_PATH}")
+    """按顶部常量推理，覆盖本次输入对应的同名产物。"""
+    run_inference(MODEL_PATH, IMAGE_PATH, OUTPUT_DIR, DEVICE,
+                  threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
+                  save_crops=SAVE_CROPS, crop_dir=CROP_DIR)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

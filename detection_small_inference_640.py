@@ -1,7 +1,7 @@
 """UI 小图多后端矩形检测：默认输入高 256、宽 768 像素。
 
 支持 PyTorch、ONNX Runtime 和 OpenVINO；auto 按后缀与依赖选择，不运行速度竞赛。
-保存输入尺寸预览与可选原图裁片，详情见 detection/inference.md。"""
+保存输入尺寸预览与可选原图裁片，详情见 detection_small/inference.md。"""
 
 import os
 import sys
@@ -18,9 +18,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 参数配置
 
 DEFAULT_MODEL_PATH  = "best_detection.onnx"  # 默认小图 ONNX 权重路径，不与大图模型通用。
-DEFAULT_IMAGE_PATH  = "detection/data/test/4"  # 默认待推理图片目录。
-DEFAULT_OUTPUT_DIR  = "detection/data/test_results/optimized/4"  # 默认画框预览目录，覆盖同名结果。
-DEFAULT_CROP_DIR    = "detection/data/crops/optimized/4"  # 开启裁片时的固定目录，独立于 --output_dir。
+DEFAULT_IMAGE_PATH  = "detection_small/data/test/4"  # 默认待推理图片目录。
+DEFAULT_OUTPUT_DIR  = "detection_small/data/test_results/optimized/4"  # 默认画框预览目录，覆盖同名结果。
+DEFAULT_CROP_DIR    = "detection_small/data/crops/optimized/4"  # 开启裁片时的固定目录，独立于 --output_dir。
 
 INPUT_SIZE          = (256, 768)  # (height, width)，与训练配置一致
 SCORE_THRESHOLD     = 0.7  # 置信度严格超过此值的网格参与连通域。
@@ -155,7 +155,7 @@ class PyTorchBackend:
 
     def __init__(self, model_path: str, input_size=INPUT_SIZE):
         import torch
-        from detection.models.east_model import EASTModel
+        from detection_small.models.east_model import EASTModel
 
         self.model = EASTModel(pretrained=False)
         self.model.load_state_dict(

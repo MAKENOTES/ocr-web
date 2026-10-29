@@ -1,153 +1,99 @@
-import os
-import torch
-import numpy as np
+"""按图片目录和标签目录读取完整原图，严格配对 bbox4 或水平 quad8 标签。"""
+import csv
+import re
 from pathlib import Path
-from PIL import Image
+
+import numpy as np
 from torch.utils.data import Dataset
 
+from detection.components.image import IMAGE_EXTENSIONS, load_rgb_image
 
-DEFAULT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")  # 加载器默认图片扩展名；当前训练入口显式限定 PNG。
+LABEL_FORMATS = {"bbox4": 4, "quad8": 8}  # 支持的水平标签格式及每行坐标数。
+
+
+def read_boxes(path: Path, size: tuple[int, int], label_format="bbox4"):
+    """读取 bbox4 或 quad8 标签，返回 xyxy 框和 ### 忽略标记。
+
+    坐标后的文本不参与几何解析；空文件表示已确认的无文字图片。
+    quad8 只接受水平矩形，旋转标注直接报错，避免被静默压成外接矩形。
+    """
+    if label_format not in LABEL_FORMATS:
+        raise ValueError(f"Unsupported label format: {label_format}; expected one of {tuple(LABEL_FORMATS)}")
+    count = LABEL_FORMATS[label_format]
+    boxes, ignored = [], []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            # 只检查第一个坐标后的分隔符，正文中的逗号不改变坐标解析方式。
+            comma_coordinates = re.match(r"^\s*[^\s,]+\s*,", line) is not None
+            fields = next(csv.reader([line])) if comma_coordinates else line.split()
+            coordinates = np.asarray([float(value) for value in fields[:count]], dtype=np.float32)
+            if len(coordinates) != count or not np.isfinite(coordinates).all():
+                raise ValueError("coordinates must be finite")
+
+            if count == 8:
+                quad = coordinates.reshape(4, 2)
+                box = np.r_[quad.min(axis=0), quad.max(axis=0)]
+                corners = {(float(x), float(y)) for x, y in quad}
+                expected = {(float(x), float(y)) for x in box[[0, 2]] for y in box[[1, 3]]}
+                if corners != expected:
+                    raise ValueError("rotated quadrilaterals are unsupported; use horizontal text boxes")
+            else:
+                box = coordinates
+
+            x0, y0, x1, y1 = box
+            if not (0 <= x0 < x1 <= size[0] and 0 <= y0 < y1 <= size[1]):
+                raise ValueError(f"box outside image or degenerate: {box.tolist()}, image size={size}")
+            boxes.append(box)
+            ignored.append(" ".join(fields[count:]).strip().strip('"') == "###")
+        except (ValueError, csv.Error) as exc:
+            raise ValueError(f"Invalid label {path}:{line_number}: {exc}") from exc
+
+    return np.asarray(boxes, dtype=np.float32).reshape(-1, 4), np.asarray(ignored, dtype=bool)
+
 
 class OCRDataset(Dataset):
-    """读取小图检测图片及 bbox4/quad8 标签，返回图片、四边形与文字列表。
-    存在 gt_ 标签时优先使用；require_labels 检查缺标签，解析坏行目前告警后跳过。"""
-    def __init__(self, image_dir, label_dir, transform=None,
-                 image_extensions=DEFAULT_IMAGE_EXTENSIONS,
-                 require_labels=False):
-        """
-        初始化数据集。
-        :param image_dir: string, 存放所有图像的目录。
-        :param label_dir: string, 存放所有标签文件的目录。
-        :param transform: callable, optional, 应用于样本的可选转换。
-        """
-        self.image_dir = image_dir
-        self.label_dir = label_dir
-        self.transform = transform
+    """枚举图片目录，按 stem 严格配对一份标签；不划分或搬移数据。
 
-        # 同时支持多种扩展名，也允许训练入口显式限定为 PNG，避免旧 JPG
-        # 留在目录中时被意外混入新数据。
-        extensions = {
-            ext.lower() if ext.startswith(".") else f".{ext.lower()}"
-            for ext in image_extensions
-        }
-        image_root = Path(image_dir)
-        self.image_paths = sorted(
-            str(path)
-            for path in image_root.iterdir()
-            if path.is_file() and path.suffix.lower() in extensions
-        ) if image_root.exists() else []
+    同一张图片同时存在 gt_<stem>.txt 和 <stem>.txt，或两者都不存在时
+    立即报错，避免静默使用错误标注污染训练。
+    """
 
-        # 创建对应的标签文件路径
+    def __init__(self, image_dir, label_dir, transform=None, label_format="bbox4"):
+        self.image_dir, self.label_dir = Path(image_dir), Path(label_dir)
+        self.transform, self.label_format = transform, label_format
+        if label_format not in LABEL_FORMATS:
+            raise ValueError(f"Unsupported label format: {label_format}")
+        if not self.image_dir.is_dir() or not self.label_dir.is_dir():
+            raise FileNotFoundError(f"Image/label directory missing: {self.image_dir}, {self.label_dir}")
+
+        self.image_paths = sorted(path for path in self.image_dir.iterdir()
+                                  if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS)
+        if not self.image_paths:
+            raise ValueError(f"No supported images in {self.image_dir}")
+
         self.label_paths = []
-        for p in self.image_paths:
-            basename = os.path.basename(p)
-            name, _ = os.path.splitext(basename)
-            gt_label_path = os.path.join(self.label_dir, f"gt_{name}.txt")
-            plain_label_path = os.path.join(self.label_dir, f"{name}.txt")
-            self.label_paths.append(
-                gt_label_path if os.path.exists(gt_label_path) else plain_label_path
-            )
-
-        if require_labels:
-            missing_labels = [
-                label_path
-                for label_path in self.label_paths
-                if not os.path.exists(label_path)
-            ]
-            if missing_labels:
-                examples = "\n  ".join(missing_labels[:5])
-                raise FileNotFoundError(
-                    f"{len(missing_labels)} 张图片缺少对应标签。示例:\n  {examples}\n"
-                    "标签名应为 gt_<图片名>.txt 或 <图片名>.txt。"
-                )
+        for image_path in self.image_paths:
+            candidates = [path for path in (self.label_dir / f"gt_{image_path.stem}.txt",
+                                            self.label_dir / f"{image_path.stem}.txt")
+                          if path.is_file()]
+            if len(candidates) != 1:
+                raise ValueError(f"Expected exactly one label for {image_path}; "
+                                 f"candidates={candidates}, label_dir={self.label_dir}")
+            self.label_paths.append(candidates[0])
 
     def __len__(self):
-        """
-        返回数据集中样本的总数。
-        """
         return len(self.image_paths)
 
-    def __getitem__(self, idx):
-        """
-        获取一个样本。
-        :param idx: int, 样本的索引。
-        :return: dict, 包含图像和标签信息的字典。如果应用了转换，则返回转换后的样本。
-        """
-        image_path = self.image_paths[idx]
-        label_path = self.label_paths[idx]
-
-        # 加载图像
-        image = Image.open(image_path).convert('RGB')
-
-        # 加载标签
-        quads = []
-        transcriptions = []
-        
-        if not os.path.exists(label_path):
-            sample = {'image': image, 'quads': np.array([], dtype=np.float32), 'transcriptions': []}
-            if self.transform:
-                sample = self.transform(sample)
-            return sample
-
-        with open(label_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip('\ufeff').strip()
-                if not line:
-                    continue
-                
-                # 同时兼容空格分隔 bbox4 和逗号/空格分隔的 ICDAR 四点格式。
-                parts = line.replace(',', ' ').split()
-                
-                try:
-                    numeric_values = []
-                    for part in parts:
-                        try:
-                            numeric_values.append(float(part))
-                        except ValueError:
-                            break
-
-                    if len(numeric_values) < 4:
-                        print(f"警告: 跳过格式错误的行于 {label_path}: {line}")
-                        continue
-
-                    if len(numeric_values) >= 8:
-                        # ICDAR: x1 y1 x2 y2 x3 y3 x4 y4 [transcription]
-                        quad = np.asarray(numeric_values[:8], dtype=np.float32).reshape(4, 2)
-                        transcription_start = 8
-                    else:
-                        # bbox4: x_min y_min x_max y_max [transcription]
-                        x_min, y_min, x_max, y_max = numeric_values[:4]
-                        quad = np.array([
-                            [x_min, y_min],
-                            [x_max, y_min],
-                            [x_max, y_max],
-                            [x_min, y_max]
-                        ], dtype=np.float32)
-                        transcription_start = 4
-
-                    # 小图中 1px 误差占比很大，因此保留浮点坐标，不再强制取整。
-                    cv_width = float(quad[:, 0].max() - quad[:, 0].min())
-                    cv_height = float(quad[:, 1].max() - quad[:, 1].min())
-                    if cv_width <= 0 or cv_height <= 0:
-                        print(f"警告: 跳过退化框于 {label_path}: {line}")
-                        continue
-                    quads.append(quad)
-
-                    # 处理可选的文本内容
-                    transcription = " ".join(parts[transcription_start:])
-                    if transcription != "###":  # 这里只省略文字，quad 仍保留；当前真值没有忽略掩码。
-                        transcriptions.append(transcription)
-
-                except (ValueError, IndexError):
-                    print(f"警告: 无法解析行于 {label_path}: {line}")
-                    continue
-
-        # 保持空框样本与非空框样本的 float32 类型一致。
-        quads = np.array(quads, dtype=np.float32) if quads else np.array([], dtype=np.float32)
-
-        sample = {'image': image, 'quads': quads, 'transcriptions': transcriptions}
-
-        if self.transform:
-            sample = self.transform(sample)
-
-        return sample
+    def __getitem__(self, index):
+        """读取 RGB 图片和标签，返回图片、四边形顶点和忽略标记。"""
+        image = load_rgb_image(self.image_paths[index])
+        boxes, ignored = read_boxes(self.label_paths[index], image.size, self.label_format)
+        if boxes.size:
+            quads = np.stack([boxes[:, [0, 1]], boxes[:, [2, 1]],
+                              boxes[:, [2, 3]], boxes[:, [0, 3]]], axis=1)
+        else:
+            quads = np.empty((0, 4, 2), dtype=np.float32)
+        sample = {"image": image, "quads": quads, "ignored": ignored}
+        return self.transform(sample) if self.transform else sample

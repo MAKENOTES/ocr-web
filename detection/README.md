@@ -1,88 +1,123 @@
-# UI 小图文字检测
+# 统一文字检测
 
-本文介绍 UI 小图文字检测包的用途、工程目录、常用入口和关键约束，并提供相关文档索引。
+本包用 ResNet18 EAST 同时定位 UI 小图、PDF 页面和网页表格中的水平文字框。
+训练、推理、评估和导出都只依赖包内实现，不导入两个历史检测目录或识别子系统。
 
-本包用 ResNet18 EAST 定位 UI 小图中的水平文字框。训练入口为 [train_resnet.py](train_resnet.py)，
-矩形多后端推理入口为根目录的 [detection_inference_640.py](../detection_inference_640.py)。
-文件名中的 `640` 不代表当前尺寸；默认输入为高 256、宽 768 像素。
+接口细节见[统一检测架构](../docs/detection/architecture.md)；历史实现见
+[小图检测](../detection_small/README.md)和[大图检测](../detection_larger/README.md)。
 
-本包与 `detection_larger` 分别维护代码、配置、数据和权重，不能互相导入。
-接口细节见[架构](../docs/detection/architecture.md)，推理操作见[推理说明](inference.md)。
-
-## 工程目录层级
-
-下图列出主要目录和文件；历史变体按文件名前缀归组，省略包初始化文件与缓存。
+## 目录
 
 ```text
 detection/
-├── README.md                 # 包用途、训练约束与检查入口
-├── train_resnet.py           # 当前小图 ResNet18 训练入口
-├── train_resnet_metrics.py   # 历史检测指标训练实验
-├── train_resnet_overfit.py   # 历史过拟合监控训练实验
-├── train_mobilenet.py        # 历史 MobileNet 训练实验
-├── split_dataset.py          # 按持久化 manifest 划分数据
-├── inference.md              # 当前根目录推理入口的使用说明
-├── inference.py              # 历史推理入口
-├── inference_v*.py           # 按版本保留的历史推理实现
+├── README.md                 # 用途、数据迁移、常用入口和约束
+├── train.py                  # 统一检测训练入口
+├── inference.py              # PyTorch/ONNX/OpenVINO 推理与后处理
+├── export_onnx.py            # 动态高宽 ONNX 导出
 ├── components/
-│   ├── dataset.py            # 图片与文字框标签加载
-│   ├── transforms.py         # 颜色增强、缩放补边与张量转换
-│   ├── ground_truth.py       # 当前置信度和几何真值生成
-│   ├── ground_truth_*.py     # 历史骨干对应的真值变体
-│   ├── loss.py               # Dice 与几何损失
-│   └── eval_metrics.py       # 独立框级指标评估
-├── models/
-│   ├── east_model.py         # 当前 ResNet18 EAST
-│   └── east_model_*.py       # 历史 ResNet18/ResNet50/MobileNet 变体
-├── data/                     # 本地图片、标签及 split_manifest.csv，不提交
-└── checkpoints/              # 本地模型权重，不提交
+│   ├── image.py              # EXIF 方向与透明通道合成
+│   ├── dataset.py            # 严格标签配对和 bbox4/quad8 解析
+│   ├── augmentation.py       # 30 种按框安全增强与批次课程
+│   ├── transforms.py         # 增强接线、缩放补边、真值和张量
+│   ├── ground_truth.py       # 置信度、log1p 几何和忽略掩码
+│   ├── loss.py               # Dice + Smooth L1
+│   ├── postprocess.py        # 四连通域解码
+│   ├── onnx_runtime.py       # ONNX Runtime/OpenVINO 配置
+│   ├── eval_metrics.py       # 目录级 Precision/Recall/F1
+│   └── training_options.py   # 本次运行的检查点输出目录
+├── models/east_model.py      # ResNet18 多尺度融合网络
+├── utils/checkpoint.py       # 检查点配置契约与读写
+└── data/                     # 本地迁移数据、清单和推理产物，不提交
 ```
 
-当前多后端推理和导出位于根目录：`detection_inference_640.py`、`detection_export_onnx.py`。
-架构与评估边界放在 `docs/detection/architecture.md`，本包不依赖大图检测包。
+## 数据
 
-## 训练前检查
+`tools/prepare_unified_detection_data.py` 从两个历史检测目录读取图片和标签，
+按图片内容 MD5 去重后写入 `detection/data/`，并用固定种子对每个来源域做
+80/20 划分。当前结果为 4974 张训练图、1243 张验证图；同一内容不会同时出现在
+train 和 val。`split_manifest.csv` 记录样本归属、来源路径和内容摘要。
 
-`train_resnet.py` 当前的 `VAL_IMAGE_DIR`、`VAL_LABEL_DIR` 指向训练目录。
-直接运行得到的是训练数据上的损失，不能作为独立验证精度。正式训练前应将这两个常量
-指向已准备好的独立验证目录，并核对 `data/split_manifest.csv`；本次文档核对没有改动该配置。
+文件名用 `ui_` 和 `doc_` 前缀区分来源，标签统一为 `gt_<stem>.txt`。
+`detection/data/` 全部由本地生成，不提交；完整训练前不要手工复制验证图片
+到训练目录。`test_images/` 是从历史文档检测目录复制的推理演示图片，其中部分
+内容与 train/val 重复，只能用于演示，不能作为独立测试集；独立评估使用
+`val_images/`。
 
-训练参数集中在文件顶部：RGB PNG、输入 `(256, 768)`、batch 8、最多 200 轮。
-使用 Adam 和 OneCycleLR，实际峰值学习率为 `3e-4`；`LEARNING_RATE=1e-4` 是优化器构造值。
-第 80 轮起逐轮验证，此前每 10 轮验证；早停按连续 15 次验证未改善计数。
-常规权重每 5 轮保存，保留最近 5 份；另保留验证损失最低的 3 份。
-保存的是模型参数，不包含优化器、调度器或完整续训状态。
+## 训练
 
 ```bash
-# 先核对顶部路径、输入尺寸和验证集配置
-.venv/bin/python detection/train_resnet.py
+.venv/bin/python detection/train.py
+.venv/bin/python detection/train.py --output /path/to/new_run
 ```
 
-## 固定训练集与验证集归属
+配置集中在 [train.py](train.py) 顶部：默认 RGB、`640×640`、batch 4、最多 620 轮，
+Adam + OneCycleLR；训练使用 30 种按框安全增强，验证使用确定性缩放。检查点只保存
+`config` 和 `model`；训练从 `PRETRAINED` 指定的 ImageNet 初始化或随机初始化开始。
+训练和验证目录路径必须不同。
 
-[split_dataset.py](split_dataset.py) 以已有 manifest 为准，保留旧样本归属，仅为新增样本分组，
-尽量使验证集占 20%。按图片 stem 配对标签，支持 `gt_<stem>.txt` 和 `<stem>.txt`；
-缺失或歧义标签会报错。划分器的校验比当前训练加载器严格，二者不能混为一谈。
+训练输出在 `detection/checkpoints/<run>/`，验证损失最低的 Top-3 文件名为
+`best_detection_epoch_<轮数>_loss_<损失>.pth`。
+
+## 数据增强与批次执行
+
+增强代码集中在 [components/augmentation.py](components/augmentation.py)，共 30 种；
+验证和推理不启用。
+
+| 类别 | 操作 |
+| --- | --- |
+| 几何（4） | 随机裁剪、随机补边、随机宽高补边、轻微各向异性缩放 |
+| 光度（23） | 亮度、对比度、饱和度、色相、Gamma、自动对比度、直方图均衡、色调分离、曝光过度、锐化、高斯/运动/中值模糊、高斯/椒盐噪声、JPEG 压缩、低分辨率重建、CLAHE、通道增益、阴影渐变、背景染色、暗角、反色 |
+| 遮挡（3） | 避文字框的随机擦除、随机表格线、随机斑点 |
+
+执行方案：
+
+- 几何增强在原图执行，缩放补边到 640 后再执行光度/遮挡增强，避免在数千像素的
+  PDF 页面上重复做模糊、JPEG 和 CLAHE。
+- 每个样本先从当前阶段权重采样 `light`、`standard` 或 `strong`；三个阶段合计
+  采样 2-4、3-6、5-8 种操作，概率和幅度随阶段放大。
+- 操作固定按“几何 → 光度 → 遮挡”执行；每个几何操作后裁剪四边形并删除退化框，
+  标签不会越界。
+- 轮次课程由 `policy_weights_for_epoch` 控制：前 15% 以轻增强为主，15%-70% 以标准
+  增强为主，最后 30% 提高强增强比例。`train.py` 只在阶段边界重建训练 DataLoader，
+  不会每轮重启 worker；设置 `USE_AUGMENTATION_CURRICULUM=False` 可固定标准增强。
+- 同一批次自然混合不同强度样本；验证集只做确定性缩放，保证指标可复现。
+- 旋转、透视和剪切会破坏水平框契约，因此不在默认增强中；JPEG 压缩、CLAHE、运动
+  模糊和中值模糊属于较重操作，已使用较低概率。若数据加载成为瓶颈，优先降低这些
+  操作的概率或提高 `NUM_WORKERS`。
+
+## 推理与导出
 
 ```bash
-# 划分器默认执行移动，检查时必须显式加 --dry-run
-.venv/bin/python detection/split_dataset.py --dry-run
+# 直接运行包内入口：修改 detection/inference.py 的 MODEL_PATH 和 IMAGE_PATH
+.venv/bin/python detection/inference.py
 
-# 需要执行划分时使用；会移动图片和标签并更新 manifest
-.venv/bin/python detection/split_dataset.py
+# 根目录部署入口：修改 detection_inference_onnx.py 的 MODEL_PATH 等常量
+.venv/bin/python detection_inference_onnx.py
+
+# 导出前修改 detection_export_onnx.py 的 CHECKPOINT_PATH 和 OUTPUT_PATH
+.venv/bin/python detection_export_onnx.py
 ```
 
-可用 `--source-images`、`--source-labels` 指定新增数据目录，其他路径及 `move/copy` 选项见 `--help`。
-不要让训练和验证目录包含同一样本；`copy` 模式不能代替源目录与训练目录的隔离检查。
+推理默认 `DYNAMIC_INPUT=True`：按原图宽高比把最长边缩放到 `INPUT_SIZE`，每条边
+向上取整到 32 的倍数，最少 64。训练仍是固定尺寸，动态只减少推理补边计算，
+不改变输入像素分布。固定尺寸导出的 ONNX/OpenVINO 自动使用模型自身尺寸；
+动态导出的 ONNX/OpenVINO 使用导出元数据记录的 `input_size` 作为尺寸上限。
+输出 `images/<原图文件名>` 画框预览和 `labels/gt_<stem>.txt` bbox4 标签；
+`SAVE_CROPS=True` 时额外保存原图裁片。
 
-## 历史实现与检查
+导出默认 `DYNAMIC_SPATIAL=True`，同时校验动态 batch 和不同高宽；任何数值校验
+失败都不会生成目标 ONNX。目标文件已存在时拒绝覆盖。导出尺寸和动态开关在
+[export_onnx.py](export_onnx.py) 顶部；根目录入口只负责本次检查点和输出路径。
 
-`inference.py`、`inference_v*.py`、`train_resnet_metrics.py`、`train_resnet_overfit.py`
-和 `train_mobilenet.py` 保留各自实验配置，不作为当前矩形入口的默认参数来源。
-模型和真值文件也有历史变体；实际导入关系见架构文档。
+## 评估与检查
 
 ```bash
-.venv/bin/python -m pytest tests/test_detection_rectangular_pipeline.py tests/test_detection_split_dataset.py tests/test_detection_isolation.py -q
+.venv/bin/python detection/components/eval_metrics.py \
+  --model /path/to/model.pth \
+  --image-dir detection/data/val_images \
+  --label-dir detection/data/val_labels
+
+.venv/bin/python -m pytest tests/test_detection_unified.py tests/test_detection_augmentation.py tests/test_detection_isolation.py -q
 ```
 
-尚待处理的加载、评估和数据隔离问题见[核对待办](../docs/code-doc-todolist.md)。
+评估按置信度一对一匹配，默认 IoU 0.5，`###` 区域内的预测不计误检。

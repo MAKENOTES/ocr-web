@@ -108,6 +108,8 @@ def test_onnx_entry_saves_images_labels_and_crops(tmp_path, monkeypatch):
     monkeypatch.setattr(entry, 'IMAGE_PATH', image)
     monkeypatch.setattr(entry, 'OUTPUT_DIR', tmp_path / 'results')
     monkeypatch.setattr(entry, 'CROP_DIR', tmp_path / 'crops')
+    # 产品默认关闭裁片；本测试显式开启以验证裁片命名和尺寸。
+    monkeypatch.setattr(entry, 'SAVE_CROPS', True)
 
     class Detector:
         def __init__(self, path, device, backend="auto"):

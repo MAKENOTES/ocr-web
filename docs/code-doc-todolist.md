@@ -2,19 +2,19 @@
 
 本文汇总代码与文档核对中尚未解决的问题，并列出后续检查方法和完成标准。
 
-核对日期：2026-09-13。本轮修订注释、帮助文字及文档，不改训练配置、模型算法、数据集或权重。
+核对日期：2026-09-13。统一 `detection` 已独立实现严格数据契约；本页“小图”条目保留为历史 `detection_small` 的待办。本轮修订注释、帮助文字及文档，不改训练配置、模型算法、数据集或权重。
 以下区分已确认的实现差距和仍需数据证明的结论；完成前不要把目标要求写成已有保障。
 
 ## 数据与评估正确性
 
-- [ ] **小图训练的验证集隔离。** [train_resnet.py](../detection/train_resnet.py) 中两个验证路径指向训练目录。
+- [ ] **小图训练的验证集隔离。** [train_resnet.py](../detection_small/train_resnet.py) 中两个验证路径指向训练目录。
   先核对 manifest 与实际独立验证目录，再决定恢复哪些路径；按 stem 和图片内容摘要检查 train/val 交集。
   完成标准：路径独立、样本交集为零，指标报告记录实际验证集来源。
-- [ ] **小图标签严格加载。** [dataset.py](../detection/components/dataset.py) 优先选择 `gt_` 标签，
+- [ ] **小图标签严格加载。** [dataset.py](../detection_small/components/dataset.py) 优先选择 `gt_` 标签，
   坏行和退化框告警后跳过；`###` 的四边形仍进入真值，连续数字正文可能被当作 quad8 坐标。
   先确认现有标签实际格式和忽略区域用法，再补缺标签、歧义、坏坐标、数字正文及 `###` 回归测试。
   完成标准：错误带文件和行号提前停止；忽略区域不贡献训练梯度；不能静默改变现有标注含义。
-- [ ] **小图评估与部署解码对齐。** [eval_metrics.py](../detection/components/eval_metrics.py) 使用八连通域、
+- [ ] **小图评估与部署解码对齐。** [eval_metrics.py](../detection_small/components/eval_metrics.py) 使用八连通域、
   固定小区域阈值、取整 bbox4 辅助解析，批量评估尺寸按标量使用；根目录入口使用四连通域和矩形输入。
   用同一浮点标签及合成 score/geometry，比较连通域、输入坐标和原图坐标结果；明确采用哪个口径后再改实现。
   完成标准：矩形输入可评估，数值及框匹配测试覆盖边界，报告注明解码版本。
@@ -48,10 +48,9 @@
 
 ## 测试、入口与历史证据
 
-- [ ] **ONNX 裁片测试显式配置。** [test_onnx_entry_saves_images_labels_and_crops](../tests/test_detection_larger_onnx.py)
-  只设置输出目录，未设置 `SAVE_CROPS=True`，但入口默认关闭裁片。
-  后续调整测试时应显式控制开关，并覆盖关闭时不创建/改动裁片目录；保留产品默认值。
-- [ ] **小图导出成功条件。** [detection_export_onnx.py](../detection_export_onnx.py) 数值误差超阈值时只打印告警。
+- [x] **ONNX 裁片测试显式配置。** [test_onnx_entry_saves_images_labels_and_crops](../tests/test_detection_larger_onnx.py)
+  已在测试中显式设置 `SAVE_CROPS=True`，产品入口默认值仍为关闭。
+- [ ] **小图导出成功条件。** [detection_export_onnx.py](../detection_small_export_onnx.py) 数值误差超阈值时只打印告警。
   用可控错误输出验证失败路径；完成标准：验证失败不发布可误认为成功的目标模型，退出结果可供脚本判断。
 - [ ] **默认写入与命令行收敛。** 小图划分默认移动，旧分隔符转换默认覆盖；部分入口还有固定常量的同义参数。
   本轮只如实标明行为。后续逐入口确认调用方和必要运行参数，补预览/执行回归测试后再改默认或删参数。
@@ -71,8 +70,12 @@
 
 ## 本轮验证
 
-源码语法和去除 docstring 后的 AST 对照用于确认未更改执行逻辑；唯一预期的非注释变化是
+2026-09-13 基线：源码语法和去除 docstring 后的 AST 对照用于确认未更改执行逻辑；唯一预期的非注释变化是
 `dictionary.py` 的帮助文字从旧 `train_annotation.txt` 修正为实际默认的 `append1_annotation.txt`。
 全量测试命令 `.venv/bin/python -m pytest -q --tb=short`：348 通过、1 失败、4 条警告，
 耗时 37.93 秒。失败仅为上方已记录的 ONNX 裁片测试开关，未出现收集错误。
 本页待办均未作为算法修复执行。
+
+2026-10-28 统一检测迁移与增强：全量测试 `.venv/bin/python -m pytest -q` 为 526 通过、0 失败、14 条警告，
+耗时 61.15 秒。新增统一检测的数据、预处理、30 种增强、模型、推理、训练、导出和迁移测试；历史检测测试保留。
+ONNX 裁片测试已显式开启裁片并通过。

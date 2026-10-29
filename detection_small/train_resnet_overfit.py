@@ -18,10 +18,10 @@ LEARNING_RATE =  1e-4  #1e-5 1e-4 3e-5
 BATCH_SIZE = 4 # 根据你的 GPU 显存调整
 EPOCHS = 680
 INPUT_SIZE = 640
-TRAIN_IMAGE_DIR = "detection/data/train_images"
-TRAIN_LABEL_DIR = "detection/data/train_labels"
-VAL_IMAGE_DIR = "detection/data/val_images"
-VAL_LABEL_DIR = "detection/data/val_labels"
+TRAIN_IMAGE_DIR = "detection_small/data/train_images"
+TRAIN_LABEL_DIR = "detection_small/data/train_labels"
+VAL_IMAGE_DIR = "detection_small/data/val_images"
+VAL_LABEL_DIR = "detection_small/data/val_labels"
 
 # --- 模型保存策略优化 ---
 MAX_KEEP_CHECKPOINTS = 20       # 常规检查点：保留最近的 5 个 (用于断点续训)
@@ -254,7 +254,7 @@ def save_best_checkpoint(model, epoch, val_loss, best_checkpoints_list):
     """
     管理 Top-K 最佳模型的保存与删除
     """
-    checkpoint_dir = "detection/checkpoints/"
+    checkpoint_dir = "detection_small/checkpoints/"
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
 
@@ -279,7 +279,7 @@ def main():
     主训练函数。
     """
     # --- TensorBoard 设置 ---
-    log_dir = f"detection/runs/ocr_experiment_{int(time.time())}"
+    log_dir = f"detection_small/runs/ocr_experiment_{int(time.time())}"
     writer = SummaryWriter(log_dir)
     print(f"TensorBoard 日志将保存在: {log_dir}")
 
@@ -303,7 +303,7 @@ def main():
 
     # --- 模型、损失函数和优化器 ---
     model = EASTModel(pretrained=True).to(device)
-    # model.load_state_dict(torch.load("detection/checkpoints/best_detection_490_loss_0.0880.pth"))
+    # model.load_state_dict(torch.load("detection_small/checkpoints/best_detection_490_loss_0.0880.pth"))
     criterion = EASTLoss(lambda_iou = 3).to(device)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
     scheduler = OneCycleLR(optimizer, max_lr=3e-4,
@@ -404,7 +404,7 @@ def main():
             # ★ 过拟合早停检查
             if early_stopping(val_loss, avg_loss, epoch):
                 # 触发早停，保存最后一个 checkpoint 后退出
-                checkpoint_dir = "detection/checkpoints/"
+                checkpoint_dir = "detection_small/checkpoints/"
                 final_path = os.path.join(checkpoint_dir, f"detection_epoch_{epoch}_early_stop.pth")
                 torch.save(model.state_dict(), final_path)
                 print(f"已保存早停时的模型: {final_path}")
@@ -417,7 +417,7 @@ def main():
             writer.add_scalars('epoch/loss_train', {'train': avg_loss}, epoch)
 
         # --- 常规检查点保存 ---
-        checkpoint_dir = "detection/checkpoints/"
+        checkpoint_dir = "detection_small/checkpoints/"
         if not os.path.exists(checkpoint_dir): os.makedirs(checkpoint_dir)
         checkpoint_filename = os.path.join(checkpoint_dir, f"detection_epoch_{epoch}.pth")
         torch.save(model.state_dict(), checkpoint_filename)

@@ -4,15 +4,15 @@
 .venv
 __pycache__/
 outputs/
-# 默认忽略检测数据，仅提交训练集和验证集标签
-detection/data/*
-!detection/data/train_labels/
-!detection/data/train_labels/**
-!detection/data/val_labels/
-!detection/data/val_labels/**
+# 统一检测的数据、检查点和运行产物由本地迁移生成，不提交到仓库。
+detection/data/
 detection/checkpoints/
-test_results/
 detection/runs/
+# 历史小图检测保留原目录结构，新增数据、检查点和运行产物不提交。
+detection_small/data/
+detection_small/checkpoints/
+detection_small/runs/
+test_results/
 # 默认忽略识别数据，仅提交数据集标注文件
 recognition/data/*
 !recognition/data/all_annotation.txt
@@ -46,6 +46,8 @@ best_recognition.pth
 best_recognition_layer.onnx
 
 best_detection_larger.onnx
+best_detection_unified.onnx
+best_detection_unified.onnx.data
 
 # 文档检测数据、模型和运行产物独立存放，不提交到仓库。
 detection_larger/data/
