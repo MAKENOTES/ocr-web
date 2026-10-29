@@ -78,6 +78,22 @@
 `USE_AUGMENTATION_CURRICULUM=False` 可固定为标准增强。验证集不启用任何增强，
 保持指标可复现。
 
+## 训练监控与检查点
+
+TensorBoard 只保留可行动指标：epoch 级 loss/score/geo、学习率、增强阶段权重、
+验证集 Precision/Recall/F1（总体及 `ui_`/`doc_` 分组）、最佳 F1，以及 epoch 训练
+耗时和吞吐量。验证 F1 每 `METRIC_VAL_INTERVAL` 轮直接在当前内存模型上评估，
+不重新加载检查点；默认使用 `METRIC_INPUT_SIZE=768` 按当前部署最佳尺寸推理，
+阈值、NMS 和匹配 IoU 由 `METRIC_*` 常量控制。
+
+高开销记录已降频或移除：batch loss 每 `BATCH_LOG_INTERVAL` 个 batch 记录一次，
+只记录总梯度范数，不再写逐参数梯度直方图；验证可视化每 `VIS_INTERVAL` 轮写一次
+输入图和预测置信度图。旧的逐参数 `Gradients/*`、`Gradient_Norm/*`、逐 batch
+score/geo loss 和重复 `epoch/loss_train` 组不再产生。
+
+检查点同时按验证损失和验证 F1 保留 Top-3：`best_detection_*_loss_*.pth` 和
+`best_f1_detection_*_f1_*.pth`。F1 与 loss 可能不同步，部署选型应优先比较 F1。
+
 ## 模型与损失
 
 ResNet18 的 `/4`、`/8`、`/16`、`/32` 四级特征通过转置卷积逐级融合，在步长 4

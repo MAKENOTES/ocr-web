@@ -6,6 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+import torch
 
 # 评估入口位于 components，直接运行时向上两级找到仓库根目录。
 if __package__ in (None, ""):
@@ -13,7 +14,17 @@ if __package__ in (None, ""):
 
 from detection.components.dataset import OCRDataset, read_boxes
 from detection.components.image import load_rgb_image
-from detection.inference import NMS_IOU_THRESHOLD, SCORE_THRESHOLD, DocumentDetector
+from detection.components.transforms import prepare_image, restore_boxes
+from detection.inference import (
+    NMS_IOU_THRESHOLD,
+    SCORE_THRESHOLD,
+    DocumentDetector,
+    decode_maps,
+    suppress_boxes,
+)
+
+SOURCE_PREFIXES = {"ui", "doc"}  # 统一数据按文件名前缀分组；其他名称归入 other。
+
 
 
 def box_overlap(box, boxes):
@@ -53,6 +64,42 @@ def summarize_counts(counts):
     recall = tp / (tp + fn) if tp + fn else 1.0
     return {"tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall,
             "f1": 2 * precision * recall / (precision + recall) if precision + recall else 0.0}
+
+
+@torch.no_grad()
+def evaluate_model(model, dataset, device, input_size, threshold=SCORE_THRESHOLD,
+                   nms_iou=NMS_IOU_THRESHOLD, match_iou=0.5):
+    """在内存模型上评估目录数据集，返回总体和按来源前缀分组的指标。
+
+    训练期验证直接复用该函数，避免为了 F1 再加载一次检查点。模型会切到
+    eval 模式，调用方在训练循环中按需恢复 train 模式。input_size 是动态
+    推理的最大边长，与部署入口按宽高比选尺寸的行为一致。
+    """
+    if not 0 < threshold < 1 or not 0 < nms_iou <= 1 or not 0 < match_iou <= 1:
+        raise ValueError("Invalid detection metric thresholds")
+    model.eval()
+    totals = defaultdict(lambda: np.zeros(3, dtype=np.int64))
+    for image_path, label_path in zip(dataset.image_paths, dataset.label_paths):
+        image = load_rgb_image(image_path)
+        boxes, ignored = read_boxes(label_path, image.size)
+        tensor, metadata = prepare_image(image, input_size, dynamic=True)
+        score, geometry = model(tensor[None].to(device))
+        score, geometry = score[0].cpu().numpy(), geometry[0].cpu().numpy()
+
+        decoded, scores = decode_maps(score, geometry, threshold)
+        decoded = restore_boxes(decoded, metadata, image.size)
+        valid = (decoded[:, 2] > decoded[:, 0]) & (decoded[:, 3] > decoded[:, 1])
+        decoded, scores = decoded[valid], scores[valid]
+        keep = suppress_boxes(decoded, scores, nms_iou)
+        predictions = [{"box": decoded[index].tolist(), "score": float(scores[index])}
+                       for index in keep]
+
+        prefix = image_path.name.split("_", 1)[0]
+        group = prefix if prefix in SOURCE_PREFIXES else "other"
+        counts = match_counts(predictions, boxes, ignored, match_iou)
+        totals[group] += counts
+        totals["overall"] += counts
+    return {name: summarize_counts(counts) for name, counts in totals.items()}
 
 
 def main():

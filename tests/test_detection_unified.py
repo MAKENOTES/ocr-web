@@ -476,6 +476,32 @@ def test_evaluation_reads_directories(tmp_path, monkeypatch, capsys):
     assert report["formats"][".png"]["f1"] == 1
 
 
+def test_evaluation_model_reports_overall_and_source_groups(tmp_path):
+    from detection.components.eval_metrics import evaluate_model
+
+    images, labels = tmp_path / "images", tmp_path / "labels"
+    images.mkdir()
+    labels.mkdir()
+    for name in ("ui_0.png", "doc_0.png"):
+        Image.new("RGB", (64, 64), "white").save(images / name)
+        (labels / f"gt_{Path(name).stem}.txt").write_text("8 8 40 24\n")
+
+    class ZeroModel:
+        def eval(self):
+            return self
+
+        def __call__(self, tensor):
+            height, width = tensor.shape[-2:]
+            return (torch.zeros(1, 1, height // 4, width // 4),
+                    torch.zeros(1, 4, height // 4, width // 4))
+
+    report = evaluate_model(ZeroModel(), OCRDataset(images, labels), "cpu", 64)
+    assert report["overall"]["fn"] == 2
+    assert report["ui"]["fn"] == 1
+    assert report["doc"]["fn"] == 1
+    assert report["overall"]["f1"] == 0
+
+
 def test_training_entry_runs_reference_loop_and_saves_top_k(tmp_path, monkeypatch):
     from detection import train as training
 

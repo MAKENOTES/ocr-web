@@ -21,6 +21,7 @@ if __package__ in (None, ""):
 
 from detection.components.augmentation import policy_weights_for_epoch
 from detection.components.dataset import OCRDataset
+from detection.components.eval_metrics import evaluate_model
 from detection.components.loss import EASTLoss
 from detection.components.training_options import parse_args
 from detection.components.transforms import get_transforms, normalize_input_size
@@ -48,9 +49,17 @@ USE_AUGMENTATION_CURRICULUM = True  # 启用时按轮次从轻增强过渡到强
 MAX_KEEP_CHECKPOINTS = 5  # 常规检查点最多保留最近几份，不包含最佳模型和早停模型。
 CHECKPOINT_INTERVAL = 5  # 常规检查点保存间隔，单位为轮；最后一轮也保存。
 BEST_MODELS_TO_KEEP = 3  # 保留验证损失最低的几份模型，即 Top-K。
+BEST_F1_MODELS_TO_KEEP = 3  # 保留验证集 F1 最高的几份模型；F1 与 loss 可能不同步。
 VAL_INTERVAL = 10  # 密集验证开始前，每隔多少轮验证一次。
 START_DENSE_VAL_EPOCH = 50  # 从这一轮开始逐轮验证，包含该轮。
-GRADIENT_LOG_INTERVAL = 100  # 每轮内梯度直方图和范数的记录间隔，单位为 batch；首批也记录。
+METRIC_VAL_INTERVAL = 10  # 每多少轮验证计算一次检测 F1/P/R；0 表示关闭。
+METRIC_INPUT_SIZE = 768  # 训练期 F1 评估尺寸，与当前部署最佳尺寸一致；可改为 INPUT_SIZE 降低开销。
+METRIC_SCORE_THRESHOLD = 0.7  # 训练期 F1 评估的置信度阈值，取值范围 (0, 1)。
+METRIC_NMS_IOU_THRESHOLD = 0.3  # 训练期 F1 评估的重复框抑制阈值，取值范围 (0, 1]。
+METRIC_MATCH_IOU = 0.5  # 预测框与真值匹配的 IoU 阈值。
+BATCH_LOG_INTERVAL = 50  # 每多少 batch 记录一次 batch loss；0 表示关闭。
+GRADIENT_LOG_INTERVAL = 500  # 每多少 batch 记录一次总梯度范数；0 表示关闭。
+VIS_INTERVAL = 20  # 每多少轮写一次验证集可视化图片，减少 TensorBoard 体积。
 EARLY_STOP_PATIENCE = 100  # 连续多少次验证未达到最小改善幅度时早停，按验证次数而非轮数计。
 EARLY_STOP_MIN_DELTA = 1e-5  # 验证损失下降须超过此绝对值才重置早停计数，不影响 Top-K 排名。
 
@@ -107,10 +116,10 @@ class EarlyStopping:
 
 
 def validate(model, val_loader, criterion, device, writer, epoch):
-    """在验证集上评估损失，并把第一个 batch 的可视化结果写入 TensorBoard。"""
+    """在验证集上评估损失；按间隔写入输入图和预测置信度图。"""
     model.eval()
     val_loss = val_score_loss = val_geo_loss = 0.0
-    vis_images = vis_true_score = vis_pred_score = vis_pred_geo = None
+    vis_images = vis_pred_score = None
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(val_loader):
@@ -127,17 +136,11 @@ def validate(model, val_loader, criterion, device, writer, epoch):
 
             if batch_idx == 0:
                 vis_images = images
-                vis_true_score = true_score_maps
                 vis_pred_score = pred_score_maps
-                vis_pred_geo = pred_geo_maps[:, 0:1, :, :]
 
-    if writer and vis_images is not None:
+    if writer and vis_images is not None and VIS_INTERVAL > 0 and epoch % VIS_INTERVAL == 0:
         writer.add_images("Vis/Input_Images", vis_images, epoch)
-        writer.add_images("Vis/True_Score_Map", vis_true_score.repeat(1, 3, 1, 1), epoch)
         writer.add_images("Vis/Pred_Score_Map", vis_pred_score.repeat(1, 3, 1, 1), epoch)
-        if vis_pred_geo.max() > 0:
-            vis_pred_geo = vis_pred_geo / vis_pred_geo.max()
-        writer.add_images("Vis/Pred_Geo_Map_Top", vis_pred_geo.repeat(1, 3, 1, 1), epoch)
 
     count = len(val_loader)
     return val_loss / count, val_score_loss / count, val_geo_loss / count
@@ -157,6 +160,22 @@ def save_best_checkpoint(model, epoch, val_loss, best_checkpoints_list, checkpoi
             worst_path.unlink()
             print(f"移除旧的 Top-{BEST_MODELS_TO_KEEP + 1} 模型: {worst_path.name}")
     print(f"★ 当前 Top-{BEST_MODELS_TO_KEEP} 模型已更新 (本轮 Loss: {val_loss:.5f})")
+
+
+def save_best_f1_checkpoint(model, epoch, f1, best_checkpoints_list, checkpoint_dir, input_size):
+    """按验证集 F1 更新 Top-K 模型；F1 与 loss 可能不同步，单独保留。"""
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    save_path = checkpoint_dir / f"best_f1_detection_epoch_{epoch}_f1_{f1:.5f}.pth"
+    save_checkpoint(model, save_path, input_size)
+
+    best_checkpoints_list.append((f1, save_path))
+    best_checkpoints_list.sort(key=lambda item: -item[0])
+    if len(best_checkpoints_list) > BEST_F1_MODELS_TO_KEEP:
+        _, worst_path = best_checkpoints_list.pop()
+        if worst_path.exists():
+            worst_path.unlink()
+            print(f"移除旧的 Top-{BEST_F1_MODELS_TO_KEEP + 1} F1 模型: {worst_path.name}")
+    print(f"★ 当前 Top-{BEST_F1_MODELS_TO_KEEP} F1 模型已更新 (F1: {f1:.5f})")
 
 
 def main(argv=None):
@@ -220,7 +239,8 @@ def main(argv=None):
         writer.add_graph(model, first_batch["image"].to(device))
 
     early_stopping = EarlyStopping(patience=EARLY_STOP_PATIENCE, min_delta=EARLY_STOP_MIN_DELTA)
-    regular_checkpoints, best_checkpoints = [], []
+    regular_checkpoints, best_checkpoints, best_f1_checkpoints = [], [], []
+    best_f1 = -1.0
     current_stage_mix = initial_stage_mix
 
     for epoch in range(1, EPOCHS + 1):
@@ -234,6 +254,7 @@ def main(argv=None):
             print(f"Epoch {epoch} 增强阶段切换: {stage_mix}")
 
         model.train()
+        epoch_started = time.perf_counter()
         epoch_loss = epoch_score_loss = epoch_geo_loss = 0.0
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch}/{EPOCHS}")
         for batch_idx, batch in enumerate(progress_bar):
@@ -248,23 +269,19 @@ def main(argv=None):
                 batch["training_mask"].to(device))
             loss.backward()
 
-            # 低频记录梯度信息，避免大数据集下日志和 I/O 过重。
-            if batch_idx % GRADIENT_LOG_INTERVAL == 0:
-                for name, parameter in model.named_parameters():
-                    if parameter.grad is not None:
-                        step = epoch * len(train_loader) + batch_idx
-                        writer.add_histogram(f"Gradients/{name}", parameter.grad, step)
-                        writer.add_scalar(f"Gradient_Norm/{name}", parameter.grad.norm(), step)
+            # 只记录总梯度范数；逐参数直方图会快速膨胀事件文件。
+            total_grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+            if GRADIENT_LOG_INTERVAL > 0 and batch_idx % GRADIENT_LOG_INTERVAL == 0:
+                step = epoch * len(train_loader) + batch_idx
+                writer.add_scalar("Gradient/total_norm", float(total_grad_norm), step)
 
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
             scheduler.step()
 
             loss_value, score_value, geo_value = loss.item(), score_loss.item(), geo_loss.item()
             step = epoch * len(train_loader) + batch_idx
-            writer.add_scalar("batch/loss", loss_value, step)
-            writer.add_scalar("batch/score_loss", score_value, step)
-            writer.add_scalar("batch/geo_loss", geo_value, step)
+            if BATCH_LOG_INTERVAL > 0 and batch_idx % BATCH_LOG_INTERVAL == 0:
+                writer.add_scalar("batch/loss", loss_value, step)
             epoch_loss += loss_value
             epoch_score_loss += score_value
             epoch_geo_loss += geo_value
@@ -274,13 +291,17 @@ def main(argv=None):
         average_loss = epoch_loss / len(train_loader)
         average_score = epoch_score_loss / len(train_loader)
         average_geo = epoch_geo_loss / len(train_loader)
+        train_seconds = time.perf_counter() - epoch_started
         current_lr = optimizer.param_groups[0]["lr"]
         writer.add_scalar("Learning Rate", current_lr, epoch)
+        writer.add_scalar("Performance/train_epoch_seconds", train_seconds, epoch)
+        writer.add_scalar("Performance/train_images_per_second", len(train_dataset) / train_seconds, epoch)
         print(f"Epoch {epoch} 训练结束: Loss: {average_loss:.4f} "
               f"(Score: {average_score:.4f}, Geo: {average_geo:.4f}) Learning: {current_lr}")
 
         should_validate = epoch >= START_DENSE_VAL_EPOCH or epoch % VAL_INTERVAL == 0
         if should_validate:
+            validation_started = time.perf_counter()
             val_loss, val_score, val_geo = validate(
                 model, val_loader, criterion, device, writer, epoch)
             print(f"Epoch {epoch} Val Loss: {val_loss:.4f} "
@@ -288,6 +309,29 @@ def main(argv=None):
             writer.add_scalars("epoch/loss", {"train": average_loss, "validation": val_loss}, epoch)
             writer.add_scalars("epoch/score Loss", {"train": average_score, "validation": val_score}, epoch)
             writer.add_scalars("epoch/geo Loss", {"train": average_geo, "validation": val_geo}, epoch)
+
+            if METRIC_VAL_INTERVAL > 0 and epoch % METRIC_VAL_INTERVAL == 0:
+                metrics = evaluate_model(
+                    model, val_dataset, device, METRIC_INPUT_SIZE,
+                    threshold=METRIC_SCORE_THRESHOLD,
+                    nms_iou=METRIC_NMS_IOU_THRESHOLD,
+                    match_iou=METRIC_MATCH_IOU)
+                for group, values in metrics.items():
+                    suffix = "" if group == "overall" else f"_{group}"
+                    writer.add_scalar(f"Val/Precision{suffix}", values["precision"], epoch)
+                    writer.add_scalar(f"Val/Recall{suffix}", values["recall"], epoch)
+                    writer.add_scalar(f"Val/F1{suffix}", values["f1"], epoch)
+                overall = metrics["overall"]
+                print(f"Epoch {epoch} Val F1: {overall['f1']:.4f} "
+                      f"(P: {overall['precision']:.4f}, R: {overall['recall']:.4f})")
+                if overall["f1"] > best_f1:
+                    best_f1 = overall["f1"]
+                    save_best_f1_checkpoint(model, epoch, best_f1, best_f1_checkpoints,
+                                            checkpoint_dir, input_size)
+                writer.add_scalar("Val/best_F1", best_f1, epoch)
+
+            writer.add_scalar("Performance/validation_seconds",
+                              time.perf_counter() - validation_started, epoch)
 
             if len(best_checkpoints) < BEST_MODELS_TO_KEEP or val_loss < best_checkpoints[-1][0]:
                 save_best_checkpoint(model, epoch, val_loss, best_checkpoints,
@@ -299,7 +343,9 @@ def main(argv=None):
                 break
             print(f"  {early_stopping.status()}")
         else:
-            writer.add_scalars("epoch/loss_train", {"train": average_loss}, epoch)
+            writer.add_scalars("epoch/loss", {"train": average_loss}, epoch)
+            writer.add_scalars("epoch/score Loss", {"train": average_score}, epoch)
+            writer.add_scalars("epoch/geo Loss", {"train": average_geo}, epoch)
 
         if epoch % CHECKPOINT_INTERVAL == 0 or epoch == EPOCHS:
             checkpoint_path = checkpoint_dir / f"detection_epoch_{epoch}.pth"
@@ -322,6 +368,10 @@ def main(argv=None):
         print(f"Top-{BEST_MODELS_TO_KEEP} 模型:")
         for index, (loss, path) in enumerate(best_checkpoints):
             print(f"  {index + 1}. {path.name} (Loss: {loss:.5f})")
+    if best_f1_checkpoints:
+        print(f"Top-{BEST_F1_MODELS_TO_KEEP} F1 模型:")
+        for index, (f1, path) in enumerate(best_f1_checkpoints):
+            print(f"  {index + 1}. {path.name} (F1: {f1:.5f})")
     print("=" * 60)
     writer.close()
 

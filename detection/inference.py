@@ -37,8 +37,8 @@ from detection.utils import load_checkpoint
 
 # 统一检测模型；更换训练结果时修改此路径。默认文件需先通过导出入口生成。
 MODEL_PATH = Path("detection/checkpoints/ocr_experiment_1793192301352512117/best_detection_epoch_608_loss_0.04769.pth")
-IMAGE_PATH = Path("detection/data/val_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
-OUTPUT_DIR = Path("detection/data/test_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
+IMAGE_PATH = Path("detection/data/train_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
+OUTPUT_DIR = Path("detection/data/train_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
 DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU；ONNX/OpenVINO 使用 CPU。
 INPUT_SIZE = 640  # 输入尺寸上限，单位 px；int 表示正方形，也可设为 (高, 宽)。
 DYNAMIC_INPUT = True  # 启用时按原图宽高比选择 32 的倍数尺寸；固定尺寸导出的 ONNX 自动改为固定输入。

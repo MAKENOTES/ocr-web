@@ -55,8 +55,33 @@ Adam + OneCycleLR；训练使用 30 种按框安全增强，验证使用确定�
 `config` 和 `model`；训练从 `PRETRAINED` 指定的 ImageNet 初始化或随机初始化开始。
 训练和验证目录路径必须不同。
 
-训练输出在 `detection/checkpoints/<run>/`，验证损失最低的 Top-3 文件名为
-`best_detection_epoch_<轮数>_loss_<损失>.pth`。
+训练输出在 `detection/checkpoints/<run>/`。同时保留两套 Top-3：
+
+- 验证损失最低：`best_detection_epoch_<轮数>_loss_<损失>.pth`；
+- 验证 F1 最高：`best_f1_detection_epoch_<轮数>_f1_<F1>.pth`。
+
+F1 每 `METRIC_VAL_INTERVAL`（默认 10）轮评估一次，默认按 `METRIC_INPUT_SIZE=768`
+（当前部署最佳尺寸）推理，并按 `ui_`/`doc_` 前缀分组记录，避免只因 loss 轮换而删除
+实际 F1 更好的检查点。
+
+## TensorBoard 记录
+
+保留的曲线：
+
+- `epoch/loss`、`epoch/score Loss`、`epoch/geo Loss`：训练/验证损失；
+- `Learning Rate`、`Augmentation/*`：学习率和增强阶段权重；
+- `Val/Precision`、`Val/Recall`、`Val/F1`，以及 `_ui`、`_doc` 分组；
+- `Val/best_F1`：当前最佳 F1；
+- `Performance/train_epoch_seconds`、`train_images_per_second`、`validation_seconds`。
+
+降频/关闭的高开销记录：
+
+- `batch/loss` 每 `BATCH_LOG_INTERVAL`（默认 50）个 batch 一次；
+- `Gradient/total_norm` 每 `GRADIENT_LOG_INTERVAL`（默认 500）个 batch 一次；
+- `Vis/*` 每 `VIS_INTERVAL`（默认 20）轮一次，只写输入图和预测置信度图；
+- 不再写逐参数 `Gradients/*` 直方图、`Gradient_Norm/*`、逐 batch score/geo loss，
+  以及重复的 `epoch/loss_train` 组。旧 run 的事件文件约 5.4GB，主要来自逐参数梯度
+  直方图和每轮可视化；新配置会显著减小体积。
 
 ## 数据增强与批次执行
 
