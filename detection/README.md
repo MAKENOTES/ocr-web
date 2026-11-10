@@ -114,6 +114,7 @@ F1 每 `METRIC_VAL_INTERVAL`（默认 10）轮评估一次，默认按 `METRIC_I
 ```bash
 .venv/bin/python detection/inference_report.py
 .venv/bin/python detection/inference_report.py --skip-inference
+.venv/bin/python detection/inference_report.py --skip-inference --error-previews
 ```
 
 默认用 [inference.py](inference.py)（PyTorch/GPU）和根目录
@@ -127,6 +128,12 @@ F1 每 `METRIC_VAL_INTERVAL`（默认 10）轮评估一次，默认按 `METRIC_I
 - `detection/reports/<run>/inference/index.html` 和 `summary.json`：可离线打开的报告；
 - `detection/reports/<run>/inference/errors_train.csv`、`errors_val.csv`：逐图错误明细，
   只保留至少一个后端有 FP/FN 的图片，并同时列出 PyTorch 与 ONNX 的 TP/FP/FN。
+
+`--error-previews` 在上述错误明细生成后，用 `detection/inference.py` 的 PyTorch
+入口对这些错误图片重新推理，并按该入口相同的红色预测框、原尺寸和原格式保存预览图到
+错误 CSV 同层的 `error_previews/<split>/`；逐图命中数和耗时记录到
+`error_previews_<split>.csv`。预览 CSV 和图片齐全时自动跳过；`--force-previews`
+只重算预览，`--force` 在重跑四次推理时一并重算预览。
 
 预测标签齐全时自动跳过对应推理，`--skip-inference` 只重建报告，`--force` 强制重跑。
 ONNX 入口使用其默认 OpenVINO CPU 后端；ONNX Runtime 在当前机器上单图前向明显更慢。

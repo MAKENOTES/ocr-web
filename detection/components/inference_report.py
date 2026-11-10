@@ -30,6 +30,7 @@ from detection.components.training_report import (
     render_error_image,
     render_error_summary,
 )
+from detection.inference import draw_predictions
 
 
 MATCH_IOU = 0.5  # 预测框与真值框的匹配 IoU 下限，与训练期验证指标一致。
@@ -45,6 +46,12 @@ ERROR_CSV_FIELDS = (
     "onnx_tp", "onnx_fp", "onnx_fn", "onnx_error_count", "onnx_error_rate",
     "input_size", "score_threshold", "nms_iou",
 )  # 错误图片 CSV 的列顺序；前 7 列描述图片和真值，后两组分别对应两个后端。
+ERROR_PREVIEW_DIRNAME = "error_previews"  # 错误图片预览子目录，建在 errors_{split}.csv 同层目录下。
+ERROR_PREVIEW_CSV_FIELDS = (
+    "image", "preview", "path", "split", "source", "width", "height", "gt",
+    "tp", "fp", "fn", "error_count", "error_rate", "input_size",
+    "score_threshold", "nms_iou", "infer_ms", "detect_ms",
+)  # 错误图片预览 CSV 的列顺序；preview 为相对该 CSV 所在目录的路径。
 
 
 def load_image_index(image_dir):
@@ -867,6 +874,43 @@ def build_report(runs, training, curves, config, run_name):
         "curves": curves,
     }
     return report
+
+
+def read_error_rows(csv_path):
+    """读取 errors_{split}.csv 的错误图片行，返回按文件顺序排列的字典列表。
+
+    允许空文件（该划分没有错误图片），但每行必须带 image 和 path，避免把
+    缺列的记录静默跳过。
+    """
+    csv_path = Path(csv_path)
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    for row in rows:
+        if not (row.get("image") or "").strip() or not (row.get("path") or "").strip():
+            raise ValueError(f"错误明细缺少 image 或 path: {csv_path}")
+    return rows
+
+
+def save_error_preview(image, preview_path, predictions):
+    """按 detection/inference.py 的出框效果保存预览：红框、原尺寸、原格式。
+
+    返回实际写出的预览路径；目录不存在时自动创建。
+    """
+    preview_path = Path(preview_path)
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
+    draw_predictions(image, predictions).save(preview_path)
+    return preview_path
+
+
+def write_preview_csv(rows, csv_path):
+    """写出错误图片预览记录，列顺序固定为 ERROR_PREVIEW_CSV_FIELDS。"""
+    csv_path = Path(csv_path)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=ERROR_PREVIEW_CSV_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+    return csv_path
 
 
 def write_report(report, output_dir):

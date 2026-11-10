@@ -1,4 +1,5 @@
 """统一检测部署推理报告的指标计算和渲染测试。"""
+import csv
 import json
 
 import numpy as np
@@ -7,10 +8,14 @@ from PIL import Image
 
 from detection.components.eval_metrics import summarize_counts
 from detection.components.inference_report import (
+    ERROR_PREVIEW_CSV_FIELDS,
     build_report,
     compare_backends,
     evaluate_split,
     load_image_index,
+    read_error_rows,
+    save_error_preview,
+    write_preview_csv,
     write_report,
 )
 
@@ -136,3 +141,51 @@ def test_write_report_outputs_lightweight_summary(tmp_path):
     train_csv = (tmp_path / "report" / "errors_train.csv").read_text(encoding="utf-8-sig")
     assert train_csv.startswith("image,path,split,source")
     assert "doc_b" in train_csv
+
+
+def test_read_error_rows_accepts_bom_and_rejects_missing_path(tmp_path):
+    """错误明细 CSV 带 BOM 时应正常读取；缺 path 的记录必须立即报错。"""
+    csv_path = tmp_path / "errors_train.csv"
+    csv_path.write_text("image,path,split\ndoc_a,/tmp/doc_a.png,train\n",
+                        encoding="utf-8-sig")
+    rows = read_error_rows(csv_path)
+    assert rows == [{"image": "doc_a", "path": "/tmp/doc_a.png", "split": "train"}]
+
+    csv_path.write_text("image,path\ndoc_a,\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        read_error_rows(csv_path)
+
+
+def test_save_error_preview_uses_inference_drawing_and_keeps_size(tmp_path):
+    """预览应复用推理入口的红框画法：原尺寸原格式保存，且不修改传入原图。"""
+    image = Image.new("RGB", (3200, 2000), "white")
+    original = image.tobytes()
+    predictions = [{"box": [200, 200, 260, 240], "score": 0.9}]
+
+    preview_path = save_error_preview(image, tmp_path / "previews" / "doc_a.png",
+                                      predictions)
+
+    assert preview_path.is_file()
+    assert image.tobytes() == original
+    with Image.open(preview_path) as preview:
+        assert preview.format == "PNG"
+        assert preview.size == image.size
+        assert preview.getpixel((200, 220)) == (255, 0, 0)
+
+
+def test_write_preview_csv_writes_fixed_columns(tmp_path):
+    """预览 CSV 的列顺序固定，preview 保存相对 CSV 所在目录的路径。"""
+    csv_path = write_preview_csv(
+        [{"image": "doc_a", "preview": "error_previews/train/doc_a.jpg",
+          "path": "/tmp/doc_a.png", "split": "train", "source": "doc",
+          "width": 3200, "height": 2000, "gt": 2, "tp": 1, "fp": 1, "fn": 1,
+          "error_count": 2, "error_rate": 1.0, "input_size": 768,
+          "score_threshold": 0.7, "nms_iou": 0.3, "infer_ms": 12.5, "detect_ms": 15.0}],
+        tmp_path / "error_previews_train.csv")
+
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+    assert reader.fieldnames == list(ERROR_PREVIEW_CSV_FIELDS)
+    assert rows[0]["preview"] == "error_previews/train/doc_a.jpg"
+    assert rows[0]["error_count"] == "2"

@@ -45,7 +45,7 @@ from detection.utils import load_checkpoint
 # 统一检测模型；更换训练结果时修改此路径。
 MODEL_PATH = Path("detection/checkpoints/ocr_experiment_1793283532819507511/best_f1_detection_epoch_560_f1_0.97158.pth")
 IMAGE_PATH = Path("detection/data/test_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
-OUTPUT_DIR = Path("detection/data/test_images")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
+OUTPUT_DIR = Path("detection/data/test_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
 DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU；ONNX/OpenVINO 使用 CPU。
 INPUT_SIZE = 768  # 输入尺寸上限，单位 px；与训练和当前部署指标一致，int 表示正方形，也可设为 (高, 宽)。
 DYNAMIC_INPUT = True  # 启用时按原图宽高比选择 32 的倍数尺寸；固定尺寸导出的 ONNX 自动改为固定输入。
@@ -180,6 +180,18 @@ class DocumentDetector:
         return [{"box": boxes[index].tolist(), "score": float(scores[index])} for index in keep]
 
 
+def draw_predictions(image, predictions):
+    """在原图副本上用红色框标出检测结果，返回新图片；不修改传入图片。
+
+    画法与 run_inference 保存的预览图一致，供需要复用同一出框效果的调用方使用。
+    """
+    visual = image.copy()
+    draw = ImageDraw.Draw(visual)
+    for prediction in predictions:
+        draw.rectangle(prediction["box"], outline="red", width=2)
+    return visual
+
+
 def run_inference(model_path, image_path, output_dir, device="cpu", *,
                   threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
                   save_crops=False, crop_dir=None, backend="auto", warmup_runs=0,
@@ -228,19 +240,15 @@ def run_inference(model_path, image_path, output_dir, device="cpu", *,
         total_detect_ms += elapsed_ms
 
         predictions = expand_predictions(predictions, image.size, expand_ratio_w, expand_ratio_h)
-        visual = image.copy()
-        draw = ImageDraw.Draw(visual)
-        for index, prediction in enumerate(predictions):
-            box = prediction["box"]
-            draw.rectangle(box, outline="red", width=2)
-            if save_crops:
+        if save_crops:
+            for index, prediction in enumerate(predictions):
+                box = prediction["box"]
                 crop_box = (int(np.floor(box[0])), int(np.floor(box[1])),
                             int(np.ceil(box[2])), int(np.ceil(box[3])))
                 image.crop(crop_box).save(crop_path(crop_dir, path.stem, index))
-        if save_crops:
             remove_stale_crops(crop_dir, path.stem, len(predictions))
 
-        visual.save(images_dir / path.name)
+        draw_predictions(image, predictions).save(images_dir / path.name)
         # bbox4 使用原图像素坐标，不附置信度或伪造文字；无检测框时写空标签。
         label_text = "".join(" ".join(str(float(value)) for value in prediction["box"]) + "\n"
                              for prediction in predictions)

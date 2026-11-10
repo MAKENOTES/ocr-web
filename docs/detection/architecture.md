@@ -138,3 +138,10 @@ ONNX Runtime 的数值比较，覆盖 batch 1/2 和不同高宽；直接写入�
 `detection/inference_report.py` 调用两个部署入口在训练/验证集上生成预测，按同一
 0.5 IoU 口径复核 P/R/F1、两后端框级一致性和入口耗时，并与训练报告摘要对照；
 同时输出 `errors_train.csv` 和 `errors_val.csv` 逐图错误明细。
+
+加 `--error-previews` 时，入口再对这两个 CSV 中的错误图片调用包内 PyTorch
+`DocumentDetector` 重新推理，并复用 `inference.py` 的 `draw_predictions` 画出红色
+预测框，按原尺寸、原格式和原文件名写入 `error_previews/<split>/`。本轮推理的
+TP/FP/FN、耗时和相对预览路径写入同层的 `error_previews_<split>.csv`，用于复查
+预览与指标的对应关系。已有预览 CSV 且图片齐全时跳过，`--force-previews` 只重算
+预览，`--force` 在重跑四次推理时一并重算预览。
