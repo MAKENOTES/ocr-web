@@ -186,26 +186,29 @@ OpenCV、onnxruntime；OpenVINO 后端另需 openvino 和 onnx）。
 .venv/bin/python detection_export_onnx.py
 ```
 
-推理默认 `DYNAMIC_INPUT=True`：按原图宽高比把最长边缩放到 `INPUT_SIZE`（当前 768），
-每条边向上取整到 32 的倍数，最少 64。训练仍是固定尺寸，动态只减少推理补边计算，
-不改变输入像素分布。固定尺寸导出的 ONNX/OpenVINO 自动使用模型自身尺寸；
-动态导出的 ONNX/OpenVINO 使用导出元数据记录的 `input_size` 作为尺寸上限。
+推理默认 `DYNAMIC_INPUT=False`：整图按 `INPUT_SIZE`（当前 768）等比缩放并补边到
+固定 768×768 方形画布，与训练输入尺寸一致。`DYNAMIC_INPUT=True` 时按原图宽高比
+把最长边缩放到 `INPUT_SIZE`，每条边向上取整到 32 的倍数、最少 64；超宽图短边会
+被压到 64，实测会明显降低地址栏等 45:1 细条的 F1，只建议在实验里使用。固定尺寸
+导出的 ONNX/OpenVINO 始终使用模型自身尺寸；动态导出的 ONNX/OpenVINO 使用导出
+元数据记录的 `input_size` 作为尺寸上限。
 输出 `images/<原图文件名>` 画框预览和 `labels/gt_<stem>.txt` bbox4 标签；
 `SAVE_CROPS=True` 时额外保存原图裁片。
 
 后处理默认按低占用列把粘连的整行连通域拆成词/短语框，可通过
 `decode_maps(..., split_word_gaps=False)` 保留整段输出。当前部署配置为
-Epoch 560 / 768 / 0.70；历史评估中 566/768/0.88 在验证集上拆分前后 F1 相同，
+Epoch 560 / 固定 768×768 / 0.70；历史评估中 566/768/0.88 在验证集上拆分前后 F1 相同，
 说明模型已基本输出词/短语级框；拆分器主要作为低分辨率或后续模型的兼容保护。
 
-导出默认 `DYNAMIC_SPATIAL=True`，同时校验动态 batch 和不同高宽。默认输出
+导出默认 `DYNAMIC_SPATIAL=False`，输出固定 768×768 高宽并校验动态 batch；
+`DYNAMIC_SPATIAL=True` 时额外校验不同高宽。默认输出
 `best_detection.onnx`：导出会直接覆盖同名目标文件并随后完成数值校验，不再创建
 `onnx-export-*` 临时目录；校验失败时目标文件保留本次产物，需修复后重新导出。
 导出实现、尺寸和动态开关都在根目录
 [detection_export_onnx.py](../detection_export_onnx.py) 顶部，按本次检查点和输出路径运行。
 导出时只定向抑制 torch 2.9 对 torchvision schema 和动态 shape 的内部 WARNING，
 ERROR 及以上仍会输出，PyTorch/ONNX Runtime 数值校验不受影响。
-当前推理默认检查点为 Epoch 560、最长边 768；修改检查点或尺寸后必须重新导出
+当前推理默认检查点为 Epoch 560、固定 768×768；修改检查点或尺寸后必须重新导出
 ONNX/OpenVINO，已有模型文件不会自动使用新权重。
 
 ## 评估与检查

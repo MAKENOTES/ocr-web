@@ -397,6 +397,17 @@ def test_detector_dynamic_and_fixed_input_shapes(monkeypatch):
         DocumentDetector("unused.pth", max_input_size=65)
 
 
+def test_detector_defaults_to_fixed_training_canvas(monkeypatch):
+    """默认使用固定 768×768 方形画布，避免超宽图动态压缩短边。"""
+    from detection import inference
+
+    monkeypatch.setattr(inference, "load_checkpoint",
+                        lambda *args: (object(), {"config": checkpoint_config(768)}))
+    detector = DocumentDetector("model.pth")
+    assert detector.dynamic_input is False
+    assert detector._target_size((2589, 57)) == (768, 768)
+
+
 def test_inference_main_uses_constants(tmp_path, monkeypatch):
     from detection import inference
 

@@ -2,6 +2,8 @@
 
 复制本文件和 .onnx 模型即可部署，不依赖 detection 包。依赖 numpy、Pillow、
 OpenCV 和 onnxruntime；使用 --backend openvino 时另需 openvino 和 onnx。
+输入尺寸由 ONNX 元数据决定：默认的固定高宽导出始终使用导出尺寸，只有
+dynamic_spatial=True 的模型才按原图宽高比选择尺寸。
 预处理、解码、NMS 和输出契约与 detection 包保持一致，修改任一侧后应同步
 另一边并通过 tests/test_detection_unified_onnx.py 的对比测试。
 """
@@ -702,8 +704,10 @@ def main(argv=None):
         parser.error(str(error))
         return
 
-    print(f"  输入尺寸上限: {max_input_size[1]}×{max_input_size[0]} (宽×高)，"
-          f"动态高宽: {dynamic}")
+    if dynamic:
+        print(f"  输入尺寸上限: {max_input_size[1]}×{max_input_size[0]} (宽×高)，动态高宽")
+    else:
+        print(f"  输入尺寸: {fixed_input_size[1]}×{fixed_input_size[0]} (宽×高)，固定高宽")
     print()
     run_onnx_inference(
         backend, args.image_path, args.output_dir,

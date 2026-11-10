@@ -17,7 +17,7 @@
 预览图直接复用 detection/inference.py 的红色预测框、原尺寸和原格式，与单独运行推理
 入口得到的预览效果一致。默认行为会先检查已有预测标签，数量匹配时跳过，便于中断后
 继续；预览同样按已有 CSV 和图片判断完整性，--force-previews 只重算预览，--force
-在重跑四次推理时一并重算预览。报告按入口默认配置（768px 动态、阈值 0.7、NMS 0.3）
+在重跑四次推理时一并重算预览。报告按入口默认配置（固定 768×768、阈值 0.7、NMS 0.3）
 评估，不修改任何入口常量。
 """
 import argparse
@@ -127,15 +127,14 @@ def run_inference_entries(image_indexes, force):
 
 
 def check_exported_size():
-    """确认 ONNX 导出尺寸与 PyTorch 入口一致，避免对比工作点错配。"""
+    """确认 ONNX 导出的高宽模式与尺寸和 PyTorch 入口一致，避免对比工作点错配。"""
     pytorch_size = normalize_input_size(PYTORCH_INPUT_SIZE)
-    if not PYTORCH_DYNAMIC_INPUT:
-        raise ValueError("detection/inference.py 未启用动态输入，报告口径不一致")
     runtime = onnx_entry.load_backend(ONNX_MODEL, ONNX_BACKEND)
-    dynamic, max_input_size, _ = onnx_entry.exported_shape(runtime)
-    if not dynamic or tuple(max_input_size) != pytorch_size:
+    dynamic, max_input_size, fixed_input_size = onnx_entry.exported_shape(runtime)
+    onnx_size = tuple(max_input_size if dynamic else fixed_input_size)
+    if dynamic != PYTORCH_DYNAMIC_INPUT or onnx_size != pytorch_size:
         raise ValueError(
-            f"ONNX 导出动态={dynamic}、最大尺寸={max_input_size}，与 PyTorch 入口 "
+            f"ONNX 导出动态={dynamic}、尺寸={onnx_size}，与 PyTorch 入口 "
             f"动态={PYTORCH_DYNAMIC_INPUT}、尺寸={pytorch_size} 不一致")
 
 
@@ -163,6 +162,7 @@ def collect_runs(image_indexes):
                 "images": len(index),
                 "boxes": int(summary["boxes"]),
                 "input_size": max(normalize_input_size(PYTORCH_INPUT_SIZE)),
+                "dynamic_input": PYTORCH_DYNAMIC_INPUT,
                 "threshold": SCORE_THRESHOLD,
                 "groups": data["groups"],
                 "records": data["records"],
@@ -186,6 +186,20 @@ def preview_cache_complete(rows, output_csv):
                for row in cached)
 
 
+def remove_stale_previews(preview_dir, keep_names):
+    """删除本次错误清单之外的旧预览图，避免不同推理批次的产物混杂。"""
+    preview_dir = Path(preview_dir)
+    if not preview_dir.is_dir():
+        return 0
+    removed = 0
+    for path in preview_dir.iterdir():
+        if (path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+                and path.name not in keep_names):
+            path.unlink()
+            removed += 1
+    return removed
+
+
 def run_error_previews(csv_paths, force):
     """对错误明细 CSV 中的图片用检测包 PyTorch 入口重新推理并输出预览图。
 
@@ -205,6 +219,10 @@ def run_error_previews(csv_paths, force):
             raise ValueError(f"无法从文件名确定数据划分: {csv_path}")
         rows = read_error_rows(csv_path)
         preview_dir = csv_path.parent / ERROR_PREVIEW_DIRNAME / split
+        removed = remove_stale_previews(
+            preview_dir, {Path(row["path"]).name for row in rows})
+        if removed:
+            print(f"[清理] 错误预览 {split}: 删除 {removed} 张旧图", flush=True)
         output_csv = csv_path.parent / f"error_previews_{split}.csv"
         if not force and preview_cache_complete(rows, output_csv):
             print(f"[跳过] 错误预览 {split}: 已有 {len(rows)} 张", flush=True)

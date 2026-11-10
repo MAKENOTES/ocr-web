@@ -538,18 +538,21 @@ def inspect_deployment(primary_checkpoint, primary_size, best_workpoint, run_inf
         configured_size = inference.INPUT_SIZE
         configured_max = max(normalize_input_size(configured_size)) \
             if isinstance(configured_size, (tuple, list)) else int(configured_size)
+        configured_mode = (f"动态最长边 {configured_max}px"
+                           if getattr(inference, "DYNAMIC_INPUT", False)
+                           else f"固定 {configured_max}×{configured_max}")
         if configured_max != primary_size:
             checks.append({
                 "status": "warn",
                 "title": "推理输入尺寸与训练尺寸不一致",
-                "detail": f"detection/inference.py 使用最长边 {configured_max}px，训练和主指标使用 {primary_size}px。",
+                "detail": f"detection/inference.py 使用{configured_mode}，训练和主指标使用 {primary_size}px。",
                 "action": f"把 INPUT_SIZE 调整为至少 {primary_size}；如需尝试更大尺寸，先用独立留出集确认。",
             })
         else:
             checks.append({
                 "status": "ok",
                 "title": "推理输入尺寸",
-                "detail": f"detection/inference.py 使用最长边 {configured_max}px，与训练尺寸一致。",
+                "detail": f"detection/inference.py 使用{configured_mode}，与训练尺寸一致。",
                 "action": "",
             })
     except Exception as exc:
@@ -564,6 +567,9 @@ def inspect_deployment(primary_checkpoint, primary_size, best_workpoint, run_inf
     if export_size is not None:
         export_max = max(normalize_input_size(export_size)) \
             if isinstance(export_size, (tuple, list)) else int(export_size)
+        export_dynamic = read_source_constant(EXPORT_SOURCE, "DYNAMIC_SPATIAL")
+        export_mode = (f"动态最长边 {export_max}px" if export_dynamic
+                       else f"固定 {export_max}×{export_max}")
         if export_max != primary_size:
             checks.append({
                 "status": "warn",
@@ -575,7 +581,7 @@ def inspect_deployment(primary_checkpoint, primary_size, best_workpoint, run_inf
             checks.append({
                 "status": "ok",
                 "title": "ONNX 导出尺寸",
-                "detail": f"detection_export_onnx.py 使用最长边 {export_max}px，与主指标一致。",
+                "detail": f"detection_export_onnx.py 使用{export_mode}，与主指标一致。",
                 "action": "",
             })
 

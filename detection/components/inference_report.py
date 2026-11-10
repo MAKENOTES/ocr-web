@@ -40,12 +40,39 @@ BACKEND_LABELS = {"pytorch": "PyTorch", "onnx": "ONNX/OpenVINO"}  # 推理后端
 SPLIT_LABELS = {"train": "训练集", "val": "验证集"}  # 数据划分显示名。
 GROUP_LABELS = {"overall": "总体", "doc": "文档页 doc", "ui": "界面小图 ui", "other": "其他"}  # 指标分组显示名。
 RUN_KEYS = (("pytorch", "train"), ("onnx", "train"), ("pytorch", "val"), ("onnx", "val"))  # 报告固定展示的四次推理。
+ASPECT_BUCKETS = (("≤2", 2.0), ("2-5", 5.0), ("5-10", 10.0), ("10-20", 20.0), (">20", None))  # 长宽比上界；最后一档无上界。
 ERROR_CSV_FIELDS = (
     "image", "path", "split", "source", "width", "height", "gt",
     "pytorch_tp", "pytorch_fp", "pytorch_fn", "pytorch_error_count", "pytorch_error_rate",
     "onnx_tp", "onnx_fp", "onnx_fn", "onnx_error_count", "onnx_error_rate",
     "input_size", "score_threshold", "nms_iou",
 )  # 错误图片 CSV 的列顺序；前 7 列描述图片和真值，后两组分别对应两个后端。
+
+
+def input_size_label(size, dynamic):
+    """返回输入画布文案：固定画布写成 768×768，动态画布写成 768px 动态。"""
+    return f"{size}px 动态" if dynamic else f"{size}×{size} 固定"
+
+
+def aspect_bucket(width, height):
+    """按宽/高把图片分到长宽比区间，用于单独观察超宽细条。"""
+    ratio = width / max(1, height)
+    for label, upper in ASPECT_BUCKETS:
+        if upper is None or ratio <= upper:
+            return label
+    return ">20"
+
+
+def build_aspect_groups(records):
+    """汇总逐图记录的长宽比分组指标；没有图片的区间不输出。"""
+    totals = {label: np.zeros(3, dtype=np.int64) for label, _ in ASPECT_BUCKETS}
+    images = {label: 0 for label, _ in ASPECT_BUCKETS}
+    for item in records:
+        label = aspect_bucket(item["width"], item["height"])
+        totals[label] += np.array([item["tp"], item["fp"], item["fn"]], dtype=np.int64)
+        images[label] += 1
+    return {label: {"images": images[label], **summarize_counts(totals[label])}
+            for label, _ in ASPECT_BUCKETS if images[label]}
 ERROR_PREVIEW_DIRNAME = "error_previews"  # 错误图片预览子目录，建在 errors_{split}.csv 同层目录下。
 ERROR_PREVIEW_CSV_FIELDS = (
     "image", "preview", "path", "split", "source", "width", "height", "gt",
@@ -278,18 +305,20 @@ def compare_with_training(training, runs):
     base_f1 = primary.get("f1")
     rows = [{
         "source": "训练期验证（主配置）",
-        "detail": f"{training['primary']['input_size']}px / 阈值 "
+        "detail": f"{input_size_label(training['primary']['input_size'], True)} / 阈值 "
                   f"{training['primary']['threshold']:.2f}",
         "groups": training.get("groups") or {},
+        "dynamic_input": True,
         "delta_f1": 0.0 if base_f1 is not None else None,
     }]
     best = training.get("best_workpoint")
     if best:
         rows.append({
             "source": "训练期验证（最佳工作点）",
-            "detail": f"{best['input_size']}px / 阈值 {best['threshold']:.2f}",
+            "detail": f"{input_size_label(best['input_size'], True)} / 阈值 {best['threshold']:.2f}",
             "groups": {"overall": best["overall"], "doc": best.get("doc") or {},
                        "ui": best.get("ui") or {}},
+            "dynamic_input": True,
             "delta_f1": (best["overall"]["f1"] - base_f1) if base_f1 is not None else None,
         })
     for backend, split in (("pytorch", "val"), ("onnx", "val")):
@@ -299,8 +328,10 @@ def compare_with_training(training, runs):
         f1 = item["groups"].get("overall", {}).get("f1")
         rows.append({
             "source": f"离线 {BACKEND_LABELS[backend]} 验证",
-            "detail": f"{item['input_size']}px / 阈值 {item['threshold']:.2f}",
+            "detail": f"{input_size_label(item['input_size'], item.get('dynamic_input', False))} "
+                      f"/ 阈值 {item['threshold']:.2f}",
             "groups": item["groups"],
+            "dynamic_input": item.get("dynamic_input", False),
             "delta_f1": (f1 - base_f1) if base_f1 is not None and f1 is not None else None,
         })
     return rows
@@ -367,9 +398,13 @@ def build_highlights(runs, compare_rows, agreement):
         f1 = pytorch_val["groups"]["overall"]["f1"]
         base = (train_base["groups"].get("overall") or {}).get("f1")
         if base is not None:
+            label = input_size_label(pytorch_val["input_size"],
+                                     pytorch_val.get("dynamic_input", False))
+            note = ("固定画布与训练输入尺寸一致。" if not pytorch_val.get("dynamic_input", False)
+                    else "部署入口复现了训练期验证口径。")
             highlights.append(
-                f"PyTorch 验证集 F1 为 <strong>{f1:.5f}</strong>，训练期同配置为 "
-                f"{base:.5f}，差 {f1 - base:+.5f}，部署入口复现了训练期验证指标。")
+                f"PyTorch 验证集（{label}）F1 为 <strong>{f1:.5f}</strong>，"
+                f"训练期动态口径为 {base:.5f}，差 {f1 - base:+.5f}；{note}")
     if pytorch_val and onnx_val:
         difference = onnx_val["groups"]["overall"]["f1"] - pytorch_val["groups"]["overall"]["f1"]
         highlights.append(
@@ -492,6 +527,32 @@ def render_group_table_multi(runs):
         + "".join(rows) + "</tbody></table>")
 
 
+def render_aspect_table(aspect_groups):
+    """渲染 PyTorch 各划分的长宽比分组指标，突出 >20:1 超宽细条。"""
+    rows = []
+    for split in ("train", "val"):
+        groups = aspect_groups.get(split) or {}
+        for label, _ in ASPECT_BUCKETS:
+            metrics = groups.get(label)
+            if metrics is None:
+                continue
+            rows.append(
+                "<tr>"
+                f"<td>{SPLIT_LABELS[split]}</td><td>{esc(label)}</td>"
+                f"<td>{metrics['images']}</td>"
+                f"<td>{metrics['tp']}</td><td>{metrics['fp']}</td><td>{metrics['fn']}</td>"
+                f"<td>{format_number(metrics['precision'])}</td>"
+                f"<td>{format_number(metrics['recall'])}</td>"
+                f"<td><strong>{format_number(metrics['f1'], 5)}</strong></td>"
+                "</tr>")
+    if not rows:
+        return '<p class="muted">没有长宽比分组数据。</p>'
+    return (
+        "<table><thead><tr><th>划分</th><th>长宽比</th><th>图片</th><th>TP</th><th>FP</th>"
+        "<th>FN</th><th>P</th><th>R</th><th>F1</th></tr></thead><tbody>"
+        + "".join(rows) + "</tbody></table>")
+
+
 def render_agreement_table(agreement):
     """渲染两后端框级一致性。"""
     rows = []
@@ -564,6 +625,7 @@ def render_report(report):
     compare_rows = report["compare"]
     agreement = report["agreement"]
     error_analysis = report["error_analysis"]
+    aspect_groups = report.get("aspect_groups") or {}
     highlights = report.get("highlights") or []
     conclusions = report.get("conclusions") or []
 
@@ -600,7 +662,8 @@ def render_report(report):
         f"运行 <span class='mono'>{esc(report['run_name'])}</span> · "
         f"检查点 <span class='mono'>{esc(config['checkpoint'])}</span> · "
         f"ONNX <span class='mono'>{esc(config['onnx_model'])}</span> · "
-        f"输入最长边 {config['input_size']}px 动态 · 阈值 {config['score_threshold']:.2f} · "
+        f"输入{input_size_label(config['input_size'], config.get('dynamic_input', False))} · "
+        f"阈值 {config['score_threshold']:.2f} · "
         f"NMS {config['nms_iou']:.2f} · 匹配 IoU {MATCH_IOU:.2f} · "
         f"生成于 {esc(report['generated_at'])}"
     )
@@ -686,7 +749,8 @@ footer { color:var(--muted); font-size:12px; text-align:center; padding:20px; }
   <h2>推理指标</h2>
   <p class="muted">四次推理分别调用 detection/inference.py（PyTorch GPU）和
   detection_inference_onnx.py（ONNX/OpenVINO CPU），输入为入口默认的
-  {config['input_size']}px 动态尺寸、阈值 {config['score_threshold']:.2f}、NMS {config['nms_iou']:.2f}。
+  {input_size_label(config['input_size'], config.get('dynamic_input', False))}、
+  阈值 {config['score_threshold']:.2f}、NMS {config['nms_iou']:.2f}。
   GT = TP + FN，### 忽略区域不计入。</p>
   {render_run_table(runs)}
   <h3>耗时与吞吐</h3>
@@ -697,7 +761,7 @@ footer { color:var(--muted); font-size:12px; text-align:center; padding:20px; }
 
 <section id="compare">
   <h2>与训练指标对比</h2>
-  <p class="muted">ΔF1 相对训练期主配置（{training['primary']['input_size']}px / 阈值
+  <p class="muted">ΔF1 相对训练期主配置（{input_size_label(training['primary']['input_size'], True)} / 阈值
   {training['primary']['threshold']:.2f}）。训练期指标来自
   detection/reports/{esc(report['run_name'])}/summary.json；离线指标由本次推理标签重新计算。</p>
   {render_compare_table(compare_rows)}
@@ -712,6 +776,10 @@ footer { color:var(--muted); font-size:12px; text-align:center; padding:20px; }
   <h2>分组指标</h2>
   <p class="muted">按文件名前缀 ui_/doc_ 划分，总体指标按框数汇总，不是按图片数平均。</p>
   {render_group_table_multi(runs)}
+  <h3>长宽比分组（PyTorch {input_size_label(config['input_size'], config.get('dynamic_input', False))}）</h3>
+  {render_aspect_table(aspect_groups)}
+  <p class="muted">长宽比 = 宽/高；>20:1 主要是浏览器地址栏等超宽细条，动态输入会把短边压到
+  64，固定方形画布能保持与训练一致的输入分布。</p>
 </section>
 
 <section id="agreement">
@@ -735,7 +803,9 @@ footer { color:var(--muted); font-size:12px; text-align:center; padding:20px; }
 
 <section id="errors">
   <h2>错误分析</h2>
-  <p class="muted">逐图统计使用 PyTorch 验证集结果（{pytorch_val.get('input_size', config['input_size'])}px /
+  <p class="muted">逐图统计使用 PyTorch 验证集结果
+  （{input_size_label(pytorch_val.get('input_size', config['input_size']),
+                       pytorch_val.get('dynamic_input', config.get('dynamic_input', False)))} /
   阈值 {pytorch_val.get('threshold', config['score_threshold']):.2f}）。</p>
   {render_error_summary(error_analysis)}
   <h3>最差图片</h3>
@@ -797,13 +867,30 @@ def build_report(runs, training, curves, config, run_name):
     base_f1 = ((training.get("groups") or {}).get("overall") or {}).get("f1")
 
     conclusions = []
+    aspect_groups = {}
+    if ("pytorch", "train") in runs and ("pytorch", "val") in runs:
+        aspect_groups = {
+            "train": build_aspect_groups(runs[("pytorch", "train")]["records"]),
+            "val": build_aspect_groups(runs[("pytorch", "val")]["records"]),
+        }
+    offline_dynamic = (runs.get(("pytorch", "val")) or {}).get("dynamic_input", False)
     if val_f1 is not None and base_f1 is not None:
-        conclusions.append(
-            f"部署入口的 PyTorch 验证集 F1 为 <strong>{val_f1:.5f}</strong>，"
-            f"训练期同配置为 {base_f1:.5f}，差 {val_f1 - base_f1:+.5f}；"
-            f"差异小于 0.002，入口配置与训练期验证一致。" if abs(val_f1 - base_f1) < 0.002
-            else f"部署入口的 PyTorch 验证集 F1 为 <strong>{val_f1:.5f}</strong>，"
-                 f"与训练期 {base_f1:.5f} 相差 {val_f1 - base_f1:+.5f}，需要核对入口配置和标签一致性。")
+        delta = val_f1 - base_f1
+        if not offline_dynamic:
+            conclusions.append(
+                f"离线 PyTorch 使用固定 {config['input_size']}×{config['input_size']} 画布，"
+                f"验证集 F1 为 <strong>{val_f1:.5f}</strong>；训练期验证使用动态尺寸口径，"
+                f"F1 为 {base_f1:.5f}，差 {delta:+.5f}。固定画布与训练输入同尺寸，"
+                f"该差异来自推理尺寸口径，不是模型或标签变化。")
+        elif abs(delta) < 0.002:
+            conclusions.append(
+                f"部署入口的 PyTorch 验证集 F1 为 <strong>{val_f1:.5f}</strong>，"
+                f"训练期同口径为 {base_f1:.5f}，差 {delta:+.5f}；"
+                f"入口配置与训练期验证一致。")
+        else:
+            conclusions.append(
+                f"部署入口的 PyTorch 验证集 F1 为 <strong>{val_f1:.5f}</strong>，"
+                f"与训练期 {base_f1:.5f} 相差 {delta:+.5f}，需要核对入口配置和标签一致性。")
     if onnx_val_f1 is not None and val_f1 is not None:
         difference = onnx_val_f1 - val_f1
         conclusions.append(
@@ -816,6 +903,12 @@ def build_report(runs, training, curves, config, run_name):
             f"训练集 in-sample F1 为 {train_f1:.5f}，验证集为 {val_f1:.5f}，"
             f"差 {(train_f1 - val_f1) * 100:+.2f} 个百分点。该差值包含过拟合、"
             f"训练/验证域差异和标注噪声，不能只归因于模型容量。")
+    wide = (aspect_groups.get("val") or {}).get(">20")
+    if wide:
+        conclusions.append(
+            f"验证集长宽比 >20:1 的 {wide['images']} 张固定画布 F1 为 "
+            f"<strong>{wide['f1']:.5f}</strong>（TP {wide['tp']} / FN {wide['fn']}）；"
+            f"这类超宽细条是固定画布相对动态尺寸提升最大的子集。")
     if agreement.get("val"):
         item = agreement["val"]
         conclusions.append(
@@ -835,8 +928,9 @@ def build_report(runs, training, curves, config, run_name):
             f"ONNX/OpenVINO CPU 在验证集上为 {timing_onnx['mean_detect_ms']:.1f} ms/张；"
             f"两者硬件不同，只能用于部署容量估算，不能当作加速比。")
     conclusions.append(
-        "训练期最佳工作点 896px / 阈值 0.85 的验证 F1 更高，但本次离线入口按 768px / 0.70 运行，"
-        "没有复跑该工作点；如需复核，修改检测入口的 INPUT_SIZE/阈值后重新推理。")
+        "训练期最佳工作点 896px 动态 / 阈值 0.85 的验证 F1 更高，但本次离线入口按固定 "
+        f"{config['input_size']}×{config['input_size']} / 0.70 运行，没有复跑该工作点；"
+        "如需复核，修改检测入口的 INPUT_SIZE/阈值后重新推理。")
     conclusions.append(
         "验证集参与过检查点选择和工作点对比，上述 F1 存在乐观偏差；上线前应使用独立留出集复核。")
 
@@ -870,6 +964,7 @@ def build_report(runs, training, curves, config, run_name):
                                             "orientation": {}, "images": []},
         "highlights": highlights,
         "conclusions": conclusions,
+        "aspect_groups": aspect_groups,
         "error_rows": build_error_rows(runs, config),
         "curves": curves,
     }

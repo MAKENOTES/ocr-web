@@ -16,10 +16,19 @@ from detection.models.east_model import create_model
 from detection.utils import ONNX_CONFIG_KEY, save_checkpoint
 
 
+def test_deployment_defaults_use_fixed_canvas():
+    """默认部署与导出都使用固定方形画布，避免超宽图动态压缩短边。"""
+    from detection import inference
+
+    assert inference.DYNAMIC_INPUT is False
+    assert inference.INPUT_SIZE == 768
+    assert exporter.DYNAMIC_SPATIAL is False
+    assert exporter.INPUT_SIZE == 768
+
+
 @pytest.mark.parametrize("dynamic_spatial", [True, False])
 def test_export_and_detector_roundtrip(tmp_path, monkeypatch, dynamic_spatial):
     import onnx
-
     monkeypatch.setattr(exporter, "BENCHMARK_ENABLED", False)
     previous = torch.get_num_threads()
     torch.set_num_threads(1)

@@ -1,8 +1,9 @@
 """统一检测 PyTorch/GPU 推理：整图缩放、连通域解码、NMS 和原图坐标还原。
 
-PyTorch 检查点默认使用 GPU（不可用时回退 CPU），并按原图宽高比动态选择输入
-尺寸；ONNX/OpenVINO 的 CPU 部署入口是根目录 detection_inference_onnx.py，
-该入口独立实现，不依赖本模块。所有输出坐标均还原到原图像素空间。
+PyTorch 检查点默认使用 GPU（不可用时回退 CPU），默认把整图缩放到固定
+INPUT_SIZE 方形画布；DYNAMIC_INPUT=True 时才按原图宽高比选择 32 的倍数尺寸。
+ONNX/OpenVINO 的 CPU 部署入口是根目录 detection_inference_onnx.py，该入口
+独立实现，不依赖本模块。所有输出坐标均还原到原图像素空间。
 """
 import sys
 import time
@@ -47,8 +48,8 @@ MODEL_PATH = Path("detection/checkpoints/ocr_experiment_1793283532819507511/best
 IMAGE_PATH = Path("detection/data/test_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
 OUTPUT_DIR = Path("detection/data/test_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
 DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU；ONNX/OpenVINO 使用 CPU。
-INPUT_SIZE = 768  # 输入尺寸上限，单位 px；与训练和当前部署指标一致，int 表示正方形，也可设为 (高, 宽)。
-DYNAMIC_INPUT = True  # 启用时按原图宽高比选择 32 的倍数尺寸；固定尺寸导出的 ONNX 自动改为固定输入。
+INPUT_SIZE = 768  # 固定方形输入边长，单位 px；与训练尺寸一致，int 表示正方形，也可设为 (高, 宽)。
+DYNAMIC_INPUT = False  # 默认固定方形画布；True 时按原图宽高比选择 32 的倍数尺寸，超宽图短边会被压到 64。
 SCORE_THRESHOLD = DEFAULT_SCORE_THRESHOLD  # 文字置信度阈值，取值范围为 (0, 1)。
 NMS_IOU_THRESHOLD = DEFAULT_NMS_IOU_THRESHOLD  # 重复框抑制的交并比阈值，取值范围为 (0, 1]。
 SAVE_CROPS = False  # 启用时保存原图文字框 PNG 裁片，供识别使用。
@@ -119,6 +120,7 @@ class DocumentDetector:
                              f"does not match exported shape {static_size}")
         if dynamic:
             self.max_input_size = tuple(config["input_size"])
+            self.dynamic_input = True
             return
         self.static_input_size = tuple(static_size)
         self.dynamic_input = False
@@ -129,7 +131,7 @@ class DocumentDetector:
         return self.static_input_size or self.max_input_size
 
     def _target_size(self, image_size):
-        """按模型导出方式和原图宽高比选择本次输入尺寸。"""
+        """返回固定输入尺寸，或动态模式下按原图宽高比选择的尺寸。"""
         if self.dynamic_input:
             return dynamic_input_size(image_size, self.max_input_size)
         return self.input_size

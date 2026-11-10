@@ -117,7 +117,8 @@ ONNX 元数据共用 `detection/utils/checkpoint.py` 的校验。
 为一致粒度。坐标减去补边偏移、除以缩放比例后裁到原图边界，再按
 `NMS_IOU_THRESHOLD` 抑制重复框，按从上到下、从左到右排序。
 
-`DocumentDetector` 支持 PyTorch、ONNX Runtime 和 OpenVINO。PyTorch 默认动态；
+`DocumentDetector` 支持 PyTorch、ONNX Runtime 和 OpenVINO。PyTorch 默认固定
+方形画布（768×768），与训练输入一致；`DYNAMIC_INPUT=True` 时才按宽高比选择尺寸。
 ONNX/OpenVINO 读取导出后的实际高宽：动态模型使用配置的尺寸上限，固定模型
 自动改为导出尺寸，并校验元数据、输入输出名称和 `dynamic_spatial` 一致。
 `inference.py` 保存画框预览、bbox4 标签和可选裁片；`SAVE_CROPS` 关闭时不创建
@@ -128,9 +129,11 @@ NMS 和输出辅助全部内联，不导入 `detection` 包，只依赖 numpy、
 和 ONNX Runtime（可选 OpenVINO）；部署时复制脚本和 `.onnx` 模型即可。其输出
 契约与包内实现保持一致，修改任一侧后需运行 ONNX 对比测试。
 
-根目录 `detection_export_onnx.py` 默认导出动态 batch 和动态高宽，先执行 PyTorch 与
-ONNX Runtime 的数值比较，覆盖 batch 1/2 和不同高宽；直接写入目标文件并校验，
-目标已存在时覆盖，不创建临时目录。`SIMPLIFY_MODEL` 只影响图简化，不影响强制数值校验。
+根目录 `detection_export_onnx.py` 默认导出动态 batch 和固定 768×768 高宽；设置
+`DYNAMIC_SPATIAL=True` 时才导出动态高宽。导出先执行 PyTorch 与
+ONNX Runtime 的数值比较，固定导出覆盖 batch 1/2，动态导出额外覆盖不同高宽；
+直接写入目标文件并校验，目标已存在时覆盖，不创建临时目录。`SIMPLIFY_MODEL`
+只影响图简化，不影响强制数值校验。
 
 `components/eval_metrics.py` 直接读取图片和标签目录，按置信度一对一匹配，
 默认匹配 IoU 0.5；预测主要落在 `###` 区域内时不计误检，输出总体和按扩展名

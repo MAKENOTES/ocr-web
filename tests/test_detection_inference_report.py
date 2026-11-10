@@ -103,6 +103,7 @@ def test_write_report_outputs_lightweight_summary(tmp_path):
                 "images": len(index),
                 "boxes": 3,
                 "input_size": 768,
+                "dynamic_input": False,
                 "threshold": 0.7,
                 "groups": data["groups"],
                 "records": data["records"],
@@ -125,7 +126,7 @@ def test_write_report_outputs_lightweight_summary(tmp_path):
         "best_workpoint": None,
     }
     config = {"checkpoint": "fake.pth", "onnx_model": "fake.onnx", "input_size": 768,
-              "dynamic_input": True, "score_threshold": 0.7, "nms_iou": 0.3,
+              "dynamic_input": False, "score_threshold": 0.7, "nms_iou": 0.3,
               "onnx_backend": "openvino"}
 
     report = build_report(runs, training, {}, config, "fake_run")
@@ -135,12 +136,31 @@ def test_write_report_outputs_lightweight_summary(tmp_path):
     summary_text = summary_path.read_text(encoding="utf-8")
     assert "统一检测部署推理报告" in html
     assert "后端一致性" in html
+    assert "固定 768×768" in html
+    assert "长宽比分组" in html
     assert "data:image" not in summary_text
     assert json.loads(summary_text)["runs"]["pytorch_val"]["groups"]["overall"]["tp"] == 2
     assert {path.name for path in csv_paths} == {"errors_train.csv", "errors_val.csv"}
     train_csv = (tmp_path / "report" / "errors_train.csv").read_text(encoding="utf-8-sig")
     assert train_csv.startswith("image,path,split,source")
     assert "doc_b" in train_csv
+
+
+def test_remove_stale_previews_keeps_only_current_images(tmp_path):
+    """重算预览时应删除上一轮多出的图片，但不能碰非图片文件。"""
+    from detection.inference_report import remove_stale_previews
+
+    folder = tmp_path / "previews"
+    folder.mkdir()
+    (folder / "keep.png").write_bytes(b"x")
+    (folder / "old.png").write_bytes(b"x")
+    (folder / "old.jpg").write_bytes(b"x")
+    (folder / "notes.txt").write_text("说明", encoding="utf-8")
+
+    removed = remove_stale_previews(folder, {"keep.png"})
+
+    assert removed == 2
+    assert {path.name for path in folder.iterdir()} == {"keep.png", "notes.txt"}
 
 
 def test_read_error_rows_accepts_bom_and_rejects_missing_path(tmp_path):

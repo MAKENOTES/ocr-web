@@ -1,7 +1,8 @@
-"""统一检测 ONNX 导出入口：优先 Dynamo、可选图简化，并校验 batch 与动态高宽。
+"""统一检测 ONNX 导出入口：优先 Dynamo、可选图简化，并校验 batch 与导出高宽。
 
-导出实现和常量都集中在根目录入口，便于单独运行、复用和调整本次导出配置；
-模型定义、检查点读取和 ONNX 运行时配置仍复用 detection 包内实现。
+默认导出固定 INPUT_SIZE 方形高宽，与训练和 PyTorch 推理一致；DYNAMIC_SPATIAL=True
+时才导出动态高宽。导出实现和常量都集中在根目录入口，便于单独运行、复用和调整
+本次导出配置；模型定义、检查点读取和 ONNX 运行时配置仍复用 detection 包内实现。
 """
 import json
 import logging
@@ -22,8 +23,8 @@ from detection.utils import ONNX_CONFIG_KEY, checkpoint_config, load_checkpoint
 
 CHECKPOINT_PATH = Path("detection/checkpoints/ocr_experiment_1793283532819507511/best_f1_detection_epoch_560_f1_0.97158.pth")  # 待导出的统一检测检查点，必须包含 config 和 model。
 OUTPUT_PATH = Path("best_detection.onnx")  # 导出 ONNX 文件路径；目标已存在时直接覆盖。
-INPUT_SIZE = 768  # 导出输入尺寸上限，单位 px；与训练和推理入口一致，也可设为 (高, 宽)，各边至少 64 且为 32 的倍数。
-DYNAMIC_SPATIAL = True  # 启用时导出动态高宽，推理可按图片宽高比选择尺寸；关闭则固定为 INPUT_SIZE。
+INPUT_SIZE = 768  # 导出方形输入边长，单位 px；与训练和推理入口一致，也可设为 (高, 宽)，各边至少 64 且为 32 的倍数。
+DYNAMIC_SPATIAL = False  # 默认固定高宽；True 时导出动态高宽，推理可按图片宽高比选择尺寸。
 BENCHMARK_ENABLED = True  # 启用时额外比较 CPU batch=1 前向速度；数值校验始终执行。
 BENCHMARK_WARMUP = 5  # 每个后端正式测速前的预热次数。
 BENCHMARK_RUNS = 20  # 每个后端计入平均前向耗时的运行次数。

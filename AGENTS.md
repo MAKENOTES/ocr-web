@@ -54,7 +54,7 @@
 - `recognition/keys.txt` 的字符内容与顺序属于模型 ABI；修改后必须重新训练、导出并验证模型。
 - Detection 图片与标签按 stem 配对，标签可以是 `gt_<stem>.txt` 或 `<stem>.txt`，同一张图片必须恰好存在一份标签；缺失或歧义立即报错。支持水平 `bbox4` 和水平 `quad8`，旋转四边形直接拒绝；`###` 表示忽略区域，空标签表示已确认的无文字图片。
 - 统一 `detection/` 的数据位于 `detection/data/{train,val}_{images,labels}`，由 `tools/prepare_unified_detection_data.py` 从两个历史检测目录按图片内容 MD5 去重后生成，并用 `split_manifest.csv` 固定归属。同一内容不能同时进入 train 和 val；新增数据应重新生成清单或按同样规则追加，禁止把验证图片复制进训练目录。
-- 统一检测训练使用固定输入尺寸，默认 768×768，可由 `INPUT_SIZE` 改为 `(高, 宽)`；推理可用 `DYNAMIC_INPUT=True` 按原图宽高比选择 32 的倍数尺寸，ONNX 导出对应动态高宽。固定尺寸导出的 ONNX/OpenVINO 模型自动使用导出尺寸。
+- 统一检测训练使用固定输入尺寸，默认 768×768，可由 `INPUT_SIZE` 改为 `(高, 宽)`；推理默认 `DYNAMIC_INPUT=False`，使用同样的固定方形画布。`DYNAMIC_INPUT=True` 时按原图宽高比选择 32 的倍数尺寸，但超宽图短边会被压到 64、显著降低细条指标，只建议实验使用。ONNX 导出默认固定高宽（`DYNAMIC_SPATIAL=False`），动态导出时对应动态高宽；固定尺寸导出的 ONNX/OpenVINO 模型自动使用导出尺寸。
 - 统一检测训练增强集中在 `detection/components/augmentation.py`，默认 30 种；几何增强在原图执行，光度/遮挡增强在缩放补边后的固定输入执行。几何增强后必须裁剪四边形并删除退化框，旋转/透视/剪切不得进入默认流程。验证集不启用随机增强，批次强度课程只在训练集生效。
 - 统一检测最终框粒度为词/短语：整行 GT 必须在数据层合并为一致粒度，解码器默认按低占用列拆分粘连连通域；`split_word_gaps=False` 仅用于对照或兼容旧模型。训练默认 `BATCH_SIZE=8`、`NUM_WORKERS=8`，batch 翻倍时同步调整学习率并重新核对显存。
 - `detection_small/` 和 `detection_larger/` 的数据契约按各自 README/架构文档执行；历史目录中的重复样本和加载差异不自动同步到统一检测。
