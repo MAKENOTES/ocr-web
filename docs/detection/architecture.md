@@ -43,7 +43,7 @@
 
 | 张量 | 形状及单位 |
 | --- | --- |
-| 图片 | `[B,3,H,W]`，训练默认 H=W=640 |
+| 图片 | `[B,3,H,W]`，训练默认 H=W=768 |
 | 置信度真值 | 数据集 `[H/4,W/4]`，训练增加通道维后 `[B,1,H/4,W/4]` |
 | 几何真值/输出 | `[B,4,H/4,W/4]`；上、右、下、左距离，以特征图像素计，真值取 `log1p` |
 
@@ -111,7 +111,10 @@ ONNX 元数据共用 `detection/utils/checkpoint.py` 的校验。
 
 后处理使用四连通域，保留单个高置信度像素，不按连通域长宽比过滤。小连通域用
 全像素几何中位数，大连通域用边缘像素统计；几何预测先 `expm1`，再按步长 4
-还原到输入图像素。坐标减去补边偏移、除以缩放比例后裁到原图边界，再按
+还原到输入图像素。高度至少 8 个特征像素的大连通域默认按低占用列拆分：连续低
+占用列宽度需同时达到绝对最小值和连通域高度的 18%，避免把字符内部空隙拆开；
+`split_word_gaps=False` 可保留整段输出。目标粒度是词/短语，整行 GT 需要先合并
+为一致粒度。坐标减去补边偏移、除以缩放比例后裁到原图边界，再按
 `NMS_IOU_THRESHOLD` 抑制重复框，按从上到下、从左到右排序。
 
 `DocumentDetector` 支持 PyTorch、ONNX Runtime 和 OpenVINO。PyTorch 默认动态；
@@ -120,10 +123,18 @@ ONNX/OpenVINO 读取导出后的实际高宽：动态模型使用配置的尺寸
 `inference.py` 保存画框预览、bbox4 标签和可选裁片；`SAVE_CROPS` 关闭时不创建
 或修改裁片目录。
 
-`export_onnx.py` 默认导出动态 batch 和动态高宽，先执行 PyTorch 与 ONNX Runtime
-的数值比较，覆盖 batch 1/2 和不同高宽；校验通过后才独占创建目标文件。
-`SIMPLIFY_MODEL` 只影响图简化，不影响强制数值校验。
+CPU 部署入口 `detection_inference_onnx.py` 是单文件实现：预处理、连通域解码、
+NMS 和输出辅助全部内联，不导入 `detection` 包，只依赖 numpy、Pillow、OpenCV
+和 ONNX Runtime（可选 OpenVINO）；部署时复制脚本和 `.onnx` 模型即可。其输出
+契约与包内实现保持一致，修改任一侧后需运行 ONNX 对比测试。
+
+根目录 `detection_export_onnx.py` 默认导出动态 batch 和动态高宽，先执行 PyTorch 与
+ONNX Runtime 的数值比较，覆盖 batch 1/2 和不同高宽；直接写入目标文件并校验，
+目标已存在时覆盖，不创建临时目录。`SIMPLIFY_MODEL` 只影响图简化，不影响强制数值校验。
 
 `components/eval_metrics.py` 直接读取图片和标签目录，按置信度一对一匹配，
 默认匹配 IoU 0.5；预测主要落在 `###` 区域内时不计误检，输出总体和按扩展名
 分组的 TP/FP/FN、Precision、Recall、F1。扩展名只用于分组，不推断业务来源。
+`detection/inference_report.py` 调用两个部署入口在训练/验证集上生成预测，按同一
+0.5 IoU 口径复核 P/R/F1、两后端框级一致性和入口耗时，并与训练报告摘要对照；
+同时输出 `errors_train.csv` 和 `errors_val.csv` 逐图错误明细。

@@ -8,11 +8,11 @@
 
 ## 目录与入口
 
-- `detection/`：当前统一检测包。ResNet18 EAST 模型、严格数据加载、真值/损失、训练、推理、评估和导出都在包内独立实现，不导入 `detection_small`、`detection_larger` 或 `recognition`。
+- `detection/`：当前统一检测包。ResNet18 EAST 模型、严格数据加载、真值/损失、训练、推理和评估都在包内独立实现，不导入 `detection_small`、`detection_larger` 或 `recognition`；`detection/inference.py` 面向 PyTorch/GPU 推理，根目录 `detection_inference_onnx.py` 是单文件 ONNX CPU 推理入口（不依赖 `detection` 包），ONNX 导出入口在根目录 `detection_export_onnx.py`。
 - `detection_small/`：迁移前的 UI 小图检测，保留原有实现、数据和历史脚本，不再作为主链路。
 - `detection_larger/`：迁移前的 PDF 页面和网页表格检测，保留原有实现、数据和历史脚本，不再作为主链路。
 - `recognition/`：CRNN 识别模型、统一图片预处理、训练、评估和历史记录。
-- `detection_export_onnx.py`、`detection_inference_onnx.py`：统一检测的 ONNX 导出和多后端 CPU 推理入口。
+- `detection_export_onnx.py`、`detection_inference_onnx.py`：统一检测的 ONNX 导出和独立 ONNX Runtime/OpenVINO CPU 推理入口。
 - `detection_small_inference_640.py`、`detection_small_export_onnx.py`、`detection_small_quantize_int8.py`：历史小图检测入口。
 - `detection_larger_export_onnx.py`、`detection_larger_inference_onnx.py`：历史大图检测入口。
 - `recognition_inference.py`：PyTorch、ONNX、OpenVINO 多后端识别入口。
@@ -39,7 +39,7 @@
 .venv/bin/python -m pytest tests/test_detection_rectangular_pipeline.py -q
 .venv/bin/python -m pytest tests/test_detection_split_dataset.py -q
 .venv/bin/python -m pytest tests/test_detection_larger.py -q
-.venv/bin/python -m py_compile detection/train.py detection/inference.py detection/export_onnx.py detection/components/*.py detection/models/*.py detection/utils/*.py recognition/components/dataset.py recognition/models/model.py recognition/train.py recognition/evaluate_val.py recognition_export_onnx.py recognition_inference.py
+.venv/bin/python -m py_compile detection/train.py detection/inference.py detection/report.py detection/components/*.py detection/models/*.py detection/utils/*.py detection_export_onnx.py detection_inference_onnx.py recognition/components/dataset.py recognition/models/model.py recognition/train.py recognition/evaluate_val.py recognition_export_onnx.py recognition_inference.py
 ```
 
 改动哪个子系统，至少运行对应的测试文件。涉及共享预处理、张量 layout、动态 padding 或模型输入通道时，还要运行全部测试。
@@ -54,8 +54,9 @@
 - `recognition/keys.txt` 的字符内容与顺序属于模型 ABI；修改后必须重新训练、导出并验证模型。
 - Detection 图片与标签按 stem 配对，标签可以是 `gt_<stem>.txt` 或 `<stem>.txt`，同一张图片必须恰好存在一份标签；缺失或歧义立即报错。支持水平 `bbox4` 和水平 `quad8`，旋转四边形直接拒绝；`###` 表示忽略区域，空标签表示已确认的无文字图片。
 - 统一 `detection/` 的数据位于 `detection/data/{train,val}_{images,labels}`，由 `tools/prepare_unified_detection_data.py` 从两个历史检测目录按图片内容 MD5 去重后生成，并用 `split_manifest.csv` 固定归属。同一内容不能同时进入 train 和 val；新增数据应重新生成清单或按同样规则追加，禁止把验证图片复制进训练目录。
-- 统一检测训练使用固定输入尺寸，默认 640×640，可由 `INPUT_SIZE` 改为 `(高, 宽)`；推理可用 `DYNAMIC_INPUT=True` 按原图宽高比选择 32 的倍数尺寸，ONNX 导出对应动态高宽。固定尺寸导出的 ONNX/OpenVINO 模型自动使用导出尺寸。
+- 统一检测训练使用固定输入尺寸，默认 768×768，可由 `INPUT_SIZE` 改为 `(高, 宽)`；推理可用 `DYNAMIC_INPUT=True` 按原图宽高比选择 32 的倍数尺寸，ONNX 导出对应动态高宽。固定尺寸导出的 ONNX/OpenVINO 模型自动使用导出尺寸。
 - 统一检测训练增强集中在 `detection/components/augmentation.py`，默认 30 种；几何增强在原图执行，光度/遮挡增强在缩放补边后的固定输入执行。几何增强后必须裁剪四边形并删除退化框，旋转/透视/剪切不得进入默认流程。验证集不启用随机增强，批次强度课程只在训练集生效。
+- 统一检测最终框粒度为词/短语：整行 GT 必须在数据层合并为一致粒度，解码器默认按低占用列拆分粘连连通域；`split_word_gaps=False` 仅用于对照或兼容旧模型。训练默认 `BATCH_SIZE=8`、`NUM_WORKERS=8`，batch 翻倍时同步调整学习率并重新核对显存。
 - `detection_small/` 和 `detection_larger/` 的数据契约按各自 README/架构文档执行；历史目录中的重复样本和加载差异不自动同步到统一检测。
 
 ## 修改原则

@@ -1,8 +1,8 @@
-"""统一检测推理：整图缩放、连通域解码、NMS 和原图坐标还原。
+"""统一检测 PyTorch/GPU 推理：整图缩放、连通域解码、NMS 和原图坐标还原。
 
-PyTorch 检查点默认按原图宽高比动态选择输入尺寸；ONNX/OpenVINO 若导出为
-动态高宽则同样动态，若导出为固定尺寸则使用模型自身尺寸。所有输出坐标均
-还原到原图像素空间。
+PyTorch 检查点默认使用 GPU（不可用时回退 CPU），并按原图宽高比动态选择输入
+尺寸；ONNX/OpenVINO 的 CPU 部署入口是根目录 detection_inference_onnx.py，
+该入口独立实现，不依赖本模块。所有输出坐标均还原到原图像素空间。
 """
 import sys
 import time
@@ -11,22 +11,29 @@ from pathlib import Path
 import numpy as np
 import torch
 from PIL import ImageDraw
-from torchvision.ops import nms
 
 # 兼容从仓库根目录直接运行此文件。
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from detection.components.image import IMAGE_EXTENSIONS, load_rgb_image
+from detection.components.inference_utils import (
+    CROP_INDEX_DIGITS,
+    DEFAULT_NMS_IOU_THRESHOLD,
+    DEFAULT_SCORE_THRESHOLD,
+    crop_path,
+    decode_maps,
+    expand_predictions,
+    remove_stale_crops,
+    suppress_boxes,
+)
 from detection.components.onnx_runtime import (
     OpenVINOBackend,
     session_options,
     static_spatial_size,
     validate_onnx_metadata,
 )
-from detection.components.postprocess import MIN_AREA, boxes_from_connected_components, scaled_small_region_area
 from detection.components.transforms import (
-    STRIDE,
     dynamic_input_size,
     normalize_input_size,
     prepare_image,
@@ -35,58 +42,17 @@ from detection.components.transforms import (
 from detection.utils import load_checkpoint
 
 
-# 统一检测模型；更换训练结果时修改此路径。默认文件需先通过导出入口生成。
-MODEL_PATH = Path("detection/checkpoints/ocr_experiment_1793192301352512117/best_detection_epoch_608_loss_0.04769.pth")
-IMAGE_PATH = Path("detection/data/train_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
-OUTPUT_DIR = Path("detection/data/train_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
+# 统一检测模型；更换训练结果时修改此路径。
+MODEL_PATH = Path("detection/checkpoints/ocr_experiment_1793283532819507511/best_f1_detection_epoch_560_f1_0.97158.pth")
+IMAGE_PATH = Path("detection/data/test_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
+OUTPUT_DIR = Path("detection/data/test_images")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
 DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU；ONNX/OpenVINO 使用 CPU。
-INPUT_SIZE = 640  # 输入尺寸上限，单位 px；int 表示正方形，也可设为 (高, 宽)。
+INPUT_SIZE = 768  # 输入尺寸上限，单位 px；与训练和当前部署指标一致，int 表示正方形，也可设为 (高, 宽)。
 DYNAMIC_INPUT = True  # 启用时按原图宽高比选择 32 的倍数尺寸；固定尺寸导出的 ONNX 自动改为固定输入。
-SCORE_THRESHOLD = 0.7  # 文字置信度阈值，取值范围为 (0, 1)。
-NMS_IOU_THRESHOLD = 0.3  # 重复框抑制的交并比阈值，取值范围为 (0, 1]。
+SCORE_THRESHOLD = DEFAULT_SCORE_THRESHOLD  # 文字置信度阈值，取值范围为 (0, 1)。
+NMS_IOU_THRESHOLD = DEFAULT_NMS_IOU_THRESHOLD  # 重复框抑制的交并比阈值，取值范围为 (0, 1]。
 SAVE_CROPS = False  # 启用时保存原图文字框 PNG 裁片，供识别使用。
 CROP_DIR = Path("detection/data/crops/test_images")  # 裁片平铺目录；启用时覆盖同名裁片并清理该原图多余的旧序号。
-CROP_INDEX_DIGITS = 5  # 裁片文件名序号位数，序号从 1 开始并左侧补零。
-
-
-def suppress_boxes(boxes, scores, iou_threshold=NMS_IOU_THRESHOLD):
-    """按置信度抑制重叠的 xyxy 框，返回保留框索引；空输入返回空索引。"""
-    if not 0 < iou_threshold <= 1:
-        raise ValueError("iou_threshold must be in (0, 1]")
-    if not len(boxes):
-        return np.empty(0, dtype=np.int64)
-    return nms(torch.as_tensor(boxes, dtype=torch.float32),
-               torch.as_tensor(scores, dtype=torch.float32), iou_threshold).numpy()
-
-
-def decode_maps(score, geometry, threshold=SCORE_THRESHOLD):
-    """由置信度连通域解码输入图像素坐标框，按置信度降序返回。
-
-    score 形状为 (1, H, W)，geometry 为 (4, H, W) 的 log1p 特征图距离。
-    返回 (N, 4) 的 xyxy 框及 (N,) 置信度；非有限预测不参与出框。
-    """
-    if not 0 < threshold < 1:
-        raise ValueError("threshold must be in (0, 1)")
-    score = np.asarray(score).squeeze(0)
-    geometry = np.asarray(geometry)
-    score = np.where(np.isfinite(score) & np.isfinite(geometry).all(axis=0), score, 0)
-
-    boxes = boxes_from_connected_components(
-        score, np.expm1(np.clip(geometry, 0, 12)), threshold, min_area=MIN_AREA,
-        small_region_area=scaled_small_region_area(tuple(value * STRIDE for value in score.shape)),
-    ).astype(np.float32).reshape(-1, 4)
-    boxes = boxes[np.isfinite(boxes).all(axis=1)]
-
-    confidence = []
-    for box in boxes:
-        x0, y0 = np.maximum(np.floor(box[:2] / STRIDE), 0).astype(int)
-        x1, y1 = np.minimum(np.ceil(box[2:] / STRIDE), score.shape[::-1]).astype(int)
-        region = score[y0:y1, x0:x1]
-        confidence.append(float(region.max()) if region.size else 0.0)
-    confidence = np.asarray(confidence, dtype=np.float32)
-
-    order = np.argsort(-confidence, kind="stable")
-    return boxes[order], confidence[order]
 
 
 class DocumentDetector:
@@ -214,37 +180,6 @@ class DocumentDetector:
         return [{"box": boxes[index].tolist(), "score": float(scores[index])} for index in keep]
 
 
-def crop_path(crop_dir, image_stem, index):
-    """按 <原图 stem>-<序号>.png 生成平铺裁片路径；序号从 1 开始。"""
-    return Path(crop_dir) / f"{image_stem}-{index + 1:0{CROP_INDEX_DIGITS}d}.png"
-
-
-def remove_stale_crops(crop_dir, image_stem, keep_count):
-    """删除该原图序号超出本次框数的旧裁片，保留其他原图的结果和无关文件。"""
-    prefix = f"{image_stem}-"
-    for path in Path(crop_dir).iterdir():
-        if not path.is_file() or not path.name.startswith(prefix) or path.suffix.lower() != ".png":
-            continue
-        number = path.stem[len(prefix):]
-        if number.isascii() and number.isdigit() and int(number) > keep_count:
-            path.unlink()
-
-
-def expand_predictions(predictions, image_size, ratio_w, ratio_h):
-    """按框高向左右和上下扩边，裁片、标签和预览一致；坐标限制在原图内。"""
-    if not all(np.isfinite(ratio) and ratio >= 0 for ratio in (ratio_w, ratio_h)):
-        raise ValueError("Expansion ratios must be finite and nonnegative")
-    width, height = image_size
-    result = []
-    for prediction in predictions:
-        x0, y0, x1, y1 = prediction["box"]
-        box_height = y1 - y0
-        result.append({**prediction, "box": [
-            max(0, x0 - box_height * ratio_w), max(0, y0 - box_height * ratio_h),
-            min(width, x1 + box_height * ratio_w), min(height, y1 + box_height * ratio_h)]})
-    return result
-
-
 def run_inference(model_path, image_path, output_dir, device="cpu", *,
                   threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
                   save_crops=False, crop_dir=None, backend="auto", warmup_runs=0,
@@ -325,10 +260,10 @@ def run_inference(model_path, image_path, output_dir, device="cpu", *,
 
 
 def main():
-    """按顶部常量推理，覆盖本次输入对应的同名产物。"""
+    """按顶部常量执行 PyTorch/GPU 推理；ONNX CPU 部署使用根目录独立入口。"""
     run_inference(MODEL_PATH, IMAGE_PATH, OUTPUT_DIR, DEVICE,
                   threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
-                  save_crops=SAVE_CROPS, crop_dir=CROP_DIR)
+                  save_crops=SAVE_CROPS, crop_dir=CROP_DIR, backend="pytorch")
 
 
 if __name__ == "__main__":

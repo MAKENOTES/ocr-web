@@ -229,6 +229,32 @@ def test_decode_maps_keeps_confident_thin_text_regions(length, vertical):
     np.testing.assert_allclose(confidence, [.95])
 
 
+def test_decode_maps_splits_merged_words_by_wide_gap():
+    def make_maps(gap_width):
+        score = np.zeros((1, 80, 100), dtype=np.float32)
+        geometry = np.zeros((4, 80, 100), dtype=np.float32)
+        for x0, x1 in ((10, 30), (30 + gap_width, 50 + gap_width)):
+            score[0, 10:30, x0:x1] = .95
+            rows, columns = np.mgrid[10:30, x0:x1]
+            geometry[0, 10:30, x0:x1] = np.log1p(rows + .5 - 10)
+            geometry[1, 10:30, x0:x1] = np.log1p(x1 - (columns + .5))
+            geometry[2, 10:30, x0:x1] = np.log1p(30 - (rows + .5))
+            geometry[3, 10:30, x0:x1] = np.log1p(columns + .5 - x0)
+        score[0, 19, 30:30 + gap_width] = .95
+        return score, geometry
+
+    wide_score, wide_geometry = make_maps(10)
+    boxes, _ = decode_maps(wide_score, wide_geometry, threshold=.5)
+    assert len(boxes) == 2
+    np.testing.assert_allclose(boxes[0], [40, 40, 120, 120], atol=1e-3)
+    np.testing.assert_allclose(boxes[1], [160, 40, 240, 120], atol=1e-3)
+    assert len(decode_maps(wide_score, wide_geometry, threshold=.5,
+                           split_word_gaps=False)[0]) == 1
+
+    narrow_score, narrow_geometry = make_maps(2)
+    assert len(decode_maps(narrow_score, narrow_geometry, threshold=.5)[0]) == 1
+
+
 def test_decode_maps_keeps_all_regions_above_threshold_and_rejects_bad_threshold():
     score = np.zeros((1, 284, 284), dtype=np.float32)
     for y in range(0, 284, 4):

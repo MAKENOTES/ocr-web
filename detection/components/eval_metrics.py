@@ -37,24 +37,39 @@ def box_overlap(box, boxes):
             intersection / max(area, 1e-8))
 
 
-def match_counts(predictions, boxes, ignored, iou_threshold=0.5):
-    """按置信度一对一匹配；预测主要落在 ### 内时不计误检。"""
+def match_box_status(predictions, boxes, ignored, iou_threshold=0.5):
+    """按置信度一对一匹配，返回逐框状态、命中真值索引和 TP/FP/FN。
+
+    状态与输入 predictions 同序：1 表示 TP，0 表示 FP，-1 表示预测主要
+    落在 ### 忽略区内、既不计 TP 也不计 FP。命中真值索引对应 boxes 去掉
+    忽略区域后的顺序，供可视化标出漏检框。
+    """
     truth, ignore_boxes = boxes[~ignored], boxes[ignored]
     used = set()
-    true_positive = false_positive = 0
-    for prediction in sorted(predictions, key=lambda value: -value["score"]):
-        box = np.asarray(prediction["box"], dtype=np.float32)
+    status = np.zeros(len(predictions), dtype=np.int8)
+    # 稳定排序保证同分预测按输入顺序匹配，与逐框循环的判定顺序一致。
+    order = sorted(range(len(predictions)), key=lambda index: -predictions[index]["score"])
+    for index in order:
+        box = np.asarray(predictions[index]["box"], dtype=np.float32)
         overlap, _ = box_overlap(box, truth)
-        candidates = [int(index) for index in np.argsort(-overlap)
-                      if index not in used and overlap[index] >= iou_threshold]
+        candidates = [int(truth_index) for truth_index in np.argsort(-overlap)
+                      if truth_index not in used and overlap[truth_index] >= iou_threshold]
         if candidates:
             used.add(candidates[0])
-            true_positive += 1
+            status[index] = 1
         elif len(ignore_boxes) and np.any(box_overlap(box, ignore_boxes)[1] >= 0.5):
-            continue
+            status[index] = -1
         else:
-            false_positive += 1
-    return np.array([true_positive, false_positive, len(truth) - true_positive], dtype=np.int64)
+            status[index] = 0
+    counts = np.array([int(np.count_nonzero(status == 1)),
+                       int(np.count_nonzero(status == 0)),
+                       len(truth) - len(used)], dtype=np.int64)
+    return status, used, counts
+
+
+def match_counts(predictions, boxes, ignored, iou_threshold=0.5):
+    """按置信度一对一匹配；预测主要落在 ### 内时不计误检。"""
+    return match_box_status(predictions, boxes, ignored, iou_threshold)[2]
 
 
 def summarize_counts(counts):

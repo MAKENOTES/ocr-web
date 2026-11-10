@@ -30,17 +30,17 @@ from detection.utils import save_checkpoint
 
 
 # 超参数：沿用参考项目的 Adam、OneCycleLR 和早停配置。
-LEARNING_RATE = 1e-4  # Adam 构造时的学习率，随后由 OneCycleLR 接管实际学习率。
-MAX_LEARNING_RATE = 3e-4  # OneCycleLR 的峰值学习率。
-BATCH_SIZE = 4  # 每批 4 张完整图片；调整输入尺寸时需重新核对显存占用。
+LEARNING_RATE = 1.5e-4  # Adam 构造学习率；batch 4→8 后按约 1.5× 缩放，随后由 OneCycleLR 接管。
+MAX_LEARNING_RATE = 4.5e-4  # OneCycleLR 峰值学习率；若 batch 8 出现明显抖动可回退到 4e-4。
+BATCH_SIZE = 8  # 每批 8 张完整图片；768 输入约需 9-10GB 显存，调整尺寸时重新核对显存占用。
 EPOCHS = 620  # 最大训练轮数；达到早停条件时提前结束。
-INPUT_SIZE = 640  # 训练方形输入边长；也可设为 (高, 宽)，各边至少 64 且为 32 的倍数。
+INPUT_SIZE = 768  # 训练方形输入边长；与当前最佳推理尺寸一致，显存不足时可回退到 640。
 TRAIN_IMAGE_DIR = "detection/data/train_images"  # 已准备好的训练图片目录，同时读取 JPG 和 PNG。
 TRAIN_LABEL_DIR = "detection/data/train_labels"  # 训练文字框标签目录，按图片 stem 配对。
 VAL_IMAGE_DIR = "detection/data/val_images"  # 独立验证图片目录，不与训练集混用。
 VAL_LABEL_DIR = "detection/data/val_labels"  # 验证文字框标签目录，标签格式与训练集一致。
 
-NUM_WORKERS = 4  # 数据加载子进程数；设为 0 时在主进程加载，便于定位数据问题。
+NUM_WORKERS = 8  # 数据加载子进程数；设为 0 时在主进程加载，便于定位数据问题。
 PRETRAINED = True  # 是否加载 ImageNet 预训练参数；无缓存会下载，离线可设 False。
 LOG_GRAPH = True  # 是否向 TensorBoard 写入模型结构图；不影响训练损失的记录。
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"  # 默认优先使用 GPU，也可手动设为 cpu 或 cuda:设备编号。

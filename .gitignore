@@ -8,6 +8,7 @@ outputs/
 detection/data/
 detection/checkpoints/
 detection/runs/
+detection/reports/
 # 历史小图检测保留原目录结构，新增数据、检查点和运行产物不提交。
 detection_small/data/
 detection_small/checkpoints/
