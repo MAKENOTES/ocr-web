@@ -1,64 +1,124 @@
 # 大图检测架构
 
-本文说明大图文字检测的数据加载、模型训练、整图推理与导出契约，供核对各入口的行为。
+本文说明大图文字检测的数据、增强、训练、推理、报告和导出契约，供核对实现和改动。
+操作入口见[包说明](../../detection_larger/README.md)；术语见[术语表](../terminology.md)。
 
-本页以 `detection_larger` 与两个同名前缀的根目录入口为准，操作见[包说明](../../detection_larger/README.md)。
-本包不导入统一 `detection` 和小图检测包；当前仅复用 recognition `preprocessing.py` 的 `load_rgb_image` 做透明合成，
-不调用识别去红章、缩放或模型。术语见[术语表](../terminology.md)。
+## 边界与隔离
 
-## 数据、模型与训练
+`detection_larger` 只使用自身 `components/`、`models/`、`runtime/` 和 `utils/`，
+不导入 `detection`、`detection_small` 或 `recognition`。图片读取、EXIF 方向、
+透明通道合成、缩放补边、归一化、后处理和 ONNX/OpenVINO 加载都由本包独立实现。
 
-直接读取已准备好的独立训练、验证目录，不划分、不搬移数据。图片和标签按 stem 配对，
-缺失或同时存在两种候选标签均报错；标签坐标须有限、非退化且在图内。
-默认 bbox4，显式 `quad8` 只接受水平矩形。`###` 用独立训练掩码排除，空标签表示无文字。
-入口只检查 train/val 目录路径不同，不检查两目录中是否复制了同一图片。
+`components/` 只放训练链路需要的模块：图片读取、推理预处理、数据加载、增强、
+变换、真值、损失和训练期指标；推理后处理、配置契约和报告放在 `utils/`。
+`runtime/` 是部署运行包：图片读取、预处理、后处理和配置契约由
+`tools/sync_detection_larger_runtime.py` 从源文件生成，`backends.py`、`engine.py`
+和 `cli.py` 为手写模块。
 
-模型为独立 ResNet18 EAST，输出置信度 `[B,1,H/4,W/4]` 与几何 `[B,4,H/4,W/4]`。
-几何顺序为上、右、下、左，以特征图像素计并使用 `log1p` 真值；模型几何头为线性输出。
-预处理是 RGB、整图居中等比缩放、边缘中位色补边、ImageNet 归一化。
-训练额外使用 brightness=0.12、contrast=0.15、saturation=0.10、hue=0.02 的颜色扰动。
-损失为 Dice + 3 × 正样本 Smooth L1；不切片、不恢复表格结构。
+## 数据契约
 
-检查点只保存 `config` 和 `model`，配置格式为 `document-east-resnet18-full-image-v2`。
-格式常量、配置构造与校验、`save_checkpoint` 和 `load_checkpoint` 都在
-`detection_larger/utils/checkpoint.py`，由 `detection_larger/utils/__init__.py` 汇总导出；
-`detection_larger/models/east_model.py` 只定义网络。训练、推理、导出和 ONNX 元数据校验共用同一份契约。
-`--weights` 可初始化纯参数或含 model 的权重，但不恢复优化器和轮次。
-训练、推理、导出各自的 `INPUT_SIZE` 独立配置，当前均为 640；推理不从检查点继承尺寸。
-ONNX/OpenVINO 还会检查模型实际输入形状与推理常量一致。
+直接读取已准备好的独立训练、验证目录，不划分、不搬移数据。图片和标签按 stem
+配对，`gt_<stem>.txt` 和 `<stem>.txt` 必须恰好存在一份；缺失或同时存在立即报错。
+标签坐标须有限、非退化且在图内。默认 bbox4，显式 `quad8` 只接受水平矩形；
+`###` 用独立训练掩码排除，空标签表示无文字。
 
-后处理使用四连通域，保留单个高置信度像素，不按区域长宽比过滤；
-小区域用全像素几何中位数，大区域用边缘统计，随后还原原图坐标并执行 NMS。
-仍有解码框宽高过滤，因此“保留单像素连通域”不表示无条件输出任何尺寸框。
+图片经 `components/image.py` 的 `load_rgb_image` 应用 EXIF 方向；带透明通道时按
+可见前景亮度选择黑或白背景，完全透明图使用白底。训练入口只检查 train/val 目录
+路径不同，不检查两目录中是否复制了同一图片。
 
-评估按置信度一对一匹配，默认匹配 IoU=0.5；预测主要落在忽略区域时不计误检。
-输出总体和扩展名分组的 TP/FP/FN、Precision、Recall、F1，不把 JPG/PNG 推断为业务来源。
+## 张量与真值
 
-## 推理、评估与导出
+| 张量 | 形状及单位 |
+| --- | --- |
+| 图片 | `[B,3,H,W]`，训练默认 H=W=640 |
+| 置信度真值 | 数据集 `[H/4,W/4]`，训练增加通道维后 `[B,1,H/4,W/4]` |
+| 几何真值/输出 | `[B,4,H/4,W/4]`；上、右、下、左距离，以特征图像素计，真值取 `log1p` |
 
+输入高宽必须是 32 的倍数且至少 64。训练使用固定尺寸保证 batch 可直接堆叠；
+PyTorch 推理默认也使用固定方形画布，`DYNAMIC_INPUT=True` 时才按原图宽高比选择
+尺寸：最长边不超过上限，每条边向上取整到 32 的倍数，较短边最少 64。
 
-推理不使用命令行参数，先修改 `../../detection_larger/inference.py` 顶部常量：`MODEL_PATH`（文档专用 `.pth` 或 `.onnx`）、`IMAGE_PATH`（图片或目录）、`OUTPUT_DIR`（允许覆盖同名结果的输出目录）、`DEVICE`、`SCORE_THRESHOLD`、`NMS_IOU_THRESHOLD`、`SAVE_CROPS` 和 `CROP_DIR`。路径相对于运行目录，建议在仓库根目录执行。默认使用 `detection_larger/data/test_images` 图片目录，`DEVICE = "auto"` 让 PyTorch 优先使用 CUDA，无可用 GPU 时回退到 CPU；也可指定 `"cuda:0"` 或 `"cpu"`。ONNX 在 `auto` 下使用 CPU，也可显式设置 `cpu`。需要保存文字裁片时设置 `SAVE_CROPS = True`，裁片平铺在 `CROP_DIR`（默认 `detection_larger/data/crops/test_images`）下，不再按原图建子目录；文件名为 `<原图 stem>-<5 位序号>.png`，序号从 1 开始，例如原图 `du20260910-000001.png` 的首个裁片是 `du20260910-000001-00001.png`。裁片名和标签都以原图 stem 为前缀，所以输入图片的 stem 必须唯一，同名不同扩展名会直接报错。重复运行覆盖本次输入对应的图片、标签及裁片，并清理该原图超出本次框数的旧序号裁片，保留其他文件和其他原图的结果；关闭裁片开关时不创建或修改裁片目录。
+## 数据增强与批次执行
 
-推理按 `SCORE_THRESHOLD` 过滤连通域，并通过 `NMS_IOU_THRESHOLD` 抑制重复框，不限制候选框数量；保留单个高置信度特征像素，不按连通域长宽比过滤，避免缩小后的编号、日期和小字漏框。输出目录默认为 `../../detection_larger/data/test_results`：`images/<原图文件名>` 保存画框后的原尺寸图片，`labels/gt_<原图 stem>.txt` 保存训练使用的 bbox4 标签，每行 `x_min y_min x_max y_max`，保留浮点原图坐标，不附置信度；无框时生成空标签。输入图片的 stem 必须唯一，避免不同扩展名共用标签。图片是画框预览；用于训练时应搭配对应原图。原先每图子目录中的 `overlay.png` 和 `boxes.json` 不再生成。
+增强全部在 `components/augmentation.py`，共 30 种，分三类执行：
 
-```bash
-.venv/bin/python detection_larger/inference.py
+- 几何（4）：随机裁剪、随机补边、随机宽高补边、轻微各向异性缩放；
+- 光度（23）：亮度、对比度、饱和度、色相、Gamma、自动对比度、直方图均衡、
+  色调分离、曝光过度、锐化、高斯/运动/中值模糊、高斯/椒盐噪声、JPEG 压缩、
+  低分辨率重建、CLAHE、通道增益、阴影渐变、背景染色、暗角、反色；
+- 遮挡（3）：避开文字框的随机擦除、随机表格线、随机斑点。
 
-.venv/bin/python detection_larger/components/eval_metrics.py \
-  --model detection_larger/checkpoints/<run>/<model>.pth \
-  --image-dir detection_larger/data/val_images \
-  --label-dir detection_larger/data/val_labels
+执行顺序固定为几何 → 光度 → 遮挡。几何增强在 `ResizeAndPad` 之前的原图上执行，
+光度/遮挡增强在缩放补边后的固定输入上执行，避免在大尺寸 PDF 页面上重复做昂贵的
+像素操作。几何操作后统一裁剪四边形并删除宽或高不超过 1 像素的退化框；旋转、
+透视和剪切会破坏水平框契约，因此不提供。
 
-.venv/bin/python detection_larger_export_onnx.py
+批次执行由阶段权重控制：每个样本从 `light`、`standard`、`strong` 中采样一个阶段，
+三个阶段合计采样 2-4、3-6、5-8 种操作（几何 0-1/0-2/1-2 种，像素 2-3/3-4/4-6 种）。
+轮次课程前 15% 以轻增强为主，15%-70% 以标准增强为主，最后 30% 提高强增强比例；
+`train.py` 只在阶段边界重建 DataLoader。验证集不启用任何增强，保持指标可复现。
 
-.venv/bin/python detection_larger_inference_onnx.py
-```
+## 模型、损失与检查点
 
-导出脚本无命令行参数；运行前修改顶部的 `CHECKPOINT_PATH`（输入检查点）、`OUTPUT_PATH`（新的 ONNX 文件路径）和 `INPUT_SIZE`（默认 640，支持整数或高宽二元组）常量。ONNX 导出优先使用 Dynamo，失败自动回退到 TorchScript，两者使用 opset 18。安装了 `onnxsim` 时尝试简化图；简化不可用或失败则保留原图。导出需要 `onnx`、`onnxruntime`，Dynamo 另需 `onnxscript`（均已列入根目录依赖）。输入名为 `image`，输出名为 `score`、`geometry`，高宽固定为导出脚本的 `INPUT_SIZE`，元数据同步记录本次导出尺寸；推理脚本的尺寸常量需与之保持一致，batch 动态变化（Dynamo 声明范围为 1～32 张）。导出强制比较 batch 1、2 的 PyTorch 与 ONNX CPU 输出，通过后才生成单个 ONNX 文件，并写入 `docdet_config` 元数据；目标存在时拒绝覆盖。大图检查点必须含 `config` 和 `model`，不接受裸权重或旧切片模型。
+模型为独立 ResNet18 EAST：`/4`、`/8`、`/16`、`/32` 四级特征通过转置卷积逐级融合，
+在步长 4 的特征图上输出 Sigmoid 置信度和四通道线性几何值。损失为整个 batch 的
+Dice 加 3 × 正样本 Smooth L1；`###` 掩码同时作用于置信度和几何损失。
 
-根目录 `../../detection_larger_inference_onnx.py` 支持 ONNX Runtime、OpenVINO 和 PyTorch CPU，无命令行参数。修改顶部的模型、图片、输出目录、阈值和裁片常量后运行；默认读取上述导出文件，输出至 `detection_larger/data/test_results/onnx`，裁片至 `detection_larger/data/crops/onnx`。当前 `BACKEND = "openvino"`；改为 `"auto"` 时按后缀选择：`.onnx` 使用 ONNX Runtime，`.pth` 使用 PyTorch；设置 `"openvino"` 可用 OpenVINO 编译 ONNX。显式后端与文件类型不匹配时报错，不会自动换模型文件。OpenVINO 是可选运行依赖，使用 FP32 和单请求延迟优化，按 `score`、`geometry` 名称获取输出。CPU 线程预算集中在 `detection_larger/components/onnx_runtime.py` 的 `CPU_THREADS`，默认 4；ONNX Runtime 开启全部图优化、内存复用，OpenVINO 使用同一线程预算。
+检查点只保存 `config` 和 `model`，格式为 `document-east-resnet18-full-image-v2`。
+`config` 记录输入尺寸上限、步长、几何编码、预处理版本和 `dynamic_spatial`；
+缺少该字段的历史 v2 检查点按固定高宽读取。配置构造与校验在
+`utils/config.py`，读写和模型构建在 `utils/checkpoint.py`，训练、推理、导出和
+ONNX 元数据共用同一份契约。训练、推理、导出各自的 `INPUT_SIZE` 独立配置，
+固定高宽导出的 ONNX/OpenVINO 模型自动使用导出尺寸。
 
-`WARMUP_RUNS = 3` 在正式处理前预热，设为 0 可关闭。每张图打印前向耗时与检测耗时：前向包含模型执行及必要设备传输/同步，检测另外包含预处理和后处理；汇总报告图片数、框数、平均前向/检测耗时、整体处理时间和吞吐量。整体时间包含图片读取和结果保存，不含模型加载及预热。默认保存原图画框预览和 bbox4 标签；`SAVE_CROPS=False`，仅开启后保存裁片，命名与覆盖规则同 `../../detection_larger/inference.py`。`EXPAND_BOX` 默认关闭；启用时，左右各增加框高乘 `EXPAND_RATIO_W`，上下各增加框高乘 `EXPAND_RATIO_H`，默认比例均为 0.10，并裁到原图边界；标签、预览与裁片统一使用扩展后的框。密集表格先检查扩框是否带入邻格文字。
+## 训练监控
 
-导出默认执行 CPU 速度对比（`BENCHMARK_ENABLED = True`）。需要跳过测速时设为 `False`；数值校验始终执行。测速会额外执行共 50 次 CPU 前向。启用时，PyTorch 和 ONNX Runtime 均使用 `CPU_THREADS`，batch=1、预热 5 次、计时 20 次，输出平均毫秒数、实测加速比和最终文件大小；相关次数在导出入口常量配置。测速不含预处理与结果保存，不保证固定倍数提速。导出数值检查始终执行，不受测速开关影响。
+TensorBoard 保留 epoch 级 loss/score/geo、学习率、增强阶段权重、验证集
+Precision/Recall/F1（总体及按扩展名分组）、最佳 F1，以及 epoch 训练耗时和吞吐量。
+验证 F1 每 `METRIC_VAL_INTERVAL` 轮直接在当前内存模型上评估，默认使用
+`METRIC_INPUT_SIZE=640`（与训练和部署一致），阈值、NMS 和匹配 IoU 由 `METRIC_*`
+常量控制。
 
+高开销记录已降频或移除：batch loss 每 `BATCH_LOG_INTERVAL` 个 batch 记录一次，
+只记录总梯度范数，不再写逐参数梯度直方图；验证可视化每 `VIS_INTERVAL` 轮写一次
+输入图和预测置信度图。检查点同时按验证损失和验证 F1 保留 Top-3，
+部署选型优先比较 F1。
+
+## 推理、评估与报告
+
+后处理使用四连通域，保留单个高置信度像素，不按连通域长宽比过滤。小连通域用
+全像素几何中位数，大连通域用边缘像素统计；几何预测先 `expm1` 再按步长 4 还原到
+输入图像素。页面真值通常是整行框，默认不按词间空隙拆分；`split_word_gaps=True`
+只用于对照实验。坐标减去补边偏移、除以缩放比例后裁到原图边界，再按
+`NMS_IOU_THRESHOLD` 抑制重复框，按从上到下、从左到右排序。
+
+`DocumentDetector` 默认按后缀选择 PyTorch 或 ONNX Runtime；显式 `openvino` 使用
+OpenVINO CPU。ONNX/OpenVINO 的尺寸来自导出元数据并校验输入输出名称和
+`dynamic_spatial` 一致。`inference.py` 保存画框预览、bbox4 标签和可选裁片；
+`SAVE_CROPS` 关闭时不创建或修改裁片目录。
+
+`components/eval_metrics.py` 直接读取图片和标签目录，按置信度一对一匹配，默认
+匹配 IoU 0.5；预测主要落在 `###` 区域内时不计误检，输出总体和按扩展名分组的
+TP/FP/FN、Precision、Recall、F1。扩展名只用于分组，不推断业务来源。
+
+`report_training.py` 读取某个运行目录的检查点、`run_config.json` 和 TensorBoard
+事件，在验证集上重新评估主检查点、最佳 loss 和最后一轮，比较训练尺寸、+128
+更大输入和不同阈值的工作点，并输出错误集中度、页面方向拆分和最差图片可视化。
+报告还会检查推理入口和导出入口的默认检查点、尺寸是否与主检查点一致。报告是
+本地产物，不提交。
+
+## 部署与导出
+
+CPU 部署入口 `detection_larger_inference_onnx.py` 只保留默认常量，推理实现在
+`detection_larger/runtime`。runtime 中的图片读取、预处理、后处理和配置契约由
+`tools/sync_detection_larger_runtime.py` 从源文件生成；runtime 不导入训练、报告或
+PyTorch 推理模块。部署包由 `tools/build_detection_larger_bundle.py` 生成，包含
+runtime、入口和 `.onnx` 模型，并在隔离路径下完成一次推理自检；共享源文件修改后
+未重新同步时，构建脚本会拒绝生成。
+
+根目录 `detection_larger_export_onnx.py` 默认导出动态 batch 和固定 640×640 高宽；
+`DYNAMIC_SPATIAL=True` 时才导出动态高宽。导出优先 Dynamo，失败回退 TorchScript，
+opset 18；`SIMPLIFY_MODEL` 只影响图简化。导出直接覆盖目标文件，随后比较
+PyTorch 与 ONNX Runtime 的 batch 1/2 输出，动态导出额外覆盖不同高宽；
+`BENCHMARK_ENABLED` 控制可选的 CPU 测速。目标 ONNX 不会自动跟随检查点更新，
+修改权重或尺寸后必须重新导出。

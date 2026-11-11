@@ -12,15 +12,16 @@
 - `detection/components/`：只放训练链路需要的模块，包括图片读取、推理预处理、数据加载、增强、变换、真值、损失和训练期指标；推理后处理、ONNX/OpenVINO 运行时、评估报告等放到 `detection/utils/`。
 - `tools/sync_detection_runtime.py`、`tools/build_detection_bundle.py`：从仓库源文件同步 `detection/runtime` 并组装可独立部署的检测运行目录，不参与训练和常规推理。
 - `tools/sync_detection_small_runtime.py`、`tools/build_detection_small_bundle.py`：同步 `detection_small/runtime` 并组装小图检测独立部署目录。
+- `tools/sync_detection_larger_runtime.py`、`tools/build_detection_larger_bundle.py`：同步 `detection_larger/runtime` 并组装大图检测独立部署目录。
 - `detection_small/`：迁移前的 UI 小图检测，保留独立实现、数据和历史脚本，不再作为主链路；训练入口 `train.py`、报告入口 `report_training.py` 和 ONNX 部署 runtime 仍维护。
-- `detection_larger/`：迁移前的 PDF 页面和网页表格检测，保留原有实现、数据和历史脚本，不再作为主链路。
+- `detection_larger/`：迁移前的 PDF 页面和网页表格检测，保留独立实现和数据，不再作为主链路；训练入口 `train.py`、增强、训练期 F1 指标、报告入口 `report_training.py` 和 ONNX 部署 runtime 仍维护。`components/` 只放训练链路模块，推理后处理、配置契约和报告在 `utils/`。
 - `recognition/`：CRNN 识别模型、统一图片预处理、训练、评估和历史记录。
 - `detection_export_onnx.py`、`detection_inference_onnx.py`：统一检测的 ONNX 导出和独立 ONNX Runtime/OpenVINO CPU 推理入口。
 - `detection_small_inference_onnx.py`：小图检测薄 ONNX CPU 推理入口，实现位于 `detection_small/runtime/`。
 - `detection_small_inference_640.py`、`detection_small_export_onnx.py`、`detection_small_quantize_int8.py`：小图检测多后端历史入口、ONNX 导出和 INT8 量化入口。
-- `detection_larger_export_onnx.py`、`detection_larger_inference_onnx.py`：历史大图检测入口。
+- `detection_larger_export_onnx.py`：大图检测 ONNX 导出入口；`detection_larger_inference_onnx.py` 只保留部署常量，实现位于 `detection_larger/runtime/`。
 - `recognition_inference.py`：PyTorch、ONNX、OpenVINO 多后端识别入口。
-- `docs/detection/architecture.md`：统一检测的当前架构和数据契约；`docs/detection_small/`、`docs/detection_larger/` 保留历史说明。
+- `docs/detection/architecture.md`：统一检测的当前架构和数据契约；`docs/detection_small/`、`docs/detection_larger/` 维护对应历史实现说明。
 - `tools/prepare_unified_detection_data.py`：一次性数据迁移工具，只读取两个历史检测目录并写入 `detection/data/`，不属于统一检测运行时。
 - `tests/`：统一检测、历史检测链路和识别预处理测试。
 
@@ -42,8 +43,9 @@
 .venv/bin/python -m pytest tests/test_detection_unified_onnx.py -q
 .venv/bin/python -m pytest tests/test_detection_rectangular_pipeline.py -q
 .venv/bin/python -m pytest tests/test_detection_small_augmentation.py tests/test_detection_small_report.py tests/test_detection_small_onnx.py -q
-.venv/bin/python -m pytest tests/test_detection_larger.py -q
+.venv/bin/python -m pytest tests/test_detection_larger.py tests/test_detection_larger_augmentation.py tests/test_detection_larger_report.py tests/test_detection_larger_onnx.py -q
 .venv/bin/python -m py_compile detection_small/train.py detection_small/report_training.py detection_small/components/*.py detection_small/models/*.py detection_small/utils/*.py detection_small/runtime/*.py detection_small_export_onnx.py detection_small_inference_onnx.py tools/sync_detection_small_runtime.py tools/build_detection_small_bundle.py
+.venv/bin/python -m py_compile detection_larger/train.py detection_larger/inference.py detection_larger/report_training.py detection_larger/components/*.py detection_larger/models/*.py detection_larger/utils/*.py detection_larger/runtime/*.py detection_larger_export_onnx.py detection_larger_inference_onnx.py tools/sync_detection_larger_runtime.py tools/build_detection_larger_bundle.py
 .venv/bin/python -m py_compile detection/train.py detection/inference.py detection/report_training.py detection/components/*.py detection/models/*.py detection/runtime/*.py detection/utils/*.py detection_export_onnx.py detection_inference_onnx.py tools/sync_detection_runtime.py tools/build_detection_bundle.py recognition/components/dataset.py recognition/models/model.py recognition/train.py recognition/evaluate_val.py recognition_export_onnx.py recognition_inference.py
 ```
 
@@ -63,12 +65,14 @@
 - 统一检测训练增强集中在 `detection/components/augmentation.py`，默认 30 种；几何增强在原图执行，光度/遮挡增强在缩放补边后的固定输入执行。几何增强后必须裁剪四边形并删除退化框，旋转/透视/剪切不得进入默认流程。验证集不启用随机增强，批次强度课程只在训练集生效。
 - 统一检测最终框粒度为词/短语：整行 GT 必须在数据层合并为一致粒度，解码器默认按低占用列拆分粘连连通域；`split_word_gaps=False` 仅用于对照或兼容旧模型。训练默认 `BATCH_SIZE=8`、`NUM_WORKERS=8`，batch 翻倍时同步调整学习率并重新核对显存。
 - `detection_small/` 和 `detection_larger/` 的数据契约按各自 README/架构文档执行；历史目录中的重复样本和加载差异不自动同步到统一检测。
+- `detection_larger/` 训练默认 640×640、`BATCH_SIZE=4`、`NUM_WORKERS=4`，使用包内 30 种增强和轮次课程；训练期 F1 默认每 10 轮评估，分别保留验证 loss 和 F1 的 Top-3。页面真值通常是整行框，解码默认 `split_word_gaps=False`，不得把统一检测的词/短语拆分规则直接套用到本包数据。
 
 ## 修改原则
 
-- **三个检测子系统必须隔离**：`detection`、`detection_small`、`detection_larger` 的代码、配置、数据、权重、训练、推理、导出和测试分别维护，不允许相互导入、引用或通过根目录入口间接依赖。统一 `detection` 还禁止导入或读取 `recognition` 的任何文件；透明图片合成、缩放和归一化必须在包内独立实现。修改任一子系统不得要求其他子系统同步修改或提供运行资源。
+- **三个检测子系统必须隔离**：`detection`、`detection_small`、`detection_larger` 的代码、配置、数据、权重、训练、推理、导出和测试分别维护，不允许相互导入、引用或通过根目录入口间接依赖，也不允许任一检测子系统导入 `recognition`。透明图片合成、缩放和归一化必须在各自包内独立实现。修改任一子系统不得要求其他子系统同步修改或提供运行资源。
 - **部署快照必须同步**：修改 `detection/components/image.py`、`detection/components/preprocessing.py`、`detection/utils/postprocess.py` 或 `detection/utils/config.py` 后，必须运行 `tools/sync_detection_runtime.py` 并提交生成的 `detection/runtime` 文件；部署包统一用 `tools/build_detection_bundle.py` 构建，不能手工拼接 runtime 与入口。
 - **小图部署快照必须同步**：修改 `detection_small/components/image.py`、`components/preprocessing.py`、`components/postprocess.py` 或 `utils/config.py` 后，必须运行 `tools/sync_detection_small_runtime.py` 并提交生成的 `detection_small/runtime` 文件；部署包统一用 `tools/build_detection_small_bundle.py` 构建。
+- **大图部署快照必须同步**：修改 `detection_larger/components/image.py`、`components/preprocessing.py`、`utils/postprocess.py` 或 `utils/config.py` 后，必须运行 `tools/sync_detection_larger_runtime.py` 并提交生成的 `detection_larger/runtime` 文件；部署包统一用 `tools/build_detection_larger_bundle.py` 构建。
 - 统一 `detection` 内部优先复用自身的 `components/preprocessing.py`、`components/transforms.py`、`components/image.py` 和 `utils/postprocess.py`，确保训练、评估、PyTorch、ONNX 和 OpenVINO 使用同一套加载、缩放、补边和归一化。
 - 图片或标注错误应尽早给出包含具体路径的异常，不能静默跳过会污染训练的数据。
 - 修复当前主链路时不要顺手重写带版本号的历史实验脚本；只有在任务明确涉及它们时才同步修改。

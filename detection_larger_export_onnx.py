@@ -1,48 +1,90 @@
-"""导出大图 EAST ONNX：优先 Dynamo、可选图简化，并校验 CPU 数值和动态 batch。"""
+"""大图检测 ONNX 导出入口：优先 Dynamo、可选图简化，并校验 batch 与导出高宽。
 
+默认导出固定 INPUT_SIZE 高宽，与训练和 PyTorch 推理一致；DYNAMIC_SPATIAL=True
+时才导出动态高宽。导出实现和常量都集中在根目录入口，模型定义和检查点读取复用
+detection_larger 包内实现。
+"""
 import json
-import shutil
+import logging
+import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import numpy as np
 import torch
 
-from detection_larger.components.onnx_runtime import CPU_THREADS, session_options
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from detection_larger.utils import ONNX_CONFIG_KEY, checkpoint_config, load_checkpoint
 
 
 CHECKPOINT_PATH = Path("detection_larger/checkpoints/best_detection_epoch_603_loss_0.01189.pth")  # 待导出的大图检查点，必须包含 config 和 model。
-OUTPUT_PATH = Path("best_detection_larger.onnx")  # 导出 ONNX 文件路径；目标已存在时拒绝覆盖。
-INPUT_SIZE = 640  # 导出输入边长，单位 px；也可设为 (高, 宽)，各边至少 64 且为 32 的倍数，推理常量须与此一致。
-BENCHMARK_ENABLED = True  # 启用时额外比较 CPU batch=1 前向速度；当前默认开启，数值校验始终执行。
+OUTPUT_PATH = Path("best_detection_larger.onnx")  # 导出 ONNX 文件路径；目标已存在时直接覆盖。
+INPUT_SIZE = 640  # 导出输入边长，单位 px；与训练和推理入口一致，也可设为 (高, 宽)。
+DYNAMIC_SPATIAL = False  # 默认固定高宽；True 时导出动态高宽，推理可按图片宽高比选择尺寸。
+BENCHMARK_ENABLED = True  # 启用时额外比较 CPU batch=1 前向速度；数值校验始终执行。
 BENCHMARK_WARMUP = 5  # 每个后端正式测速前的预热次数。
 BENCHMARK_RUNS = 20  # 每个后端计入平均前向耗时的运行次数。
 OPSET_VERSION = 18  # 两种导出器统一使用的 ONNX 算子集版本。
-MAX_BATCH_SIZE = 32  # Dynamo 动态 batch 的最大图片张数；高宽固定为 INPUT_SIZE。
+MAX_BATCH_SIZE = 32  # 动态 batch 的最大图片张数。
+MAX_SPATIAL_SIZE = 4096  # 动态高宽的上限，单位 px；只用于导出维度声明。
 SIMPLIFY_MODEL = True  # 启用时尝试 onnxsim，缺少依赖或简化失败则保留原图。
 VALIDATION_RTOL = 1e-4  # PyTorch 与 ONNX 输出比较的相对误差容限。
 VALIDATION_ATOL = 1e-5  # PyTorch 与 ONNX 输出比较的绝对误差容限。
+CPU_THREADS = 4  # CPU 校验和测速的工作线程数；避免占用整机。
 
 
-def export_graph(model, sample, output):
-    """优先使用 Dynamo；失败时显式回退到 TorchScript，保留已有大图接口名称。"""
-    names = {"input_names": ["image"], "output_names": ["score", "geometry"]}
+def session_options():
+    """启用 ONNX Runtime 图优化和内存复用，使用固定线程预算。"""
+    import onnxruntime as ort
+
+    options = ort.SessionOptions()
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    options.intra_op_num_threads = CPU_THREADS
+    options.inter_op_num_threads = 1
+    options.enable_mem_pattern = True
+    options.enable_mem_reuse = True
+    return options
+
+
+@contextmanager
+def suppress_exporter_noise():
+    """抑制 torch ONNX 导出器对 torchvision schema 和动态 shape 的已知诊断日志。"""
+    names = (
+        "torch.onnx._internal.exporter._schemas",
+        "torch.fx.experimental.symbolic_shapes",
+    )
+    previous = {name: logging.getLogger(name).level for name in names}
+    for name in names:
+        logging.getLogger(name).setLevel(logging.ERROR)
     try:
-        torch.onnx.export(
-            model, (sample,), str(output), **names, opset_version=OPSET_VERSION,
-            dynamo=True, external_data=False,
-            dynamic_shapes=({0: torch.export.Dim("batch", min=1, max=MAX_BATCH_SIZE)},),
-        )
+        yield
+    finally:
+        for name, level in previous.items():
+            logging.getLogger(name).setLevel(level)
+
+
+def export_graph(model, sample, output, dynamic_spatial):
+    """优先使用 Dynamo；失败时回退到 TorchScript，保留既有接口名称。"""
+    names = {"input_names": ["image"], "output_names": ["score", "geometry"]}
+    dynamic_axes = ({0: torch.export.Dim("batch", min=1, max=MAX_BATCH_SIZE)}
+                    | ({2: torch.export.Dim("height", min=64, max=MAX_SPATIAL_SIZE),
+                        3: torch.export.Dim("width", min=64, max=MAX_SPATIAL_SIZE)}
+                       if dynamic_spatial else {}))
+    try:
+        torch.onnx.export(model, (sample,), str(output), **names, opset_version=OPSET_VERSION,
+                          dynamo=True, external_data=False, dynamic_shapes=(dynamic_axes,))
         print("Dynamo 导出完成")
     except Exception as error:
         print(f"Dynamo 导出失败，回退到 TorchScript: {error}")
-        torch.onnx.export(
-            model, sample, str(output), **names, opset_version=OPSET_VERSION,
-            dynamo=False, external_data=False,
-            dynamic_axes={name: {0: "batch"} for name in ("image", "score", "geometry")},
-        )
+        axes = {"image": {0: "batch"}, "score": {0: "batch"}, "geometry": {0: "batch"}}
+        if dynamic_spatial:
+            for value in axes.values():
+                value.update({2: "height", 3: "width"})
+        torch.onnx.export(model, sample, str(output), **names, opset_version=OPSET_VERSION,
+                          dynamo=False, external_data=False, dynamic_axes=axes)
 
 
 def simplify_graph(graph):
@@ -98,58 +140,71 @@ def benchmark_model(model, session, sample):
     return result
 
 
-def export_model(checkpoint_path, output):
-    """按 INPUT_SIZE 常量导出并验证 batch 1、2；全部通过后才生成目标文件，拒绝覆盖。"""
+def validation_batches(sample, dynamic_spatial):
+    """返回用于数值校验的 (batch, 输入) 列表；动态模型额外覆盖不同高宽。"""
+    batches = [(2, sample), (1, sample[:1])]
+    if dynamic_spatial:
+        height, width = sample.shape[-2:]
+        height = min(MAX_SPATIAL_SIZE, height + 32)
+        width = min(MAX_SPATIAL_SIZE, width + 32)
+        batches.append((1, torch.rand(1, 3, height, width)))
+    return batches
+
+
+def export_model(checkpoint_path, output, input_size=None, dynamic_spatial=None):
+    """按配置直接导出到目标文件并验证；目标已存在时覆盖。"""
     import onnx
     import onnxruntime as ort
 
     output = Path(output)
-    if output.exists():
-        raise FileExistsError(f"ONNX output already exists: {output}")
-    config = checkpoint_config(INPUT_SIZE)
+    input_size = INPUT_SIZE if input_size is None else input_size
+    dynamic_spatial = DYNAMIC_SPATIAL if dynamic_spatial is None else dynamic_spatial
+    config = checkpoint_config(input_size, dynamic_spatial)
     height, width = config["input_size"]
+
     model, _ = load_checkpoint(checkpoint_path)
-    print(f"导出输入尺寸：{height}×{width}；CPU 测速：{BENCHMARK_ENABLED}", flush=True)
+    print(f"导出输入尺寸：{height}×{width}；动态高宽：{dynamic_spatial}；"
+          f"CPU 测速：{BENCHMARK_ENABLED}", flush=True)
     # batch=2 避免 Dynamo 将示例中的单张 batch 特化为固定 1。
     sample = torch.rand(2, 3, height, width)
     output.parent.mkdir(parents=True, exist_ok=True)
-    with TemporaryDirectory(prefix="onnx-export-", dir=output.parent) as temporary:
-        staged = Path(temporary) / "model.onnx"
-        export_graph(model, sample, staged)
-        graph = simplify_graph(onnx.load(str(staged)))
-        # 元数据记录本次实际导出尺寸，避免沿用检查点尺寸造成后端校验错配。
-        properties = {entry.key: entry.value for entry in graph.metadata_props}
-        properties[ONNX_CONFIG_KEY] = json.dumps(config)
-        onnx.helper.set_model_props(graph, properties)
-        onnx.checker.check_model(graph)
-        onnx.save(graph, str(staged))
 
-        session = ort.InferenceSession(str(staged), sess_options=session_options(), providers=["CPUExecutionProvider"])
-        for batch_size in (1, 2):
-            batch = sample[:batch_size]
-            with torch.inference_mode():
-                expected = model(batch)
-            actual = session.run(["score", "geometry"], {"image": batch.numpy()})
-            for name, reference, observed in zip(("score", "geometry"), expected, actual):
-                np.testing.assert_allclose(
-                    observed, reference.numpy(), rtol=VALIDATION_RTOL, atol=VALIDATION_ATOL,
-                    err_msg=f"ONNX validation failed: {name}, batch={batch_size}",
-                )
-                error = np.max(np.abs(observed - reference.numpy()))
-                print(f"batch={batch_size}, {name} 最大绝对误差: {error:.2e}")
-        if BENCHMARK_ENABLED:
-            benchmark_model(model, session, sample)
-        else:
-            print("数值校验通过，跳过 CPU 测速，正在保存 ONNX...", flush=True)
-        # 独占创建防止校验期间同名目标出现时被覆盖；输出不依赖外部权重文件。
-        with output.open("xb") as destination, staged.open("rb") as source:
-            shutil.copyfileobj(source, destination)
-    print(f"ONNX 文件大小: {output.stat().st_size / (1024 ** 2):.1f} MiB; 下一步: .venv/bin/python detection_larger_inference_onnx.py")
+    with suppress_exporter_noise():
+        export_graph(model, sample, output, dynamic_spatial)
+    graph = simplify_graph(onnx.load(str(output)))
+    # 元数据记录本次实际导出配置，避免沿用检查点尺寸造成后端校验错配。
+    properties = {entry.key: entry.value for entry in graph.metadata_props}
+    properties[ONNX_CONFIG_KEY] = json.dumps(config)
+    onnx.helper.set_model_props(graph, properties)
+    onnx.checker.check_model(graph)
+    onnx.save(graph, str(output))
+
+    session = ort.InferenceSession(str(output), sess_options=session_options(),
+                                   providers=["CPUExecutionProvider"])
+    for batch_size, batch in validation_batches(sample, dynamic_spatial):
+        with torch.inference_mode():
+            expected = model(batch)
+        actual = session.run(["score", "geometry"], {"image": batch.numpy()})
+        for name, reference, observed in zip(("score", "geometry"), expected, actual):
+            np.testing.assert_allclose(
+                observed, reference.numpy(), rtol=VALIDATION_RTOL, atol=VALIDATION_ATOL,
+                err_msg=f"ONNX validation failed: {name}, batch={batch_size}, "
+                        f"shape={tuple(batch.shape)}")
+            error = np.max(np.abs(observed - reference.numpy()))
+            print(f"batch={batch_size}, shape={tuple(batch.shape[2:])}, "
+                  f"{name} 最大绝对误差: {error:.2e}")
+
+    if BENCHMARK_ENABLED:
+        benchmark_model(model, session, sample)
+    else:
+        print("数值校验通过，跳过 CPU 测速。", flush=True)
+    print(f"ONNX 文件大小: {output.stat().st_size / (1024 ** 2):.1f} MiB; "
+          f"下一步: .venv/bin/python detection_larger_inference_onnx.py")
     return config
 
 
 def main():
-    """按顶部路径常量导出，数值校验通过后保存新模型。"""
+    """按顶部路径常量直接导出并校验；目标已存在时覆盖。"""
     config = export_model(CHECKPOINT_PATH, OUTPUT_PATH)
     print(f"导出及数值校验通过: {OUTPUT_PATH}; {config}")
 

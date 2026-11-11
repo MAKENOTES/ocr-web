@@ -1,7 +1,7 @@
-"""保证三个检测子系统互不导入，统一检测也不依赖识别子系统。
+"""保证三个检测子系统互不导入，也不依赖识别子系统。
 
-统一检测 `detection` 只使用自身实现；`detection_small` 与 `detection_larger`
-保留历史行为，后者仍可复用识别预处理中的透明图片合成。
+统一检测 `detection` 和迁移前的大图、小图检测包都只使用自身实现；
+大图检测已内置透明图片合成和推理预处理，不再复用 recognition。
 """
 import ast
 from pathlib import Path
@@ -13,7 +13,7 @@ import pytest
 FORBIDDEN_IMPORTS = {
     "detection": {"detection_small", "detection_larger", "recognition"},
     "detection_small": {"detection", "detection_larger", "recognition"},
-    "detection_larger": {"detection", "detection_small"},
+    "detection_larger": {"detection", "detection_small", "recognition"},
 }
 
 # 统一检测的根目录入口；小图和大图入口按固定文件名枚举。

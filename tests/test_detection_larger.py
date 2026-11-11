@@ -477,3 +477,14 @@ def test_invalid_inference_size_constant(monkeypatch):
     monkeypatch.setattr(inference, 'INPUT_SIZE', 65)
     with pytest.raises(ValueError, match='input_size'):
         DocumentDetector('unused.pth')
+
+
+def test_legacy_checkpoint_config_without_dynamic_spatial_is_accepted():
+    """历史 v2 检查点缺少 dynamic_spatial 字段时按固定高宽读取。"""
+    from detection_larger.utils import validate_config
+
+    config = checkpoint_config(64)
+    config.pop("dynamic_spatial")
+    normalized = validate_config(config)
+    assert normalized["dynamic_spatial"] is False
+    assert normalized["input_size"] == [64, 64]

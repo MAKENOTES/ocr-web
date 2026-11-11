@@ -67,16 +67,20 @@ def test_export_and_inference_roundtrip(tmp_path, monkeypatch, fallback):
             assert ov_detector.last_infer_ms > 0
             check_quantized_inference(output, tmp_path / 'int8.onnx')
         monkeypatch.setattr(inference, "INPUT_SIZE", 64)
+        # 固定高宽导出自动使用导出尺寸，模块推理常量不再参与校验。
         for backend in ("onnx", "openvino"):
-            with pytest.raises(ValueError, match="INPUT_SIZE.*does not match"):
-                DocumentDetector(output, backend=backend)
+            fixed = DocumentDetector(output, backend=backend)
+            assert fixed.input_size == (64, 96)
+            assert fixed.predict(image, threshold=.1)
         monkeypatch.setattr(inference, "INPUT_SIZE", (64, 96))
-        with pytest.raises(FileExistsError, match=str(output)):
-            exporter.export_model(checkpoint, output)
+        # 导出目标已存在时直接覆盖，校验通过的模型替换旧文件。
+        assert exporter.export_model(checkpoint, output) == config
+        graph = onnx.load(output)
         graph.graph.input[0].type.tensor_type.shape.dim[3].dim_value = 64
         onnx.save(graph, output)
-        with pytest.raises(ValueError, match='INPUT_SIZE.*does not match.*model.onnx'):
+        with pytest.raises(ValueError, match='does not match config.*model.onnx'):
             DocumentDetector(output)
+        graph = onnx.load(output)
         del graph.metadata_props[:]
         onnx.save(graph, output)
         with pytest.raises(ValueError, match='Invalid document ONNX config:.*model.onnx'):
@@ -99,36 +103,62 @@ def test_failed_export_does_not_publish(tmp_path, monkeypatch):
     assert not list(tmp_path.iterdir())
 
 
-def test_onnx_entry_saves_images_labels_and_crops(tmp_path, monkeypatch):
+def test_onnx_entry_wires_runtime_cli(tmp_path, monkeypatch):
+    """根目录入口只做常量到 runtime 命令行的转换。"""
     import detection_larger_inference_onnx as entry
-    from detection_larger import inference
+    from detection_larger.runtime import cli
 
     image = tmp_path / 'page.png'
     Image.new('RGBA', (40, 30), (0, 0, 0, 0)).save(image)
-    monkeypatch.setattr(entry, 'IMAGE_PATH', image)
-    monkeypatch.setattr(entry, 'OUTPUT_DIR', tmp_path / 'results')
-    monkeypatch.setattr(entry, 'CROP_DIR', tmp_path / 'crops')
-    # 产品默认关闭裁片；本测试显式开启以验证裁片命名和尺寸。
-    monkeypatch.setattr(entry, 'SAVE_CROPS', True)
+    model = tmp_path / 'model.onnx'
+    model.write_bytes(b'onnn')
 
-    class Detector:
-        def __init__(self, path, device, backend="auto"):
-            self.backend, self.last_infer_ms = backend, 1.0
-            assert Path(path).suffix == '.onnx' and device == 'cpu'
+    class EmptyBackend:
+        config = {'input_size': [64, 64], 'dynamic_spatial': False}
+        static_input_size = (64, 64)
 
-        def warmup(self, count):
-            assert count == entry.WARMUP_RUNS
+        def infer(self, batch):
+            return (np.zeros((1, 1, 16, 16), dtype=np.float32),
+                    np.zeros((1, 4, 16, 16), dtype=np.float32))
 
-        def predict(self, image, threshold, iou):
-            assert image.mode == 'RGB'
-            return [{'box': [2, 3, 20, 15], 'score': .9}]
-
-    monkeypatch.setattr(inference, 'DocumentDetector', Detector)
-    entry.main()
+    monkeypatch.setattr(cli, 'load_backend', lambda path, backend: EmptyBackend())
+    monkeypatch.setattr(cli, 'exported_shape',
+                        lambda backend: (False, (64, 64), (64, 64)))
+    entry.main(['--model_path', str(model), '--image_path', str(image),
+                '--output_dir', str(tmp_path / 'results'), '--backend', 'onnx',
+                '--warmup_runs', '0'])
     assert (tmp_path / 'results/images/page.png').exists()
-    assert (tmp_path / 'results/labels/gt_page.txt').read_text() == '2.0 3.0 20.0 15.0\n'
-    with Image.open(tmp_path / 'crops/page-00001.png') as crop:
-        assert crop.size == (18, 12)
+    assert (tmp_path / 'results/labels/gt_page.txt').read_text() == ''
+
+
+def test_runtime_engine_saves_images_labels_and_crops(tmp_path):
+    """runtime 推理流水线处理透明图、bbox4 标签和裁片命名。"""
+    from detection_larger.runtime.engine import run_inference
+
+    image = tmp_path / 'page.png'
+    Image.new('RGBA', (40, 30), (0, 0, 0, 0)).save(image)
+
+    class BoxBackend:
+        config = {'input_size': [64, 64], 'dynamic_spatial': False}
+        static_input_size = (64, 64)
+
+        def infer(self, batch):
+            score = np.zeros((1, 1, 16, 16), dtype=np.float32)
+            score[0, 0, 4:6, 4:8] = .9
+            geometry = np.full((1, 4, 16, 16), np.log1p(3), dtype=np.float32)
+            return score, geometry
+
+    summary = run_inference(
+        BoxBackend(), image, tmp_path / 'results', dynamic=False,
+        max_input_size=(64, 64), fixed_input_size=(64, 64),
+        threshold=.7, iou_threshold=.3, save_crops=True,
+        crop_dir=tmp_path / 'crops')
+    assert summary['images'] == 1 and summary['boxes'] == 1
+    with Image.open(tmp_path / 'results/images/page.png') as preview:
+        assert preview.mode == 'RGB' and preview.size == (40, 30)
+    label = (tmp_path / 'results/labels/gt_page.txt').read_text().split()
+    assert len(label) == 4
+    assert (tmp_path / 'crops/page-00001.png').is_file()
 
 
 
@@ -244,3 +274,98 @@ def test_export_rejects_invalid_input_size(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match='input_size'):
         exporter.export_model(tmp_path / 'unused.pth', output)
     assert not output.exists()
+
+
+def test_runtime_is_self_contained_and_synced():
+    """runtime 快照不能导入 detection_larger 包内模块，且必须与源文件同步。"""
+    import ast
+
+    from tools.sync_detection_larger_runtime import check_runtime
+
+    assert check_runtime() == []
+    runtime_dir = Path(__file__).resolve().parents[1] / "detection_larger" / "runtime"
+    for path in sorted(runtime_dir.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                assert not (node.level == 0 and (
+                    module == "detection_larger"
+                    or module.startswith("detection_larger."))), path
+            elif isinstance(node, ast.Import):
+                assert not any(alias.name == "detection_larger"
+                               or alias.name.startswith("detection_larger.")
+                               for alias in node.names), path
+
+
+def test_build_bundle_copies_whitelist_and_verifies(tmp_path, monkeypatch):
+    """部署包只带 runtime、入口和模型，并能在隔离路径下完成一次推理。"""
+    import json
+
+    from detection_larger.utils import MODEL_FORMAT
+    from tools.build_detection_larger_bundle import build_bundle
+
+    monkeypatch.setattr(exporter, "BENCHMARK_ENABLED", False)
+    previous = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        model = create_model().eval()
+        checkpoint, output = tmp_path / "model.pth", tmp_path / "model.onnx"
+        save_checkpoint(model, checkpoint, 64)
+        exporter.export_model(checkpoint, output, input_size=(64, 64), dynamic_spatial=False)
+
+        bundle = tmp_path / "bundle"
+        manifest = build_bundle(output, bundle, verify=True)
+        assert (bundle / "detection_larger_inference_onnx.py").is_file()
+        assert (bundle / "detection_larger/runtime/engine.py").is_file()
+        assert manifest["model"]["file"] == "models/model.onnx"
+        assert json.loads(manifest["model"]["config"])["format"] == MODEL_FORMAT
+        assert not (bundle / "detection_larger/components").exists()
+        assert not (bundle / "detection_larger/utils").exists()
+    finally:
+        torch.set_num_threads(previous)
+
+
+def test_dynamic_spatial_export_uses_metadata_size_limit(tmp_path, monkeypatch):
+    """动态导出按原图宽高比选尺寸，推理上限来自 ONNX 元数据。"""
+    from detection_larger import runtime
+
+    monkeypatch.setattr(exporter, "BENCHMARK_ENABLED", False)
+    previous = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        model = create_model().eval()
+        checkpoint, output = tmp_path / "model.pth", tmp_path / "model.onnx"
+        save_checkpoint(model, checkpoint, 64)
+        config = exporter.export_model(
+            checkpoint, output, input_size=(64, 96), dynamic_spatial=True)
+        assert config["dynamic_spatial"] is True
+
+        backend = runtime.load_backend(output, "onnx")
+        assert runtime.exported_shape(backend) == (True, (64, 96), None)
+        detector = DocumentDetector(output)
+        assert detector.dynamic_input is True
+        assert detector.input_size == (64, 96)
+        # 180×70 页面按宽高比缩放到不超过 64×96 的 32 倍数画布。
+        assert isinstance(detector.predict(Image.new("RGB", (180, 70), "white")), list)
+    finally:
+        torch.set_num_threads(previous)
+
+
+def test_inference_entry_is_thin_runtime_wrapper():
+    """根目录 ONNX 入口只保留常量和 main，不再复制推理实现。"""
+    import ast
+
+    source = (Path(__file__).resolve().parents[1] / "detection_larger_inference_onnx.py").read_text(
+        encoding="utf-8")
+    tree = ast.parse(source)
+    assert [node.name for node in tree.body if isinstance(node, ast.FunctionDef)] == ["main"]
+    modules = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            modules.append(node.module or "")
+    assert "detection_larger.runtime.cli" in modules
+    assert all(module in {"sys", "pathlib", "detection_larger.runtime.cli"}
+               for module in modules), modules

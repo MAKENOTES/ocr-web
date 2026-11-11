@@ -48,8 +48,8 @@
 
 ## 测试、入口与历史证据
 
-- [x] **ONNX 裁片测试显式配置。** [test_onnx_entry_saves_images_labels_and_crops](../tests/test_detection_larger_onnx.py)
-  已在测试中显式设置 `SAVE_CROPS=True`，产品入口默认值仍为关闭。
+- [x] **ONNX 裁片测试显式配置。** [test_runtime_engine_saves_images_labels_and_crops](../tests/test_detection_larger_onnx.py)
+  在 runtime 推理流水线中显式开启裁片，验证命名和输出；产品入口默认值仍为关闭。
 - [x] **小图导出成功条件。** 2026-11-11 已完成：[detection_small_export_onnx.py](../detection_small_export_onnx.py)
   改为临时文件导出，PyTorch/ONNX Runtime 数值校验失败时抛异常并删除临时文件，不覆盖目标；
   固定/动态高宽、batch 1/2、ONNX 元数据和动态标志一致性都有回归测试。
