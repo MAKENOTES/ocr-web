@@ -2,7 +2,8 @@
 
 默认导出固定 INPUT_SIZE 方形高宽，与训练和 PyTorch 推理一致；DYNAMIC_SPATIAL=True
 时才导出动态高宽。导出实现和常量都集中在根目录入口，便于单独运行、复用和调整
-本次导出配置；模型定义、检查点读取和 ONNX 运行时配置仍复用 detection 包内实现。
+本次导出配置；模型定义和检查点读取复用 detection 包内实现，ONNX Runtime 会话配置
+在本入口内定义。
 """
 import json
 import logging
@@ -17,7 +18,6 @@ import torch
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from detection.utils.onnx_runtime import CPU_THREADS, session_options
 from detection.utils import ONNX_CONFIG_KEY, checkpoint_config, load_checkpoint
 
 
@@ -34,6 +34,20 @@ MAX_SPATIAL_SIZE = 4096  # 动态高宽的上限，单位 px；只用于导出�
 SIMPLIFY_MODEL = True  # 启用时尝试 onnxsim，缺少依赖或简化失败则保留原图。
 VALIDATION_RTOL = 1e-4  # PyTorch 与 ONNX 输出比较的相对误差容限。
 VALIDATION_ATOL = 1e-5  # PyTorch 与 ONNX 输出比较的绝对误差容限。
+CPU_THREADS = 4  # CPU 校验和测速的工作线程数；避免占用整机。
+
+
+def session_options():
+    """启用 ONNX Runtime 图优化和内存复用，使用固定线程预算。"""
+    import onnxruntime as ort
+
+    options = ort.SessionOptions()
+    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    options.intra_op_num_threads = CPU_THREADS
+    options.inter_op_num_threads = 1
+    options.enable_mem_pattern = True
+    options.enable_mem_reuse = True
+    return options
 
 
 @contextmanager

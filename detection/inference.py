@@ -2,8 +2,9 @@
 
 PyTorch 检查点默认使用 GPU（不可用时回退 CPU），默认把整图缩放到固定
 INPUT_SIZE 方形画布；DYNAMIC_INPUT=True 时才按原图宽高比选择 32 的倍数尺寸。
-ONNX/OpenVINO 的 CPU 部署入口是根目录 detection_inference_onnx.py，该入口
-独立实现，不依赖本模块。所有输出坐标均还原到原图像素空间。
+本模块只接受 `.pth` 检查点；ONNX/OpenVINO 的 CPU 部署入口是根目录
+detection_inference_onnx.py，该入口独立实现，不依赖本模块。所有输出坐标均
+还原到原图像素空间。
 """
 import sys
 import time
@@ -28,12 +29,6 @@ from detection.utils.postprocess import (
     remove_stale_crops,
     suppress_boxes,
 )
-from detection.utils.onnx_runtime import (
-    OpenVINOBackend,
-    session_options,
-    static_spatial_size,
-    validate_onnx_metadata,
-)
 from detection.components.transforms import (
     dynamic_input_size,
     normalize_input_size,
@@ -47,7 +42,7 @@ from detection.utils import load_checkpoint
 MODEL_PATH = Path("detection/checkpoints/ocr_experiment_1793283532819507511/best_f1_detection_epoch_560_f1_0.97158.pth")
 IMAGE_PATH = Path("detection/data/test_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
 OUTPUT_DIR = Path("detection/data/test_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
-DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU；ONNX/OpenVINO 使用 CPU。
+DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU。
 INPUT_SIZE = 768  # 固定方形输入边长，单位 px；与训练尺寸一致，int 表示正方形，也可设为 (高, 宽)。
 DYNAMIC_INPUT = False  # 默认固定方形画布；True 时按原图宽高比选择 32 的倍数尺寸，超宽图短边会被压到 64。
 SCORE_THRESHOLD = DEFAULT_SCORE_THRESHOLD  # 文字置信度阈值，取值范围为 (0, 1)。
@@ -57,77 +52,25 @@ CROP_DIR = Path("detection/data/crops/test_images")  # 裁片平铺目录；启�
 
 
 class DocumentDetector:
-    """加载统一检测模型，共用整图预处理、后处理和原图坐标还原。"""
+    """加载统一检测 PyTorch 检查点，共用整图预处理、后处理和原图坐标还原。"""
 
-    def __init__(self, model_path, device="cpu", backend="auto",
-                 max_input_size=None, dynamic_input=None):
-        """backend 按后缀选择；ONNX/OpenVINO 的静态或动态高宽由导出文件决定。
-
-        max_input_size 和 dynamic_input 为 None 时读取模块常量，便于入口集中配置。
-        """
+    def __init__(self, model_path, device="cpu", max_input_size=None, dynamic_input=None):
+        """max_input_size 和 dynamic_input 为 None 时读取模块常量，便于入口集中配置。"""
         self.max_input_size = normalize_input_size(
             INPUT_SIZE if max_input_size is None else max_input_size)
         self.dynamic_input = bool(DYNAMIC_INPUT if dynamic_input is None else dynamic_input)
         self.static_input_size = None
 
-        suffix = Path(model_path).suffix.lower()
-        if backend == "auto":
-            backend = "onnx" if suffix == ".onnx" else "pytorch"
-        if backend not in {"onnx", "openvino", "pytorch"}:
-            raise ValueError(f"Unknown detection backend: {backend}")
-        expected_suffix = ".pth" if backend == "pytorch" else ".onnx"
-        if suffix != expected_suffix:
-            raise ValueError(f"Backend {backend} requires {expected_suffix}: {model_path}")
-        self.backend = backend
-
+        if Path(model_path).suffix.lower() != ".pth":
+            raise ValueError(f"PyTorch detection requires a .pth checkpoint: {model_path}")
         if device == "auto":
-            device = "cuda" if backend == "pytorch" and torch.cuda.is_available() else "cpu"
+            device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
-        self.openvino = None
-        self.session = None
-
-        if backend == "openvino":
-            if device != "cpu":
-                raise ValueError("OpenVINO detection backend requires device='cpu'")
-            self.openvino = OpenVINOBackend(model_path)
-            self._apply_exported_shape(self.openvino.static_input_size, self.openvino.config)
-        elif backend == "onnx":
-            if device != "cpu":
-                raise ValueError("ONNX detection backend requires device='cpu'")
-            import onnxruntime as ort
-
-            self.session = ort.InferenceSession(str(model_path), sess_options=session_options(),
-                                                providers=["CPUExecutionProvider"])
-            config = validate_onnx_metadata(self.session.get_modelmeta().custom_metadata_map, model_path)
-            inputs, outputs = self.session.get_inputs(), self.session.get_outputs()
-            if (len(inputs) != 1 or inputs[0].name != "image" or inputs[0].type != "tensor(float)"
-                    or len(inputs[0].shape) != 4 or inputs[0].shape[1] != 3
-                    or {value.name for value in outputs} != {"score", "geometry"}):
-                raise ValueError(f"Incompatible unified detection ONNX inputs/outputs: {model_path}")
-            static_size = static_spatial_size(inputs[0].shape)
-            if None not in static_size and static_size != tuple(config["input_size"]):
-                raise ValueError(f"ONNX input size {static_size} does not match config "
-                                 f"{config['input_size']}: {model_path}")
-            self._apply_exported_shape(None if None in static_size else static_size, config)
-        else:
-            self.model, _ = load_checkpoint(model_path, device)
-
-    def _apply_exported_shape(self, static_size, config):
-        """按导出文件确定静态尺寸或动态尺寸上限，避免与导出配置错配。"""
-        dynamic = static_size is None
-        if bool(config["dynamic_spatial"]) != dynamic:
-            raise ValueError(f"ONNX dynamic_spatial={config['dynamic_spatial']} "
-                             f"does not match exported shape {static_size}")
-        if dynamic:
-            self.max_input_size = tuple(config["input_size"])
-            self.dynamic_input = True
-            return
-        self.static_input_size = tuple(static_size)
-        self.dynamic_input = False
+        self.model, _ = load_checkpoint(model_path, device)
 
     @property
     def input_size(self):
-        """固定导出尺寸或配置的最大输入尺寸。"""
+        """固定输入尺寸或动态模式的最大输入尺寸。"""
         return self.static_input_size or self.max_input_size
 
     def _target_size(self, image_size):
@@ -139,14 +82,9 @@ class DocumentDetector:
     def infer(self, batch):
         """执行 NCHW 前向，计时含设备传输及同步，不含图片预处理和解码。"""
         started = time.perf_counter()
-        if self.openvino is not None:
-            score, geometry = self.openvino.infer(batch.numpy())
-        elif self.session is not None:
-            score, geometry = self.session.run(["score", "geometry"], {"image": batch.numpy()})
-        else:
-            with torch.inference_mode():
-                score, geometry = self.model(batch.to(self.device))
-            score, geometry = score.cpu().numpy(), geometry.cpu().numpy()
+        with torch.inference_mode():
+            score, geometry = self.model(batch.to(self.device))
+        score, geometry = score.cpu().numpy(), geometry.cpu().numpy()
         self.last_infer_ms = (time.perf_counter() - started) * 1000
         return score, geometry
 
@@ -196,7 +134,7 @@ def draw_predictions(image, predictions):
 
 def run_inference(model_path, image_path, output_dir, device="cpu", *,
                   threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
-                  save_crops=False, crop_dir=None, backend="auto", warmup_runs=0,
+                  save_crops=False, crop_dir=None, warmup_runs=0,
                   expand_ratio_w=0.0, expand_ratio_h=0.0):
     """批量保存画框图、bbox4 标签及可选裁片，统计包含预处理和后处理的单图耗时。"""
     if save_crops and crop_dir is None:
@@ -218,10 +156,10 @@ def run_inference(model_path, image_path, output_dir, device="cpu", *,
             raise ValueError(f"Duplicate image stem for labels: {stems[path.stem]} and {path}")
         stems[path.stem] = path
 
-    detector = DocumentDetector(model_path, device, backend=backend)
+    detector = DocumentDetector(model_path, device)
     if warmup_runs:
         detector.warmup(warmup_runs)
-    print(f"模型: {model_path}; 后端: {detector.backend}; 预热: {warmup_runs} 次")
+    print(f"模型: {model_path}; 预热: {warmup_runs} 次")
 
     total_boxes, total_infer_ms, total_detect_ms = 0, 0.0, 0.0
     wall_started = time.perf_counter()
@@ -273,7 +211,7 @@ def main():
     """按顶部常量执行 PyTorch/GPU 推理；ONNX CPU 部署使用根目录独立入口。"""
     run_inference(MODEL_PATH, IMAGE_PATH, OUTPUT_DIR, DEVICE,
                   threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
-                  save_crops=SAVE_CROPS, crop_dir=CROP_DIR, backend="pytorch")
+                  save_crops=SAVE_CROPS, crop_dir=CROP_DIR)
 
 
 if __name__ == "__main__":

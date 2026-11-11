@@ -48,40 +48,33 @@ def test_export_and_detector_roundtrip(tmp_path, monkeypatch, dynamic_spatial):
         assert json.loads(properties[ONNX_CONFIG_KEY]) == config
         assert all(not tensor.external_data for tensor in graph.graph.initializer)
 
-        detector = DocumentDetector(output)
-        assert detector.backend == "onnx"
-        assert detector.dynamic_input is dynamic_spatial
-        assert detector.input_size == (64, 96)
-
         # 使用确定性噪声图，避免纯白图在所有后端都输出空框、对比失去意义。
         rng = np.random.default_rng(0)
         image = Image.fromarray(rng.integers(0, 256, (70, 180, 3), dtype=np.uint8))
         expected = DocumentDetector(checkpoint, max_input_size=(64, 96),
                                     dynamic_input=dynamic_spatial).predict(image, threshold=.1)
-        observed = detector.predict(image, threshold=.1)
-        np.testing.assert_allclose([value["box"] for value in observed],
-                                   [value["box"] for value in expected], atol=.001)
-        np.testing.assert_allclose([value["score"] for value in observed],
-                                   [value["score"] for value in expected], atol=1e-5)
 
-        # 独立 ONNX 入口应与共享 DocumentDetector 输出一致，证明未依赖 GPU 推理模块。
+        # 独立 ONNX 入口应与包内 PyTorch 推理输出一致。
         backend = inference_entry.load_backend(output, "onnx")
         dynamic, max_input_size, fixed_input_size = inference_entry.exported_shape(backend)
+        assert dynamic is dynamic_spatial
+        assert (max_input_size if dynamic else fixed_input_size) == (64, 96)
         standalone, _ = inference_entry.predict_image(
             backend, image, .1, .3, dynamic, max_input_size, fixed_input_size)
         np.testing.assert_allclose([value["box"] for value in standalone],
-                                   [value["box"] for value in observed], atol=.001)
+                                   [value["box"] for value in expected], atol=.001)
         np.testing.assert_allclose([value["score"] for value in standalone],
-                                   [value["score"] for value in observed], atol=1e-5)
+                                   [value["score"] for value in expected], atol=1e-5)
 
-        ov_detector = DocumentDetector(output, backend="openvino")
-        ov_detector.warmup(1)
-        sample = torch.rand(1, 3, 64, 96)
-        for expected_map, observed_map in zip(detector.infer(sample), ov_detector.infer(sample)):
-            np.testing.assert_allclose(observed_map, expected_map, rtol=1e-4, atol=1e-5)
-        ov_predictions = ov_detector.predict(image, threshold=.1)
-        np.testing.assert_allclose([value["box"] for value in ov_predictions],
-                                   [value["box"] for value in observed], atol=.001)
+        # OpenVINO 后端应与 ONNX Runtime 输出一致。
+        ov_backend = inference_entry.load_backend(output, "openvino")
+        dynamic, max_input_size, fixed_input_size = inference_entry.exported_shape(ov_backend)
+        ov_standalone, _ = inference_entry.predict_image(
+            ov_backend, image, .1, .3, dynamic, max_input_size, fixed_input_size)
+        np.testing.assert_allclose([value["box"] for value in ov_standalone],
+                                   [value["box"] for value in standalone], atol=.001)
+        np.testing.assert_allclose([value["score"] for value in ov_standalone],
+                                   [value["score"] for value in standalone], atol=1e-5)
     finally:
         torch.set_num_threads(previous)
 
@@ -103,8 +96,9 @@ def test_detector_rejects_dynamic_flag_mismatch(tmp_path, monkeypatch):
     properties[ONNX_CONFIG_KEY] = json.dumps(config)
     onnx.helper.set_model_props(graph, properties)
     onnx.save(graph, output)
+    backend = inference_entry.load_backend(output, "onnx")
     with pytest.raises(ValueError, match="dynamic_spatial"):
-        DocumentDetector(output)
+        inference_entry.exported_shape(backend)
 
 
 def test_failed_export_does_not_publish(tmp_path, monkeypatch):

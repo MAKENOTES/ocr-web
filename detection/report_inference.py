@@ -106,7 +106,7 @@ def run_inference_entries(image_indexes, force):
                 summary = run_inference(
                     CHECKPOINT_PATH, image_dir, output_dir, "auto",
                     threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU,
-                    backend="pytorch", warmup_runs=WARMUP_RUNS)
+                    warmup_runs=WARMUP_RUNS)
             else:
                 runtime = onnx_entry.load_backend(ONNX_MODEL, ONNX_BACKEND)
                 dynamic, max_input_size, fixed_input_size = onnx_entry.exported_shape(runtime)
@@ -207,7 +207,7 @@ def run_error_previews(csv_paths, force):
     耗时和相对预览路径记录到 error_previews_<split>.csv。已有完整产物时跳过，
     force=True 强制重算。
     """
-    detector = DocumentDetector(CHECKPOINT_PATH, "auto", backend="pytorch")
+    detector = DocumentDetector(CHECKPOINT_PATH, "auto")
     detector.warmup(WARMUP_RUNS)
     input_size = max(normalize_input_size(PYTORCH_INPUT_SIZE))
     outputs = []

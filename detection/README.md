@@ -27,10 +27,9 @@ detection/
 │   ├── loss.py               # Dice + Smooth L1
 │   └── eval_metrics.py       # 训练期与目录级 Precision/Recall/F1
 ├── models/east_model.py      # ResNet18 多尺度融合网络
-├── utils/                    # 检查点、推理后处理、ONNX 运行时和报告
+├── utils/                    # 检查点、推理后处理和报告
 │   ├── checkpoint.py         # 检查点配置契约与读写
 │   ├── postprocess.py        # 连通域解码、NMS、框扩边和裁片命名
-│   ├── onnx_runtime.py       # ONNX Runtime/OpenVINO 配置
 │   ├── training_eval.py      # 报告数据收集、曲线与 HTML 渲染
 │   ├── inference_eval.py     # 部署推理指标、后端一致性与报告渲染
 │   └── size_policy_eval.py   # 输入尺寸策略的精度/耗时汇总与报告渲染

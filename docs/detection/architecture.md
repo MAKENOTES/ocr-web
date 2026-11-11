@@ -8,10 +8,10 @@
 
 统一检测只使用包内 `components/`、`models/` 和 `utils/`，不导入 `detection_small`、
 `detection_larger` 或 `recognition`。`components/` 只放训练链路需要的模块：图片读取、
-数据加载、增强、变换、真值、损失和训练期指标；推理后处理、ONNX/OpenVINO 运行时、
-评估与报告统一放在 `utils/`。图片读取、透明通道合成、缩放补边、归一化、
-后处理和 ONNX/OpenVINO 加载各自独立实现；`tests/test_detection_isolation.py`
-同时检查导入和运行时文件中的旧目录引用。
+数据加载、增强、变换、真值、损失和训练期指标；推理后处理、评估与报告统一放在
+`utils/`，ONNX Runtime 会话配置在根目录导出入口内定义。图片读取、透明通道合成、
+缩放补边、归一化、后处理和 ONNX/OpenVINO 加载各自独立实现；
+`tests/test_detection_isolation.py` 同时检查导入和运行时文件中的旧目录引用。
 
 ## 数据
 
@@ -119,10 +119,10 @@ ONNX 元数据共用 `detection/utils/checkpoint.py` 的校验。
 为一致粒度。坐标减去补边偏移、除以缩放比例后裁到原图边界，再按
 `NMS_IOU_THRESHOLD` 抑制重复框，按从上到下、从左到右排序。
 
-`DocumentDetector` 支持 PyTorch、ONNX Runtime 和 OpenVINO。PyTorch 默认固定
-方形画布（768×768），与训练输入一致；`DYNAMIC_INPUT=True` 时才按宽高比选择尺寸。
-ONNX/OpenVINO 读取导出后的实际高宽：动态模型使用配置的尺寸上限，固定模型
-自动改为导出尺寸，并校验元数据、输入输出名称和 `dynamic_spatial` 一致。
+`DocumentDetector` 只加载 PyTorch `.pth` 检查点，默认固定方形画布（768×768），
+与训练输入一致；`DYNAMIC_INPUT=True` 时才按宽高比选择尺寸。ONNX/OpenVINO
+部署统一走单文件入口，由导出文件读取实际高宽：动态模型使用配置的尺寸上限，
+固定模型自动改为导出尺寸，并校验元数据、输入输出名称和 `dynamic_spatial` 一致。
 `inference.py` 保存画框预览、bbox4 标签和可选裁片；`SAVE_CROPS` 关闭时不创建
 或修改裁片目录。
 

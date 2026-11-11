@@ -335,7 +335,6 @@ def test_whole_image_inference_restores_long_lines_and_cells():
     detector.max_input_size = (256, 256)
     detector.dynamic_input = False
     detector.static_input_size = (256, 256)
-    detector.openvino = detector.session = None
     detector.device, detector.model = "cpu", PerfectModel()
     result = detector.predict(image)
     assert len(calls) == 1
@@ -425,8 +424,8 @@ def test_inference_main_uses_constants(tmp_path, monkeypatch):
         monkeypatch.setattr(inference, name, value)
 
     class FakeDetector:
-        def __init__(self, path, device, backend="auto"):
-            self.backend, self.last_infer_ms = backend, 1.0
+        def __init__(self, path, device):
+            self.last_infer_ms = 1.0
             assert (path, device) == (model_path, "cpu")
 
         def predict(self, image, threshold, iou_threshold):
@@ -472,7 +471,7 @@ def test_run_summary_and_expanded_outputs(tmp_path, monkeypatch):
     Image.new("RGB", (20, 15), "white").save(image)
 
     class Detector:
-        backend, last_infer_ms = "onnx", 2.5
+        last_infer_ms = 2.5
 
         def __init__(self, *args, **kwargs):
             pass
@@ -481,7 +480,7 @@ def test_run_summary_and_expanded_outputs(tmp_path, monkeypatch):
             return [{"box": [1, 2, 19, 12], "score": .9}]
 
     monkeypatch.setattr(inference, "DocumentDetector", Detector)
-    summary = run_inference("model.onnx", image, tmp_path / "output",
+    summary = run_inference("model.pth", image, tmp_path / "output",
                             save_crops=True, crop_dir=tmp_path / "crops",
                             expand_ratio_w=.2, expand_ratio_h=.5)
     assert summary["images"] == summary["boxes"] == 1
