@@ -339,7 +339,7 @@ def suppress_boxes(boxes, scores, iou_threshold=NMS_IOU_THRESHOLD):
     return np.asarray(keep, dtype=np.int64)
 
 
-# 输出辅助：与 detection/utils/inference_utils.py 行为一致。
+# 输出辅助：与 detection/utils/postprocess.py 行为一致。
 
 def crop_path(crop_dir, image_stem, index):
     """按 <原图 stem>-<序号>.png 生成平铺裁片路径；序号从 1 开始。"""

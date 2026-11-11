@@ -15,7 +15,7 @@ detection/
 ├── README.md                 # 用途、数据迁移、常用入口和约束
 ├── train.py                  # 统一检测训练入口
 ├── inference.py              # PyTorch/GPU 推理与共享后处理
-├── report.py                 # 训练分析静态 HTML 报告入口
+├── report_training.py        # 训练分析静态 HTML 报告入口
 ├── report_inference.py       # 部署入口推理评估报告入口
 ├── report_size_policy.py     # 固定 768 与小图 256 输入策略对比入口
 ├── components/               # 只放训练链路需要的模块
@@ -29,10 +29,9 @@ detection/
 ├── models/east_model.py      # ResNet18 多尺度融合网络
 ├── utils/                    # 检查点、推理后处理、ONNX 运行时和报告
 │   ├── checkpoint.py         # 检查点配置契约与读写
-│   ├── postprocess.py        # 四连通域解码与词/短语拆分
-│   ├── inference_utils.py    # 解码、NMS、框扩边和裁片命名
+│   ├── postprocess.py        # 连通域解码、NMS、框扩边和裁片命名
 │   ├── onnx_runtime.py       # ONNX Runtime/OpenVINO 配置
-│   ├── training_report.py    # 报告数据收集、曲线与 HTML 渲染
+│   ├── training_eval.py      # 报告数据收集、曲线与 HTML 渲染
 │   ├── inference_eval.py     # 部署推理指标、后端一致性与报告渲染
 │   └── size_policy_eval.py   # 输入尺寸策略的精度/耗时汇总与报告渲染
 └── data/                     # 本地迁移数据、清单和推理产物，不提交
@@ -95,7 +94,7 @@ F1 每 `METRIC_VAL_INTERVAL`（默认 10）轮评估一次，默认按 `METRIC_I
 ## 训练分析报告
 
 ```bash
-.venv/bin/python detection/report.py --run detection/checkpoints/<run>
+.venv/bin/python detection/report_training.py --run detection/checkpoints/<run>
 ```
 
 默认输出 `detection/reports/<run>/index.html` 和 `summary.json`，报告自包含

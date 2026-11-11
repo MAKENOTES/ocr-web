@@ -20,7 +20,7 @@ from detection.components.eval_metrics import (
     summarize_counts,
 )
 from detection.components.image import IMAGE_EXTENSIONS, load_rgb_image
-from detection.utils.training_report import (
+from detection.utils.training_eval import (
     esc,
     format_number,
     format_percent,

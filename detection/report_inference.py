@@ -48,7 +48,7 @@ from detection.utils.inference_eval import (
     write_preview_csv,
     write_report,
 )
-from detection.utils.training_report import load_curves
+from detection.utils.training_eval import load_curves
 from detection.components.transforms import normalize_input_size
 from detection.inference import (
     DYNAMIC_INPUT as PYTORCH_DYNAMIC_INPUT,

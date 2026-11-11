@@ -2,7 +2,7 @@
 import numpy as np
 
 from detection.components.eval_metrics import match_box_status, match_counts, summarize_counts
-from detection.utils.training_report import (
+from detection.utils.training_eval import (
     build_workpoints,
     describe_checkpoint,
     json_safe,

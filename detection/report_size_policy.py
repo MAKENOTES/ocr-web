@@ -36,7 +36,7 @@ from detection.utils.size_policy_eval import (
     timing_summary,
     write_report,
 )
-from detection.utils.training_report import format_percent
+from detection.utils.training_eval import format_percent
 from detection.inference import DocumentDetector
 
 
