@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from detection.components.eval_metrics import summarize_counts
-from detection.utils.inference_report import (
+from detection.utils.inference_eval import (
     ERROR_PREVIEW_CSV_FIELDS,
     build_report,
     compare_backends,
@@ -148,7 +148,7 @@ def test_write_report_outputs_lightweight_summary(tmp_path):
 
 def test_remove_stale_previews_keeps_only_current_images(tmp_path):
     """重算预览时应删除上一轮多出的图片，但不能碰非图片文件。"""
-    from detection.inference_report import remove_stale_previews
+    from detection.report_inference import remove_stale_previews
 
     folder = tmp_path / "previews"
     folder.mkdir()

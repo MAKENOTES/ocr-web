@@ -16,8 +16,8 @@ detection/
 ├── train.py                  # 统一检测训练入口
 ├── inference.py              # PyTorch/GPU 推理与共享后处理
 ├── report.py                 # 训练分析静态 HTML 报告入口
-├── inference_report.py       # 部署入口推理评估报告入口
-├── size_policy_report.py     # 固定 768 与小图 256 输入策略对比入口
+├── report_inference.py       # 部署入口推理评估报告入口
+├── report_size_policy.py     # 固定 768 与小图 256 输入策略对比入口
 ├── components/               # 只放训练链路需要的模块
 │   ├── image.py              # EXIF 方向与透明通道合成
 │   ├── dataset.py            # 严格标签配对和 bbox4/quad8 解析
@@ -33,8 +33,8 @@ detection/
 │   ├── inference_utils.py    # 解码、NMS、框扩边和裁片命名
 │   ├── onnx_runtime.py       # ONNX Runtime/OpenVINO 配置
 │   ├── training_report.py    # 报告数据收集、曲线与 HTML 渲染
-│   ├── inference_report.py   # 部署推理指标、后端一致性与报告渲染
-│   └── size_policy_report.py # 输入尺寸策略的精度/耗时汇总与报告渲染
+│   ├── inference_eval.py     # 部署推理指标、后端一致性与报告渲染
+│   └── size_policy_eval.py   # 输入尺寸策略的精度/耗时汇总与报告渲染
 └── data/                     # 本地迁移数据、清单和推理产物，不提交
 ```
 
@@ -116,9 +116,9 @@ F1 每 `METRIC_VAL_INTERVAL`（默认 10）轮评估一次，默认按 `METRIC_I
 ## 部署推理评估报告
 
 ```bash
-.venv/bin/python detection/inference_report.py
-.venv/bin/python detection/inference_report.py --skip-inference
-.venv/bin/python detection/inference_report.py --skip-inference --error-previews
+.venv/bin/python detection/report_inference.py
+.venv/bin/python detection/report_inference.py --skip-inference
+.venv/bin/python detection/report_inference.py --skip-inference --error-previews
 ```
 
 默认用 [inference.py](inference.py)（PyTorch/GPU）和根目录
@@ -147,8 +147,8 @@ ONNX 入口使用其默认 OpenVINO CPU 后端；ONNX Runtime 在当前机器上
 ## 输入尺寸策略对比报告
 
 ```bash
-.venv/bin/python detection/size_policy_report.py
-.venv/bin/python detection/size_policy_report.py --use-cache
+.venv/bin/python detection/report_size_policy.py
+.venv/bin/python detection/report_size_policy.py --use-cache
 ```
 
 对比“全部固定 768×768”和“宽高都小于 256px 用 256、其余 768”两种策略，在

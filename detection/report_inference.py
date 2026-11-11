@@ -1,9 +1,9 @@
 """在训练/验证集上运行两个部署推理入口，生成与训练指标对比的静态 HTML 报告。
 
 用法：
-    .venv/bin/python detection/inference_report.py
-    .venv/bin/python detection/inference_report.py --skip-inference
-    .venv/bin/python detection/inference_report.py --error-previews
+    .venv/bin/python detection/report_inference.py
+    .venv/bin/python detection/report_inference.py --skip-inference
+    .venv/bin/python detection/report_inference.py --error-previews
 
 输出：
     detection/data/inference_eval/<backend>_<split>/{images,labels,run_summary.json}
@@ -36,7 +36,7 @@ import detection_inference_onnx as onnx_entry  # 根目录独立 ONNX/OpenVINO �
 from detection.components.dataset import read_boxes
 from detection.components.eval_metrics import match_box_status
 from detection.components.image import IMAGE_EXTENSIONS, load_rgb_image
-from detection.utils.inference_report import (
+from detection.utils.inference_eval import (
     ERROR_PREVIEW_DIRNAME,
     MATCH_IOU,
     build_report,

@@ -306,7 +306,7 @@ footer { color:var(--muted); font-size:12px; text-align:center; padding:20px; }
   <p class="muted">验证集参与过检查点选择，精度数字存在乐观偏差；策略取舍应结合独立留出集和实际业务图片复核。</p>
 </section>
 </main>
-<footer>报告由 detection/size_policy_report.py 生成。指标只评估检测框，不涉及文字识别。</footer>
+<footer>报告由 detection/report_size_policy.py 生成。指标只评估检测框，不涉及文字识别。</footer>
 """
     return ("<!doctype html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"

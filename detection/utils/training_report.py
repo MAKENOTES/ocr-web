@@ -30,8 +30,8 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 
 from detection.components.dataset import OCRDataset, read_boxes
 from detection.components.eval_metrics import (
-    SOURCE_PREFIXES,
     match_box_status,
+    source_group,
     summarize_counts,
 )
 from detection.components.image import IMAGE_EXTENSIONS, load_rgb_image
@@ -213,8 +213,7 @@ def evaluate_model_on_val(model, dataset, device, input_sizes, thresholds, colle
             image = load_rgb_image(image_path)
             boxes, ignored = read_boxes(label_path, image.size)
             truth_boxes = boxes[~ignored]
-            prefix = image_path.name.split("_", 1)[0]
-            group = prefix if prefix in SOURCE_PREFIXES else "other"
+            group = source_group(image_path.name)
             heights = truth_boxes[:, 3] - truth_boxes[:, 1]
             entry = None
             if collect_images:

@@ -26,6 +26,11 @@ from detection.inference import (
 SOURCE_PREFIXES = {"ui", "doc"}  # 统一数据按文件名前缀分组；其他名称归入 other。
 
 
+def source_group(name):
+    """按文件名前缀返回业务来源分组，未知前缀归入 other。"""
+    prefix = name.split("_", 1)[0]
+    return prefix if prefix in SOURCE_PREFIXES else "other"
+
 
 def box_overlap(box, boxes):
     """返回交集并集比与交集占预测框面积比；boxes 为空时返回空数组。"""
@@ -109,8 +114,7 @@ def evaluate_model(model, dataset, device, input_size, threshold=SCORE_THRESHOLD
         predictions = [{"box": decoded[index].tolist(), "score": float(scores[index])}
                        for index in keep]
 
-        prefix = image_path.name.split("_", 1)[0]
-        group = prefix if prefix in SOURCE_PREFIXES else "other"
+        group = source_group(image_path.name)
         counts = match_counts(predictions, boxes, ignored, match_iou)
         totals[group] += counts
         totals["overall"] += counts

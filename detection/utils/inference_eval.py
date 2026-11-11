@@ -15,8 +15,8 @@ import numpy as np
 
 from detection.components.dataset import read_boxes
 from detection.components.eval_metrics import (
-    SOURCE_PREFIXES,
     match_box_status,
+    source_group,
     summarize_counts,
 )
 from detection.components.image import IMAGE_EXTENSIONS, load_rgb_image
@@ -96,12 +96,6 @@ def prediction_boxes(label_path, size):
     """读取推理入口写出的 bbox4 标签；坐标越界或退化时立即报错。"""
     boxes, _ = read_boxes(label_path, size)
     return boxes
-
-
-def source_group(name):
-    """按文件名前缀划分业务来源，未知前缀归入 other。"""
-    prefix = name.split("_", 1)[0]
-    return prefix if prefix in SOURCE_PREFIXES else "other"
 
 
 def build_error_analysis(records, collect_visuals):
@@ -831,7 +825,7 @@ footer { color:var(--muted); font-size:12px; text-align:center; padding:20px; }
 </section>
 </main>
 <footer>
-  报告由 detection/inference_report.py 生成。指标只评估检测框，不涉及文字识别。
+  报告由 detection/report_inference.py 生成。指标只评估检测框，不涉及文字识别。
 </footer>
 """
 

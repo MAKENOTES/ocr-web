@@ -1,8 +1,8 @@
 """对比“小图 256、其余 768”与全固定 768 的精度和耗时，生成静态 HTML 报告。
 
 用法：
-    .venv/bin/python detection/size_policy_report.py
-    .venv/bin/python detection/size_policy_report.py --use-cache
+    .venv/bin/python detection/report_size_policy.py
+    .venv/bin/python detection/report_size_policy.py --use-cache
 
 测试集为 detection/data/train_images 和 detection/data/val_images。PyTorch 覆盖
 训练集和验证集；ONNX/OpenVINO 只在验证集上复算 CPU 耗时和精度。小图判定为宽和高
@@ -24,10 +24,10 @@ import detection_export_onnx as exporter  # 复用固定尺寸 ONNX 导出。
 import detection_inference_onnx as onnx_entry  # 复用独立 ONNX/OpenVINO 推理。
 
 from detection.components.dataset import read_boxes
-from detection.components.eval_metrics import match_box_status, summarize_counts
+from detection.components.eval_metrics import match_box_status, source_group, summarize_counts
 from detection.components.image import load_rgb_image
-from detection.utils.inference_report import load_image_index
-from detection.utils.size_policy_report import (
+from detection.utils.inference_eval import load_image_index
+from detection.utils.size_policy_eval import (
     BASELINE_POLICY,
     LARGE_INPUT_SIZE,
     MIXED_POLICY,
@@ -60,12 +60,6 @@ MATCH_IOU = 0.5  # 预测框与真值框匹配阈值，与训练期指标一致�
 WARMUP_RUNS = 3  # PyTorch 每个输入尺寸的预热次数。
 ONNX_BACKEND = "openvino"  # ONNX CPU 后端；与部署入口默认一致。
 GROUP_KEYS = ("overall", "small", "large", "ui", "doc", "other")  # 需要汇总的分组。
-
-
-def source_group(name):
-    """按文件名前缀划分业务来源，未知前缀归入 other。"""
-    prefix = name.split("_", 1)[0]
-    return prefix if prefix in {"ui", "doc"} else "other"
 
 
 def size_group(width, height):

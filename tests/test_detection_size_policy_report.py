@@ -1,5 +1,5 @@
 """输入尺寸策略报告的尺寸判定和耗时汇总测试。"""
-from detection.utils.size_policy_report import select_input_size, timing_summary
+from detection.utils.size_policy_eval import select_input_size, timing_summary
 
 
 def test_select_input_size_uses_256_only_for_small_both_sides():
