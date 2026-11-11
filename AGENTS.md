@@ -37,7 +37,6 @@
 .venv/bin/python -m pytest tests/test_detection_augmentation.py -q
 .venv/bin/python -m pytest tests/test_detection_unified_onnx.py -q
 .venv/bin/python -m pytest tests/test_detection_rectangular_pipeline.py -q
-.venv/bin/python -m pytest tests/test_detection_split_dataset.py -q
 .venv/bin/python -m pytest tests/test_detection_larger.py -q
 .venv/bin/python -m py_compile detection/train.py detection/inference.py detection/report.py detection/components/*.py detection/models/*.py detection/utils/*.py detection_export_onnx.py detection_inference_onnx.py recognition/components/dataset.py recognition/models/model.py recognition/train.py recognition/evaluate_val.py recognition_export_onnx.py recognition_inference.py
 ```

@@ -7,7 +7,7 @@
 
 ## 数据与评估正确性
 
-- [ ] **小图训练的验证集隔离。** [train_resnet.py](../detection_small/train_resnet.py) 中两个验证路径指向训练目录。
+- [ ] **小图训练的验证集隔离。** [train_resnet.py](../detection_small/train.py) 中两个验证路径指向训练目录。
   先核对 manifest 与实际独立验证目录，再决定恢复哪些路径；按 stem 和图片内容摘要检查 train/val 交集。
   完成标准：路径独立、样本交集为零，指标报告记录实际验证集来源。
 - [ ] **小图标签严格加载。** [dataset.py](../detection_small/components/dataset.py) 优先选择 `gt_` 标签，
@@ -52,7 +52,7 @@
   已在测试中显式设置 `SAVE_CROPS=True`，产品入口默认值仍为关闭。
 - [ ] **小图导出成功条件。** [detection_export_onnx.py](../detection_small_export_onnx.py) 数值误差超阈值时只打印告警。
   用可控错误输出验证失败路径；完成标准：验证失败不发布可误认为成功的目标模型，退出结果可供脚本判断。
-- [ ] **默认写入与命令行收敛。** 小图划分默认移动，旧分隔符转换默认覆盖；部分入口还有固定常量的同义参数。
+- [ ] **默认写入与命令行收敛。** 旧分隔符转换默认覆盖；部分入口还有固定常量的同义参数。
   本轮只如实标明行为。后续逐入口确认调用方和必要运行参数，补预览/执行回归测试后再改默认或删参数。
   完成标准：帮助、默认值、调用方、测试和文档同时更新，不破坏已使用的入口。
 - [ ] **合成标注输出尚未统一。** [generate_lines.py](../recognition/utils/synthesis/generate_lines.py) 仍生成逗号版及

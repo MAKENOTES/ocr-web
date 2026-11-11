@@ -4,7 +4,7 @@
 
 统一 `detection` 是当前主链路；本包保留原有实现、数据和历史脚本，不再作为默认训练和推理入口。
 
-本包用 ResNet18 EAST 定位 UI 小图中的水平文字框。训练入口为 [train_resnet.py](train_resnet.py)，
+本包用 ResNet18 EAST 定位 UI 小图中的水平文字框。训练入口为 [train_resnet.py](train.py)，
 矩形多后端推理入口为根目录的 [detection_small_inference_640.py](../detection_small_inference_640.py)。
 文件名中的 `640` 不代表当前尺寸；默认输入为高 256、宽 768 像素。
 
@@ -13,29 +13,22 @@
 
 ## 工程目录层级
 
-下图列出主要目录和文件；历史变体按文件名前缀归组，省略包初始化文件与缓存。
+下图列出主要目录和文件；省略包初始化文件与缓存。
 
 ```text
 detection_small/
 ├── README.md                 # 包用途、训练约束与检查入口
 ├── train_resnet.py           # 历史小图 ResNet18 训练入口
-├── train_resnet_metrics.py   # 历史检测指标训练实验
-├── train_resnet_overfit.py   # 历史过拟合监控训练实验
-├── train_mobilenet.py        # 历史 MobileNet 训练实验
-├── split_dataset.py          # 按持久化 manifest 划分数据
 ├── inference.md              # 历史根目录推理入口的使用说明
-├── inference.py              # 历史推理入口
-├── inference_v*.py           # 按版本保留的历史推理实现
+├── inference_v3resnet18_640.py  # 历史矩形输入推理实现
 ├── components/
 │   ├── dataset.py            # 图片与文字框标签加载
 │   ├── transforms.py         # 颜色增强、缩放补边与张量转换
 │   ├── ground_truth.py       # 历史置信度和几何真值生成
-│   ├── ground_truth_*.py     # 历史骨干对应的真值变体
 │   ├── loss.py               # Dice 与几何损失
 │   └── eval_metrics.py       # 独立框级指标评估
 ├── models/
-│   ├── east_model.py         # 历史 ResNet18 EAST
-│   └── east_model_*.py       # 历史 ResNet18/ResNet50/MobileNet 变体
+│   └── east_model.py         # 历史 ResNet18 EAST
 ├── data/                     # 本地图片、标签及 split_manifest.csv，不提交
 └── checkpoints/              # 本地模型权重，不提交
 ```
@@ -45,7 +38,7 @@ detection_small/
 
 ## 训练前检查
 
-`train_resnet.py` 当前的 `VAL_IMAGE_DIR`、`VAL_LABEL_DIR` 指向训练目录。
+`train.py` 当前的 `VAL_IMAGE_DIR`、`VAL_LABEL_DIR` 指向训练目录。
 直接运行得到的是训练数据上的损失，不能作为独立验证精度。正式训练前应将这两个常量
 指向已准备好的独立验证目录，并核对 `data/split_manifest.csv`；本次文档核对没有改动该配置。
 
@@ -57,34 +50,16 @@ detection_small/
 
 ```bash
 # 先核对顶部路径、输入尺寸和验证集配置
-.venv/bin/python detection/train_resnet.py
+.venv/bin/python detection_small/train_resnet.py
 ```
-
-## 固定训练集与验证集归属
-
-[split_dataset.py](split_dataset.py) 以已有 manifest 为准，保留旧样本归属，仅为新增样本分组，
-尽量使验证集占 20%。按图片 stem 配对标签，支持 `gt_<stem>.txt` 和 `<stem>.txt`；
-缺失或歧义标签会报错。划分器的校验比当前训练加载器严格，二者不能混为一谈。
-
-```bash
-# 划分器默认执行移动，检查时必须显式加 --dry-run
-.venv/bin/python detection/split_dataset.py --dry-run
-
-# 需要执行划分时使用；会移动图片和标签并更新 manifest
-.venv/bin/python detection/split_dataset.py
-```
-
-可用 `--source-images`、`--source-labels` 指定新增数据目录，其他路径及 `move/copy` 选项见 `--help`。
-不要让训练和验证目录包含同一样本；`copy` 模式不能代替源目录与训练目录的隔离检查。
 
 ## 历史实现与检查
 
-`inference.py`、`inference_v*.py`、`train_resnet_metrics.py`、`train_resnet_overfit.py`
-和 `train_mobilenet.py` 保留各自实验配置，不作为当前矩形入口的默认参数来源。
+`inference.py` 保留历史矩形输入推理配置，不作为当前矩形入口的默认参数来源。
 模型和真值文件也有历史变体；实际导入关系见架构文档。
 
 ```bash
-.venv/bin/python -m pytest tests/test_detection_rectangular_pipeline.py tests/test_detection_split_dataset.py tests/test_detection_isolation.py -q
+.venv/bin/python -m pytest tests/test_detection_rectangular_pipeline.py tests/test_detection_isolation.py -q
 ```
 
 尚待处理的加载、评估和数据隔离问题见[核对待办](../docs/code-doc-todolist.md)。

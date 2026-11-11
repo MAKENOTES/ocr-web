@@ -3,13 +3,13 @@
 本文说明历史小图检测的数据格式、模型张量、训练与推理契约，供核对实现和评估改动影响。
 统一 `detection` 是当前主链路，本文不描述统一检测的行为。
 
-本页对应 `detection_small/train_resnet.py`、`detection_small_inference_640.py` 的历史实现。
+本页对应 `../../detection_small/train.py`、`detection_small_inference_640.py` 的历史实现。
 操作入口见 [detection_small/README.md](../../detection_small/README.md)，术语见[术语表](../terminology.md)。
 
 ## 数据与张量
 
 训练调用关系为 `train_resnet.py → components/dataset.py → components/transforms.py → components/ground_truth.py`。
-模型来自 `models/east_model.py`，不是由文件名动态选择 `east_model_resnet18.py`。
+模型来自 `models/east_model.py`。
 训练仅枚举 PNG；`OCRDataset` 类本身默认支持 JPG/JPEG/PNG。
 
 加载器按 stem 选择标签，存在 `gt_<stem>.txt` 时优先使用它。`require_labels=True`
@@ -47,5 +47,5 @@ ResNet18 四级特征通过转置卷积逐级融合，在步长 4 的特征图�
 
 ## 历史文件
 
-带骨干后缀的模型、真值和版本号推理文件保留实验配置。
-`transforms.py` 显式导入无后缀 `ground_truth.py`；修改其他真值文件不会改变默认训练。
+`inference_v3resnet18_640.py` 保留历史推理实验配置。
+`transforms.py` 显式导入 `ground_truth.py`，训练默认使用该真值实现。
