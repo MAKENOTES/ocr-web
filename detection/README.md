@@ -17,6 +17,7 @@ detection/
 ├── inference.py              # PyTorch/GPU 推理与共享后处理
 ├── report.py                 # 训练分析静态 HTML 报告入口
 ├── inference_report.py       # 部署入口推理评估报告入口
+├── size_policy_report.py     # 固定 768 与小图 256 输入策略对比入口
 ├── components/
 │   ├── image.py              # EXIF 方向与透明通道合成
 │   ├── dataset.py            # 严格标签配对和 bbox4/quad8 解析
@@ -29,6 +30,7 @@ detection/
 │   ├── eval_metrics.py       # 目录级 Precision/Recall/F1
 │   ├── training_report.py    # 报告数据收集、曲线与 HTML 渲染
 │   ├── inference_report.py   # 部署推理指标、后端一致性与报告渲染
+│   ├── size_policy_report.py # 输入尺寸策略的精度/耗时汇总与报告渲染
 │   └── training_options.py   # 本次运行的检查点输出目录
 ├── models/east_model.py      # ResNet18 多尺度融合网络
 ├── utils/checkpoint.py       # 检查点配置契约与读写
@@ -139,6 +141,20 @@ F1 每 `METRIC_VAL_INTERVAL`（默认 10）轮评估一次，默认按 `METRIC_I
 ONNX 入口使用其默认 OpenVINO CPU 后端；ONNX Runtime 在当前机器上单图前向明显更慢。
 训练集指标是 in-sample 结果，只表示拟合程度；验证集参与过检查点和阈值选择，离线 F1
 仍存在乐观偏差，上线前需独立留出集复核。
+
+## 输入尺寸策略对比报告
+
+```bash
+.venv/bin/python detection/size_policy_report.py
+.venv/bin/python detection/size_policy_report.py --use-cache
+```
+
+对比“全部固定 768×768”和“宽高都小于 256px 用 256、其余 768”两种策略，在
+`train_images`/`val_images` 上重新计算 P/R/F1 和入口耗时。PyTorch 覆盖训练/验证集，
+ONNX/OpenVINO 只在验证集复算 CPU 耗时和精度。输出
+`detection/reports/<run>/size_policy/index.html`、`summary.json`；中间指标缓存到
+`raw_metrics.json`，`--use-cache` 只重新渲染报告。该入口只做对比分析，不修改
+`detection/inference.py` 的部署默认值。
 
 ## 数据增强与批次执行
 

@@ -141,6 +141,8 @@ ONNX Runtime 的数值比较，固定导出覆盖 batch 1/2，动态导出额外
 `detection/inference_report.py` 调用两个部署入口在训练/验证集上生成预测，按同一
 0.5 IoU 口径复核 P/R/F1、两后端框级一致性和入口耗时，并与训练报告摘要对照；
 同时输出 `errors_train.csv` 和 `errors_val.csv` 逐图错误明细。
+`detection/size_policy_report.py` 对比全固定 768 与小图 256 两种输入策略的精度和耗时，
+只做评估，不修改部署默认值。
 
 加 `--error-previews` 时，入口再对这两个 CSV 中的错误图片调用包内 PyTorch
 `DocumentDetector` 重新推理，并复用 `inference.py` 的 `draw_predictions` 画出红色
