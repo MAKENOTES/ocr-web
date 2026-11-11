@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from detection.components.training_report import (
+from detection.utils.training_report import (
     esc,
     format_number,
     format_percent,

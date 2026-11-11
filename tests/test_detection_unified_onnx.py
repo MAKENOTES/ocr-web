@@ -10,7 +10,7 @@ from PIL import Image
 
 import detection_export_onnx as exporter
 import detection_inference_onnx as inference_entry
-from detection.components.inference_utils import suppress_boxes as shared_suppress_boxes
+from detection.utils.inference_utils import suppress_boxes as shared_suppress_boxes
 from detection.inference import DocumentDetector
 from detection.models.east_model import create_model
 from detection.utils import ONNX_CONFIG_KEY, save_checkpoint

@@ -36,7 +36,7 @@ import detection_inference_onnx as onnx_entry  # 根目录独立 ONNX/OpenVINO �
 from detection.components.dataset import read_boxes
 from detection.components.eval_metrics import match_box_status
 from detection.components.image import IMAGE_EXTENSIONS, load_rgb_image
-from detection.components.inference_report import (
+from detection.utils.inference_report import (
     ERROR_PREVIEW_DIRNAME,
     MATCH_IOU,
     build_report,
@@ -48,7 +48,7 @@ from detection.components.inference_report import (
     write_preview_csv,
     write_report,
 )
-from detection.components.training_report import load_curves
+from detection.utils.training_report import load_curves
 from detection.components.transforms import normalize_input_size
 from detection.inference import (
     DYNAMIC_INPUT as PYTORCH_DYNAMIC_INPUT,

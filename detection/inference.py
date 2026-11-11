@@ -18,7 +18,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from detection.components.image import IMAGE_EXTENSIONS, load_rgb_image
-from detection.components.inference_utils import (
+from detection.utils.inference_utils import (
     CROP_INDEX_DIGITS,
     DEFAULT_NMS_IOU_THRESHOLD,
     DEFAULT_SCORE_THRESHOLD,
@@ -28,7 +28,7 @@ from detection.components.inference_utils import (
     remove_stale_crops,
     suppress_boxes,
 )
-from detection.components.onnx_runtime import (
+from detection.utils.onnx_runtime import (
     OpenVINOBackend,
     session_options,
     static_spatial_size,

@@ -26,8 +26,8 @@ import detection_inference_onnx as onnx_entry  # 复用独立 ONNX/OpenVINO 推�
 from detection.components.dataset import read_boxes
 from detection.components.eval_metrics import match_box_status, summarize_counts
 from detection.components.image import load_rgb_image
-from detection.components.inference_report import load_image_index
-from detection.components.size_policy_report import (
+from detection.utils.inference_report import load_image_index
+from detection.utils.size_policy_report import (
     BASELINE_POLICY,
     LARGE_INPUT_SIZE,
     MIXED_POLICY,
@@ -36,7 +36,7 @@ from detection.components.size_policy_report import (
     timing_summary,
     write_report,
 )
-from detection.components.training_report import format_percent
+from detection.utils.training_report import format_percent
 from detection.inference import DocumentDetector
 
 

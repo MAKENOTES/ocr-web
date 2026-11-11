@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 
 from detection.components.eval_metrics import summarize_counts
-from detection.components.inference_report import (
+from detection.utils.inference_report import (
     ERROR_PREVIEW_CSV_FIELDS,
     build_report,
     compare_backends,

@@ -160,7 +160,7 @@ def restore_boxes(boxes, metadata, image_size):
     return result
 
 
-# 连通域解码：与 detection/components/postprocess.py 行为一致。
+# 连通域解码：与 detection/utils/postprocess.py 行为一致。
 
 def scaled_small_region_area(input_size):
     """按输入像素面积缩放小连通域阈值，1024×1024 对应 15 个置信度图像素。"""
@@ -339,7 +339,7 @@ def suppress_boxes(boxes, scores, iou_threshold=NMS_IOU_THRESHOLD):
     return np.asarray(keep, dtype=np.int64)
 
 
-# 输出辅助：与 detection/components/inference_utils.py 行为一致。
+# 输出辅助：与 detection/utils/inference_utils.py 行为一致。
 
 def crop_path(crop_dir, image_stem, index):
     """按 <原图 stem>-<序号>.png 生成平铺裁片路径；序号从 1 开始。"""

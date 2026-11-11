@@ -557,9 +557,15 @@ def test_training_entry_runs_reference_loop_and_saves_top_k(tmp_path, monkeypatc
             "DEVICE": "cpu", "PRETRAINED": False, "LOG_GRAPH": False,
         }.items():
             monkeypatch.setattr(training, name, value)
-        training.main(["--output", str(tmp_path / "run")])
-        assert (tmp_path / "run" / "detection_epoch_1.pth").exists()
-        best = list((tmp_path / "run").glob("best_detection_epoch_*.pth"))
+        run_dir = tmp_path / "run"
+        monkeypatch.setattr(training, "CHECKPOINT_ROOT", run_dir)
+        monkeypatch.setattr(training, "RUNS_ROOT", tmp_path / "runs")
+        training.main()
+        # 检查点写入 CHECKPOINT_ROOT 下按时间戳新建的子目录。
+        run_dirs = list(run_dir.iterdir())
+        assert len(run_dirs) == 1 and run_dirs[0].is_dir()
+        assert (run_dirs[0] / "detection_epoch_1.pth").exists()
+        best = list(run_dirs[0].glob("best_detection_epoch_*.pth"))
         assert len(best) == 1
         model, checkpoint = load_checkpoint(best[0])
         assert checkpoint["config"]["input_size"] == [64, 64]
@@ -567,21 +573,6 @@ def test_training_entry_runs_reference_loop_and_saves_top_k(tmp_path, monkeypatc
             assert torch.isfinite(model(torch.rand(1, 3, 64, 64))[0]).all()
     finally:
         torch.set_num_threads(old_threads)
-
-
-def test_training_options_only_accept_output_directory(tmp_path):
-    from detection.components.training_options import parse_args
-
-    args = parse_args(["--output", str(tmp_path / "new")])
-    assert args.output == tmp_path / "new"
-    for option in ("--epochs", "--input-size", "--train-images",
-                   "--label-format", "--device"):
-        with pytest.raises(SystemExit):
-            parse_args([option, "1"])
-    (tmp_path / "keep.pth").write_text("existing")
-    with pytest.raises(FileExistsError, match="must be empty"):
-        parse_args(["--output", str(tmp_path)])
-    assert (tmp_path / "keep.pth").read_text() == "existing"
 
 
 def test_migration_dedupes_and_keeps_train_val_disjoint(tmp_path, monkeypatch):

@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from torchvision.ops import nms
 
-from detection.components.postprocess import (
+from detection.utils.postprocess import (
     MIN_AREA,
     boxes_from_connected_components,
     scaled_small_region_area,

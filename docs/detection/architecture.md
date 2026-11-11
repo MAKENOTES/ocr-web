@@ -7,7 +7,9 @@
 ## 边界与隔离
 
 统一检测只使用包内 `components/`、`models/` 和 `utils/`，不导入 `detection_small`、
-`detection_larger` 或 `recognition`。图片读取、透明通道合成、缩放补边、归一化、
+`detection_larger` 或 `recognition`。`components/` 只放训练链路需要的模块：图片读取、
+数据加载、增强、变换、真值、损失和训练期指标；推理后处理、ONNX/OpenVINO 运行时、
+评估与报告统一放在 `utils/`。图片读取、透明通道合成、缩放补边、归一化、
 后处理和 ONNX/OpenVINO 加载各自独立实现；`tests/test_detection_isolation.py`
 同时检查导入和运行时文件中的旧目录引用。
 

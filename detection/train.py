@@ -23,7 +23,6 @@ from detection.components.augmentation import policy_weights_for_epoch
 from detection.components.dataset import OCRDataset
 from detection.components.eval_metrics import evaluate_model
 from detection.components.loss import EASTLoss
-from detection.components.training_options import parse_args
 from detection.components.transforms import get_transforms, normalize_input_size
 from detection.models.east_model import EASTModel
 from detection.utils import save_checkpoint
@@ -39,6 +38,9 @@ TRAIN_IMAGE_DIR = "detection/data/train_images"  # 已准备好的训练图片�
 TRAIN_LABEL_DIR = "detection/data/train_labels"  # 训练文字框标签目录，按图片 stem 配对。
 VAL_IMAGE_DIR = "detection/data/val_images"  # 独立验证图片目录，不与训练集混用。
 VAL_LABEL_DIR = "detection/data/val_labels"  # 验证文字框标签目录，标签格式与训练集一致。
+
+CHECKPOINT_ROOT = Path("detection/checkpoints")  # 检查点根目录；每次训练在其下新建带时间戳的子目录。
+RUNS_ROOT = Path("detection/runs")  # TensorBoard 日志根目录；与检查点目录分开，避免混入权重文件。
 
 NUM_WORKERS = 8  # 数据加载子进程数；设为 0 时在主进程加载，便于定位数据问题。
 PRETRAINED = True  # 是否加载 ImageNet 预训练参数；无缓存会下载，离线可设 False。
@@ -178,9 +180,8 @@ def save_best_f1_checkpoint(model, epoch, f1, best_checkpoints_list, checkpoint_
     print(f"★ 当前 Top-{BEST_F1_MODELS_TO_KEEP} F1 模型已更新 (F1: {f1:.5f})")
 
 
-def main(argv=None):
-    """主训练函数；配置由文件顶部常量控制，命令行只处理本次运行路径。"""
-    args = parse_args(argv)
+def main():
+    """主训练函数；配置由文件顶部常量控制，检查点和日志按时间自动新建。"""
     if (min(EPOCHS, BATCH_SIZE) <= 0 or NUM_WORKERS < 0
             or not math.isfinite(LEARNING_RATE) or LEARNING_RATE <= 0):
         raise ValueError("EPOCHS/BATCH_SIZE/LEARNING_RATE must be positive; "
@@ -221,9 +222,9 @@ def main(argv=None):
 
     # TensorBoard 与检查点分别放入本次运行的新目录。
     run_name = f"ocr_experiment_{time.time_ns()}"
-    checkpoint_dir = args.output or Path("detection/checkpoints") / run_name
+    checkpoint_dir = CHECKPOINT_ROOT / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    log_dir = Path("detection/runs") / run_name
+    log_dir = RUNS_ROOT / run_name
     writer = SummaryWriter(str(log_dir))
     print(f"TensorBoard 日志: {log_dir}；检查点: {checkpoint_dir}")
 

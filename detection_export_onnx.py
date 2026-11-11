@@ -17,7 +17,7 @@ import torch
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from detection.components.onnx_runtime import CPU_THREADS, session_options
+from detection.utils.onnx_runtime import CPU_THREADS, session_options
 from detection.utils import ONNX_CONFIG_KEY, checkpoint_config, load_checkpoint
 
 

@@ -18,22 +18,23 @@ detection/
 ├── report.py                 # 训练分析静态 HTML 报告入口
 ├── inference_report.py       # 部署入口推理评估报告入口
 ├── size_policy_report.py     # 固定 768 与小图 256 输入策略对比入口
-├── components/
+├── components/               # 只放训练链路需要的模块
 │   ├── image.py              # EXIF 方向与透明通道合成
 │   ├── dataset.py            # 严格标签配对和 bbox4/quad8 解析
 │   ├── augmentation.py       # 30 种按框安全增强与批次课程
 │   ├── transforms.py         # 增强接线、缩放补边、真值和张量
 │   ├── ground_truth.py       # 置信度、log1p 几何和忽略掩码
 │   ├── loss.py               # Dice + Smooth L1
+│   └── eval_metrics.py       # 训练期与目录级 Precision/Recall/F1
+├── models/east_model.py      # ResNet18 多尺度融合网络
+├── utils/                    # 检查点、推理后处理、ONNX 运行时和报告
+│   ├── checkpoint.py         # 检查点配置契约与读写
 │   ├── postprocess.py        # 四连通域解码与词/短语拆分
+│   ├── inference_utils.py    # 解码、NMS、框扩边和裁片命名
 │   ├── onnx_runtime.py       # ONNX Runtime/OpenVINO 配置
-│   ├── eval_metrics.py       # 目录级 Precision/Recall/F1
 │   ├── training_report.py    # 报告数据收集、曲线与 HTML 渲染
 │   ├── inference_report.py   # 部署推理指标、后端一致性与报告渲染
-│   ├── size_policy_report.py # 输入尺寸策略的精度/耗时汇总与报告渲染
-│   └── training_options.py   # 本次运行的检查点输出目录
-├── models/east_model.py      # ResNet18 多尺度融合网络
-├── utils/checkpoint.py       # 检查点配置契约与读写
+│   └── size_policy_report.py # 输入尺寸策略的精度/耗时汇总与报告渲染
 └── data/                     # 本地迁移数据、清单和推理产物，不提交
 ```
 
@@ -54,15 +55,16 @@ train 和 val。`split_manifest.csv` 记录样本归属、来源路径和内容�
 
 ```bash
 .venv/bin/python detection/train.py
-.venv/bin/python detection/train.py --output /path/to/new_run
 ```
 
-配置集中在 [train.py](train.py) 顶部：默认 RGB、`768×768`、batch 8、`NUM_WORKERS=8`、
-最多 620 轮；Adam 构造学习率 1.5e-4，OneCycleLR 峰值 4.5e-4；训练使用 30 种
-按框安全增强，验证使用确定性缩放。检查点只保存 `config` 和 `model`；训练从
+配置集中在 [train.py](train.py) 顶部，不提供命令行参数：默认 RGB、`768×768`、
+batch 8、`NUM_WORKERS=8`、最多 620 轮；Adam 构造学习率 1.5e-4，OneCycleLR 峰值 4.5e-4；
+训练使用 30 种按框安全增强，验证使用确定性缩放。检查点只保存 `config` 和 `model`；训练从
 `PRETRAINED` 指定的 ImageNet 初始化或随机初始化开始。训练和验证目录路径必须不同。
 
-训练输出在 `detection/checkpoints/<run>/`。同时保留两套 Top-3：
+每次运行在 `detection/checkpoints/<run>/` 下新建检查点目录，`<run>` 为
+`ocr_experiment_<纳秒时间戳>`，根目录由 `CHECKPOINT_ROOT` 控制；TensorBoard 事件
+写入 `detection/runs/<run>/`，根目录由 `RUNS_ROOT` 控制。同时保留两套 Top-3：
 
 - 验证损失最低：`best_detection_epoch_<轮数>_loss_<损失>.pth`；
 - 验证 F1 最高：`best_f1_detection_epoch_<轮数>_f1_<F1>.pth`。
