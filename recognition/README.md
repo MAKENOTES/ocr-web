@@ -78,6 +78,68 @@ recognition/
 根目录 [recognition_inference.py](../recognition_inference.py) 保留旧命令和默认值；
 新接入使用 `python -m recognition.runtime` 或部署产物中的 `example.py`。
 
+## 推理与部署
+
+### 推理
+
+仓库内有两个根目录兼容入口，内部都调用 `recognition/runtime/`；新接入建议直接用 runtime：
+
+```bash
+# 包内 PyTorch 推理：路径由 recognition/inference.py 顶部常量控制
+.venv/bin/python recognition/inference.py
+
+# 单层模型兼容入口，默认 auto 后端
+.venv/bin/python recognition_inference.py \
+  --model_path best_recognition.onnx \
+  --keys_path recognition/keys.txt \
+  --image_path recognition/data/test_images
+
+# 多层 BiGRU 模型兼容入口，默认 OpenVINO
+.venv/bin/python recognition_inference_layer.py \
+  --model_path best_recognition_layer.onnx \
+  --keys_path recognition/keys.txt \
+  --image_path recognition/data/test_images
+
+# 不依赖根目录入口的新接入
+.venv/bin/python -m recognition.runtime \
+  --model_path models/model.onnx \
+  --keys_path keys.txt \
+  --image_path /path/to/images \
+  --backend onnx --batch_size 8
+```
+
+`--backend` 支持 `auto`、`onnx`、`openvino` 和 `pytorch`；兼容入口可用默认值，
+新接入必须显式提供模型、字典和图片路径。字典内容与顺序必须和模型导出一致；
+batch>1 依赖模型包含 `img_widths` 输入和 GRU `sequence_lens`，旧模型会退回逐张行为。
+结果按传入图片顺序返回，`--sort_by_width` 只改变组 batch 顺序。示例中的模型需先用
+`recognition_export_onnx.py`（单层）或 `recognition_export_onnx_layer.py`（多层）导出，
+或替换为已有模型路径。
+
+### 部署
+
+`recognition/runtime/` 是单向生成的部署快照。修改 `components/`、`models/`、`utils/`
+中的推理依赖后先同步，再构建部署包：
+
+```bash
+.venv/bin/python tools/sync_recognition_runtime.py          # 重新生成 runtime
+.venv/bin/python tools/sync_recognition_runtime.py --check  # 只检查
+
+.venv/bin/python tools/build_recognition_bundle.py \
+  --model best_recognition_layer.onnx \
+  --keys recognition/keys.txt \
+  --out dist/recognition_runtime --zip
+```
+
+产物包含 `recognition/runtime/`、模型、`keys.txt`、`requirements*.txt`、`example.py`
+和 `manifest.json`，默认在隔离路径下实际推理一次。部署方按后端安装
+`requirements-onnx.txt`、`requirements-openvino.txt` 或 `requirements-pytorch.txt`，
+然后运行 `python example.py <图片或目录>` 或 `python -m recognition.runtime ...`。
+只嵌入其他项目时，可以只复制 `recognition/runtime/` 并重命名包，模型、字典和依赖
+由目标项目管理。
+
+完整产物结构、参数、升级与回滚见[部署说明](../docs/recogniton/guides/deployment.md)；
+模型导出、CPU 评测和量化见[运行说明](../docs/recogniton/guides/running.md)。
+
 ## 关键约束
 
 - 标注为 `relative/path.png<TAB>文字`，`<TAB>` 是真实制表符；不自动去外层引号或替换标点。
