@@ -8,8 +8,9 @@
 
 ## 目录与入口
 
-- `detection/`：当前统一检测包。ResNet18 EAST 模型、严格数据加载、真值/损失、训练、推理和评估都在包内独立实现，不导入 `detection_small`、`detection_larger` 或 `recognition`；`detection/inference.py` 面向 PyTorch/GPU 推理，根目录 `detection_inference_onnx.py` 是单文件 ONNX CPU 推理入口（不依赖 `detection` 包），ONNX 导出入口在根目录 `detection_export_onnx.py`。
-- `detection/components/`：只放训练链路需要的模块，包括图片读取、数据加载、增强、变换、真值、损失和训练期指标；推理后处理、ONNX/OpenVINO 运行时、评估报告等放到 `detection/utils/`。
+- `detection/`：当前统一检测包。ResNet18 EAST 模型、严格数据加载、真值/损失、训练、推理和评估都在包内独立实现，不导入 `detection_small`、`detection_larger` 或 `recognition`；`detection/inference.py` 面向 PyTorch/GPU 推理，根目录 `detection_inference_onnx.py` 只保留部署常量，ONNX CPU 推理实现在 `detection/runtime/`（生成快照由 `tools/sync_detection_runtime.py` 维护），ONNX 导出入口在根目录 `detection_export_onnx.py`，独立部署包由 `tools/build_detection_bundle.py` 生成。
+- `detection/components/`：只放训练链路需要的模块，包括图片读取、推理预处理、数据加载、增强、变换、真值、损失和训练期指标；推理后处理、ONNX/OpenVINO 运行时、评估报告等放到 `detection/utils/`。
+- `tools/sync_detection_runtime.py`、`tools/build_detection_bundle.py`：从仓库源文件同步 `detection/runtime` 并组装可独立部署的检测运行目录，不参与训练和常规推理。
 - `detection_small/`：迁移前的 UI 小图检测，保留原有实现、数据和历史脚本，不再作为主链路。
 - `detection_larger/`：迁移前的 PDF 页面和网页表格检测，保留原有实现、数据和历史脚本，不再作为主链路。
 - `recognition/`：CRNN 识别模型、统一图片预处理、训练、评估和历史记录。
@@ -39,7 +40,7 @@
 .venv/bin/python -m pytest tests/test_detection_unified_onnx.py -q
 .venv/bin/python -m pytest tests/test_detection_rectangular_pipeline.py -q
 .venv/bin/python -m pytest tests/test_detection_larger.py -q
-.venv/bin/python -m py_compile detection/train.py detection/inference.py detection/report_training.py detection/components/*.py detection/models/*.py detection/utils/*.py detection_export_onnx.py detection_inference_onnx.py recognition/components/dataset.py recognition/models/model.py recognition/train.py recognition/evaluate_val.py recognition_export_onnx.py recognition_inference.py
+.venv/bin/python -m py_compile detection/train.py detection/inference.py detection/report_training.py detection/components/*.py detection/models/*.py detection/runtime/*.py detection/utils/*.py detection_export_onnx.py detection_inference_onnx.py tools/sync_detection_runtime.py tools/build_detection_bundle.py recognition/components/dataset.py recognition/models/model.py recognition/train.py recognition/evaluate_val.py recognition_export_onnx.py recognition_inference.py
 ```
 
 改动哪个子系统，至少运行对应的测试文件。涉及共享预处理、张量 layout、动态 padding 或模型输入通道时，还要运行全部测试。
@@ -62,7 +63,8 @@
 ## 修改原则
 
 - **三个检测子系统必须隔离**：`detection`、`detection_small`、`detection_larger` 的代码、配置、数据、权重、训练、推理、导出和测试分别维护，不允许相互导入、引用或通过根目录入口间接依赖。统一 `detection` 还禁止导入或读取 `recognition` 的任何文件；透明图片合成、缩放和归一化必须在包内独立实现。修改任一子系统不得要求其他子系统同步修改或提供运行资源。
-- 统一 `detection` 内部优先复用自身的 `components/dataset.py`、`components/transforms.py` 和 `components/image.py`，确保训练、评估、PyTorch、ONNX 和 OpenVINO 使用同一套加载、缩放、补边和归一化。
+- **部署快照必须同步**：修改 `detection/components/image.py`、`detection/components/preprocessing.py`、`detection/utils/postprocess.py` 或 `detection/utils/config.py` 后，必须运行 `tools/sync_detection_runtime.py` 并提交生成的 `detection/runtime` 文件；部署包统一用 `tools/build_detection_bundle.py` 构建，不能手工拼接 runtime 与入口。
+- 统一 `detection` 内部优先复用自身的 `components/preprocessing.py`、`components/transforms.py`、`components/image.py` 和 `utils/postprocess.py`，确保训练、评估、PyTorch、ONNX 和 OpenVINO 使用同一套加载、缩放、补边和归一化。
 - 图片或标注错误应尽早给出包含具体路径的异常，不能静默跳过会污染训练的数据。
 - 修复当前主链路时不要顺手重写带版本号的历史实验脚本；只有在任务明确涉及它们时才同步修改。
 - 行为发生变化时同步更新测试和当前架构文档；历史训练结果保留原意，并明确标注为历史记录。

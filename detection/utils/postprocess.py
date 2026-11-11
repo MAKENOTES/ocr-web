@@ -1,7 +1,7 @@
 """统一检测的推理后处理：连通域解码、词/短语拆分、NMS、框扩边和裁片命名。
 
-GPU 推理入口和评估/输出辅助共用本模块，保证包内后端的输出粒度、坐标还原、
-重复框抑制和裁片命名一致；根目录单文件 ONNX 入口内联同一套逻辑以便独立部署。
+PyTorch 推理入口和评估/输出辅助共用本模块；ONNX/OpenVINO 部署由
+tools/sync_detection_runtime.py 生成本模块的 runtime 副本，保证部署代码与仓库一致。
 本模块不依赖任何推理后端。
 """
 from pathlib import Path
@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from torchvision.ops import nms
 
-from detection.components.transforms import STRIDE
+from detection.components.preprocessing import STRIDE
 
 
 MIN_AREA = 1  # 连通域最小面积，单位为置信度图像素数；保留缩小后仅占一个高置信度像素的小字。

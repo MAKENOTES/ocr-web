@@ -4,6 +4,8 @@
 .venv
 __pycache__/
 outputs/
+# 独立部署包构建产物（tools/build_*_bundle.py 的默认输出），不提交到仓库。
+dist/
 # 统一检测的数据、检查点和运行产物由本地迁移生成，不提交到仓库。
 detection/data/
 detection/checkpoints/

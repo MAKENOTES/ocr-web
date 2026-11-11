@@ -29,7 +29,7 @@ from detection.utils.postprocess import (
     remove_stale_crops,
     suppress_boxes,
 )
-from detection.components.transforms import (
+from detection.components.preprocessing import (
     dynamic_input_size,
     normalize_input_size,
     prepare_image,

@@ -20,15 +20,25 @@ detection/
 ├── report_size_policy.py     # 固定 768 与小图 256 输入策略对比入口
 ├── components/               # 只放训练链路需要的模块
 │   ├── image.py              # EXIF 方向与透明通道合成
+│   ├── preprocessing.py      # 尺寸校验、缩放补边、归一化和坐标还原
 │   ├── dataset.py            # 严格标签配对和 bbox4/quad8 解析
 │   ├── augmentation.py       # 30 种按框安全增强与批次课程
-│   ├── transforms.py         # 增强接线、缩放补边、真值和张量
+│   ├── transforms.py         # 训练增强接线、真值和张量
 │   ├── ground_truth.py       # 置信度、log1p 几何和忽略掩码
 │   ├── loss.py               # Dice + Smooth L1
 │   └── eval_metrics.py       # 训练期与目录级 Precision/Recall/F1
 ├── models/east_model.py      # ResNet18 多尺度融合网络
-├── utils/                    # 检查点、推理后处理和报告
-│   ├── checkpoint.py         # 检查点配置契约与读写
+├── runtime/                  # 部署运行包；生成文件勿手改
+│   ├── backends.py           # ONNX Runtime/OpenVINO 后端
+│   ├── cli.py                # 推理命令行
+│   ├── engine.py             # 单图预测和批量输出
+│   ├── config.py             # 配置契约（生成）
+│   ├── image.py              # 图片读取（生成）
+│   ├── postprocess.py        # 解码、NMS 和裁片命名（生成）
+│   └── preprocessing.py      # 预处理和坐标还原（生成）
+├── utils/                    # 检查点、后处理和报告
+│   ├── config.py             # 检查点/ONNX 配置契约与校验
+│   ├── checkpoint.py         # 检查点读写
 │   ├── postprocess.py        # 连通域解码、NMS、框扩边和裁片命名
 │   ├── training_eval.py      # 报告数据收集、曲线与 HTML 渲染
 │   ├── inference_eval.py     # 部署推理指标、后端一致性与报告渲染
@@ -186,15 +196,24 @@ ONNX/OpenVINO 只在验证集复算 CPU 耗时和精度。输出
 ## 推理与导出
 
 `detection/inference.py` 面向 PyTorch/GPU 推理；根目录 `detection_inference_onnx.py`
-是单文件 ONNX CPU 部署入口，预处理、解码、NMS 和输出全部内联，不导入
-`detection` 包，部署时只需复制该文件、`.onnx` 模型和依赖（numpy、Pillow、
-OpenCV、onnxruntime；OpenVINO 后端另需 openvino 和 onnx）。
+只保留默认常量，ONNX CPU 推理实现在 `detection/runtime/`。runtime 中的图片读取、
+预处理、后处理和配置契约由 `tools/sync_detection_runtime.py` 从仓库源文件生成，
+部署包由 `tools/build_detection_bundle.py` 组装，包含 runtime、入口和 `.onnx` 模型，
+避免仓库与部署代码各自维护。
 
 ```bash
+# 修改共享图片/预处理/后处理/配置后先同步部署快照
+.venv/bin/python tools/sync_detection_runtime.py
+.venv/bin/python tools/sync_detection_runtime.py --check
+
+# 构建独立部署目录；默认在隔离路径下完成一次推理自检
+.venv/bin/python tools/build_detection_bundle.py \
+  --model best_detection.onnx --out dist/detection_runtime
+
 # 直接运行包内入口（PyTorch/GPU）：修改 detection/inference.py 的 MODEL_PATH 和 IMAGE_PATH
 .venv/bin/python detection/inference.py
 
-# 独立 ONNX CPU 入口：常量提供默认值，命令行覆盖本次输入
+# ONNX CPU 入口：常量提供默认值，命令行覆盖本次输入
 .venv/bin/python detection_inference_onnx.py --image_path detection/data/test_images
 .venv/bin/python detection_inference_onnx.py --backend openvino --save_crops
 

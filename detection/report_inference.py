@@ -31,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]  # 仓库根目录；报告内�
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import detection_inference_onnx as onnx_entry  # 根目录独立 ONNX/OpenVINO 入口。
+from detection import runtime as onnx_runtime  # 根目录入口和部署包共用的 ONNX/OpenVINO runtime。
 
 from detection.components.dataset import read_boxes
 from detection.components.eval_metrics import match_box_status
@@ -49,7 +49,7 @@ from detection.utils.inference_eval import (
     write_report,
 )
 from detection.utils.training_eval import load_curves
-from detection.components.transforms import normalize_input_size
+from detection.components.preprocessing import normalize_input_size
 from detection.inference import (
     DYNAMIC_INPUT as PYTORCH_DYNAMIC_INPUT,
     INPUT_SIZE as PYTORCH_INPUT_SIZE,
@@ -108,9 +108,9 @@ def run_inference_entries(image_indexes, force):
                     threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU,
                     warmup_runs=WARMUP_RUNS)
             else:
-                runtime = onnx_entry.load_backend(ONNX_MODEL, ONNX_BACKEND)
-                dynamic, max_input_size, fixed_input_size = onnx_entry.exported_shape(runtime)
-                summary = onnx_entry.run_onnx_inference(
+                runtime = onnx_runtime.load_backend(ONNX_MODEL, ONNX_BACKEND)
+                dynamic, max_input_size, fixed_input_size = onnx_runtime.exported_shape(runtime)
+                summary = onnx_runtime.run_inference(
                     runtime, image_dir, output_dir,
                     dynamic=dynamic, max_input_size=max_input_size,
                     fixed_input_size=fixed_input_size,
@@ -129,8 +129,8 @@ def run_inference_entries(image_indexes, force):
 def check_exported_size():
     """确认 ONNX 导出的高宽模式与尺寸和 PyTorch 入口一致，避免对比工作点错配。"""
     pytorch_size = normalize_input_size(PYTORCH_INPUT_SIZE)
-    runtime = onnx_entry.load_backend(ONNX_MODEL, ONNX_BACKEND)
-    dynamic, max_input_size, fixed_input_size = onnx_entry.exported_shape(runtime)
+    runtime = onnx_runtime.load_backend(ONNX_MODEL, ONNX_BACKEND)
+    dynamic, max_input_size, fixed_input_size = onnx_runtime.exported_shape(runtime)
     onnx_size = tuple(max_input_size if dynamic else fixed_input_size)
     if dynamic != PYTORCH_DYNAMIC_INPUT or onnx_size != pytorch_size:
         raise ValueError(

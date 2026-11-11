@@ -11,13 +11,13 @@ from detection.components.dataset import OCRDataset, read_boxes
 from detection.components.ground_truth import generate_ground_truth
 from detection.components.image import load_rgb_image
 from detection.components.loss import EASTLoss
-from detection.components.transforms import (
+from detection.components.preprocessing import (
     dynamic_input_size,
-    get_transforms,
     normalize_input_size,
     prepare_image,
     restore_boxes,
 )
+from detection.components.transforms import get_transforms
 from detection.inference import (
     DocumentDetector,
     decode_maps,

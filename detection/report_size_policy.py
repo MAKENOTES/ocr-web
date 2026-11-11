@@ -21,7 +21,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import detection_export_onnx as exporter  # 复用固定尺寸 ONNX 导出。
-import detection_inference_onnx as onnx_entry  # 复用独立 ONNX/OpenVINO 推理。
+from detection import runtime as onnx_runtime  # 复用 ONNX/OpenVINO 推理实现。
 
 from detection.components.dataset import read_boxes
 from detection.components.eval_metrics import match_box_status, source_group, summarize_counts
@@ -166,11 +166,11 @@ def load_onnx_backends():
                               input_size=SMALL_INPUT_SIZE, dynamic_spatial=False)
     backends = {}
     for name, model_path in ((LARGE_INPUT_SIZE, ONNX_768), (SMALL_INPUT_SIZE, ONNX_256)):
-        runtime = onnx_entry.load_backend(model_path, ONNX_BACKEND)
-        dynamic, max_input_size, fixed_input_size = onnx_entry.exported_shape(runtime)
+        runtime = onnx_runtime.load_backend(model_path, ONNX_BACKEND)
+        dynamic, max_input_size, fixed_input_size = onnx_runtime.exported_shape(runtime)
         if dynamic or tuple(fixed_input_size) != (name, name):
             raise ValueError(f"ONNX 模型不是固定 {name}×{name}: {model_path}")
-        onnx_entry.warmup_backend(runtime, dynamic, max_input_size, fixed_input_size, 2)
+        onnx_runtime.warmup_backend(runtime, dynamic, max_input_size, fixed_input_size, 2)
         backends[name] = (runtime, dynamic, max_input_size, fixed_input_size)
     return backends
 
@@ -191,7 +191,7 @@ def run_onnx_val(image_index, gt_label_dir):
 
         runtime, dynamic, max_input_size, fixed_input_size = backends[LARGE_INPUT_SIZE]
         started = time.perf_counter()
-        baseline_predictions, _ = onnx_entry.predict_image(
+        baseline_predictions, _ = onnx_runtime.predict_image(
             runtime, image, SCORE_THRESHOLD, NMS_IOU, dynamic,
             max_input_size, fixed_input_size)
         baseline_ms = (time.perf_counter() - started) * 1000
@@ -205,7 +205,7 @@ def run_onnx_val(image_index, gt_label_dir):
         if group == "small":
             runtime, dynamic, max_input_size, fixed_input_size = backends[SMALL_INPUT_SIZE]
             started = time.perf_counter()
-            policy_predictions, _ = onnx_entry.predict_image(
+            policy_predictions, _ = onnx_runtime.predict_image(
                 runtime, image, SCORE_THRESHOLD, NMS_IOU, dynamic,
                 max_input_size, fixed_input_size)
             policy_ms = (time.perf_counter() - started) * 1000

@@ -23,7 +23,8 @@ from detection.components.augmentation import policy_weights_for_epoch
 from detection.components.dataset import OCRDataset
 from detection.components.eval_metrics import evaluate_model
 from detection.components.loss import EASTLoss
-from detection.components.transforms import get_transforms, normalize_input_size
+from detection.components.preprocessing import normalize_input_size
+from detection.components.transforms import get_transforms
 from detection.models.east_model import EASTModel
 from detection.utils import save_checkpoint
 

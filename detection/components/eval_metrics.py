@@ -14,7 +14,7 @@ if __package__ in (None, ""):
 
 from detection.components.dataset import OCRDataset, read_boxes
 from detection.components.image import load_rgb_image
-from detection.components.transforms import prepare_image, restore_boxes
+from detection.components.preprocessing import prepare_image, restore_boxes
 from detection.inference import (
     NMS_IOU_THRESHOLD,
     SCORE_THRESHOLD,

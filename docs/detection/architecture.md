@@ -6,12 +6,14 @@
 
 ## 边界与隔离
 
-统一检测只使用包内 `components/`、`models/` 和 `utils/`，不导入 `detection_small`、
-`detection_larger` 或 `recognition`。`components/` 只放训练链路需要的模块：图片读取、
-数据加载、增强、变换、真值、损失和训练期指标；推理后处理、评估与报告统一放在
-`utils/`，ONNX Runtime 会话配置在根目录导出入口内定义。图片读取、透明通道合成、
-缩放补边、归一化、后处理和 ONNX/OpenVINO 加载各自独立实现；
-`tests/test_detection_isolation.py` 同时检查导入和运行时文件中的旧目录引用。
+统一检测只使用包内 `components/`、`models/`、`runtime/` 和 `utils/`，不导入
+`detection_small`、`detection_larger` 或 `recognition`。`components/` 只放训练链路需要的
+模块：图片读取、推理预处理、数据加载、增强、变换、真值、损失和训练期指标；
+推理后处理、评估与报告放在 `utils/`。`runtime/` 是部署运行包：图片读取、预处理、
+后处理和配置契约由 `tools/sync_detection_runtime.py` 从源文件生成，后端、引擎和
+命令行入口为手写模块。图片读取、透明通道合成、缩放补边、归一化、后处理和
+ONNX/OpenVINO 加载各自独立实现；`tests/test_detection_isolation.py` 同时检查导入和
+运行时文件中的旧目录引用。
 
 ## 数据
 
@@ -107,7 +109,7 @@ PyTorch 可接受任意 32 倍数高宽；ONNX 可导出动态高宽。
 
 检查点格式为 `unified-east-resnet18-v1`，保存 `config` 和 `model`。`config` 记录
 输入尺寸上限、步长、几何编码、预处理版本和是否动态导出；训练、推理、导出和
-ONNX 元数据共用 `detection/utils/checkpoint.py` 的校验。
+ONNX 元数据共用 `detection/utils/config.py` 的校验。
 
 ## 推理、评估与导出
 
@@ -121,15 +123,19 @@ ONNX 元数据共用 `detection/utils/checkpoint.py` 的校验。
 
 `DocumentDetector` 只加载 PyTorch `.pth` 检查点，默认固定方形画布（768×768），
 与训练输入一致；`DYNAMIC_INPUT=True` 时才按宽高比选择尺寸。ONNX/OpenVINO
-部署统一走单文件入口，由导出文件读取实际高宽：动态模型使用配置的尺寸上限，
-固定模型自动改为导出尺寸，并校验元数据、输入输出名称和 `dynamic_spatial` 一致。
+部署统一走根目录入口和 `detection/runtime`，由导出文件读取实际高宽：动态模型
+使用配置的尺寸上限，固定模型自动改为导出尺寸，并校验元数据、输入输出名称和
+`dynamic_spatial` 一致。
 `inference.py` 保存画框预览、bbox4 标签和可选裁片；`SAVE_CROPS` 关闭时不创建
 或修改裁片目录。
 
-CPU 部署入口 `detection_inference_onnx.py` 是单文件实现：预处理、连通域解码、
-NMS 和输出辅助全部内联，不导入 `detection` 包，只依赖 numpy、Pillow、OpenCV
-和 ONNX Runtime（可选 OpenVINO）；部署时复制脚本和 `.onnx` 模型即可。其输出
-契约与包内实现保持一致，修改任一侧后需运行 ONNX 对比测试。
+CPU 部署入口 `detection_inference_onnx.py` 只保留默认常量，推理实现在
+`detection/runtime`。runtime 中的图片读取、预处理、后处理和配置契约由
+`tools/sync_detection_runtime.py` 从源文件生成，`backends.py`、`engine.py` 和
+`cli.py` 为手写模块；runtime 不导入 `detection` 训练、报告或 PyTorch 推理模块。
+部署包由 `tools/build_detection_bundle.py` 生成，包含 runtime、入口和 `.onnx` 模型，
+并在隔离路径下完成一次推理自检；共享源文件修改后未重新同步时，构建脚本会拒绝
+生成，避免仓库与部署代码各自维护。
 
 根目录 `detection_export_onnx.py` 默认导出动态 batch 和固定 768×768 高宽；设置
 `DYNAMIC_SPATIAL=True` 时才导出动态高宽。导出先执行 PyTorch 与

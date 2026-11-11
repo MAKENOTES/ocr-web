@@ -35,7 +35,7 @@ from detection.components.eval_metrics import (
     summarize_counts,
 )
 from detection.components.image import IMAGE_EXTENSIONS, load_rgb_image
-from detection.components.transforms import (
+from detection.components.preprocessing import (
     normalize_input_size,
     prepare_image,
     restore_boxes,
