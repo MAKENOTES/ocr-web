@@ -1,5 +1,7 @@
+"""生成收缩置信度图、log1p 四方向距离及 ### 忽略区域掩码。"""
 import numpy as np
 import cv2
+
 
 def shrink_polygon(poly, r=0.4):
     """按边法向收缩四边形，偏移不超过最短边的 45%，防止细长框翻转。"""
@@ -66,7 +68,11 @@ def shrink_polygon(poly, r=0.4):
 
 
 def generate_ground_truth(image_size, quads, score_map_scale=0.25):
-    """返回置信度 [H*s,W*s] 及几何 [4,H*s,W*s]；几何为 log1p 特征图像素距离。"""
+    """返回置信度 [H*s,W*s] 及几何 [4,H*s,W*s]；几何为 log1p 特征图像素距离。
+
+    image_size 是模型输入的高、宽；score_map_scale=0.25 对应网络步长 4。
+    几何顺序为上、右、下、左，单位为特征图像素；重叠区域保留面积更小的框。
+    """
     img_h, img_w = image_size
     score_map_h, score_map_w = int(img_h * score_map_scale), int(img_w * score_map_scale)
 
@@ -111,3 +117,15 @@ def generate_ground_truth(image_size, quads, score_map_scale=0.25):
     geo_map = np.log1p(geo_map)  # log(1+x)，x=0时结果为0，安全
 
     return score_map, geo_map
+
+
+def make_training_mask(image_size, ignored_quads, score_map_scale=0.25):
+    """忽略与 ### 相交的输出网格，不改变普通文字框的收缩和几何距离。"""
+    height, width = (int(value * score_map_scale) for value in image_size)
+    mask = np.ones((height, width), dtype=np.float32)
+    for quad in ignored_quads:
+        minimum = np.floor(quad.min(axis=0) * score_map_scale).astype(int)
+        maximum = np.ceil(quad.max(axis=0) * score_map_scale).astype(int)
+        mask[max(0, minimum[1]):min(height, maximum[1]),
+             max(0, minimum[0]):min(width, maximum[0])] = 0
+    return mask

@@ -86,6 +86,7 @@ class ONNXBackend:
             providers=["CPUExecutionProvider"]
         )
         self.input_name = self.session.get_inputs()[0].name
+        self.output_names = [output.name for output in self.session.get_outputs()]
         self.input_size = normalize_input_size(input_size)
         self._warmup()
         print(f"  ✓ ONNX Runtime 后端加载完成")
@@ -95,15 +96,14 @@ class ONNXBackend:
         input_h, input_w = self.input_size
         dummy = np.random.randn(1, 3, input_h, input_w).astype(np.float32)
         for _ in range(n):
-            self.session.run(None, {self.input_name: dummy})
+            self.session.run(self.output_names, {self.input_name: dummy})
 
     def infer(self, img_np: np.ndarray):
         """
         img_np: (1, 3, H, W) float32 numpy array
         Returns: score_map (1,1,H,W), geo_map (1,4,H,W) numpy arrays
         """
-        outputs = self.session.run(None, {self.input_name: img_np})
-        return outputs[0], outputs[1]
+        return tuple(self.session.run(self.output_names, {self.input_name: img_np}))
 
 
 class OpenVINOBackend:
@@ -132,6 +132,7 @@ class OpenVINOBackend:
         }
         self.compiled_model = ie.compile_model(model=model, device_name="CPU", config=config)
         self.infer_request = self.compiled_model.create_infer_request()
+        self.input_name = self.compiled_model.input(0).get_any_name()
         self.input_size = normalize_input_size(input_size)
         self._warmup()
         print(f"  ✓ OpenVINO 后端加载完成（Intel CPU 优化）")
@@ -140,14 +141,18 @@ class OpenVINOBackend:
         input_h, input_w = self.input_size
         dummy = np.random.randn(1, 3, input_h, input_w).astype(np.float32)
         for _ in range(n):
-            self.infer_request.infer({"input": dummy})
+            self.infer_request.infer({self.input_name: dummy})
 
     def infer(self, img_np: np.ndarray):
-        result = self.infer_request.infer({"input": img_np})
-        outputs = list(result.values())
-        # OpenVINO 输出顺序可能不固定，按形状判断
-        out_list = sorted(outputs, key=lambda x: x.shape[1])  # 通道数少的是 score
-        return out_list[0], out_list[1]
+        self.infer_request.infer({self.input_name: img_np})
+        names = [output.get_any_name() for output in self.compiled_model.outputs]
+        if {"score", "geometry"} <= set(names):
+            return tuple(np.array(self.infer_request.get_tensor(name).data, copy=True)
+                         for name in ("score", "geometry"))
+        # 旧模型输出名不同：按通道数排序，通道数少的是 score。
+        outputs = [np.array(self.infer_request.get_tensor(name).data, copy=True)
+                   for name in names]
+        return sorted(outputs, key=lambda value: value.shape[1])[:2]
 
 
 class PyTorchBackend:

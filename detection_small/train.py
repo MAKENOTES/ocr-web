@@ -1,375 +1,411 @@
-"""按顶部配置训练小图 ResNet18 EAST，保存纯模型参数。
-当前验证路径指向训练目录，独立评估前须核对并设置验证目录；不支持完整状态续训。"""
+"""训练小图 ResNet18 EAST，保存纯模型参数。
+
+训练和验证目录必须独立；加载器严格按 stem 配对标签，`###` 框只进入忽略掩码。
+训练期除验证损失外，按间隔在内存模型上评估框级 P/R/F1，并分别保留
+验证损失和 F1 的 Top-K 检查点。检查点和 TensorBoard 日志按运行目录分开保存。
+"""
+import json
+import math
+import sys
+import time
+from pathlib import Path
 
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-import os
-import time
-from torch.utils.tensorboard import SummaryWriter
-
-from components.dataset import OCRDataset
-from components.transforms import get_transforms
-from models.east_model import EASTModel
-from components.loss import EASTLoss
 from torch.optim.lr_scheduler import OneCycleLR
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
-# 超参数
-LEARNING_RATE = 1e-4  # Adam 构造学习率；OneCycleLR 随后接管，峰值在 main 中设为 3e-4。
-BATCH_SIZE = 8  # 每批 8 张图片；修改尺寸或批量后需重新核对显存。
-EPOCHS = 400  # 最多训练 200 轮，早停可能提前结束。
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from detection_small.components.augmentation import AUGMENTATIONS, policy_weights_for_epoch
+from detection_small.components.dataset import OCRDataset
+from detection_small.components.eval_metrics import evaluate_detection
+from detection_small.components.loss import EASTLoss
+from detection_small.components.preprocessing import normalize_input_size
+from detection_small.components.transforms import get_transforms
+from detection_small.models.east_model import EASTModel
+from detection_small.utils import save_checkpoint
+
+
+# 超参数：沿用历史 Adam、OneCycleLR 和早停配置。
+LEARNING_RATE = 1e-4  # Adam 构造学习率；随后由 OneCycleLR 接管。
+MAX_LEARNING_RATE = 3e-4  # OneCycleLR 峰值学习率；修改 batch 后同步重新核对显存。
+BATCH_SIZE = 8  # 每批 8 张图片；修改输入尺寸或批量后重新核对显存。
+EPOCHS = 400  # 最大训练轮数；达到早停条件时提前结束。
 INPUT_SIZE = (256, 768)  # 模型输入 (高, 宽)，单位 px；两边为 32 的倍数。
-IMAGE_EXTENSIONS = (".png",)  # 明确只训练新 PNG，不混入目录中的旧 JPG
+IMAGE_EXTENSIONS = (".png",)  # 训练和验证只枚举新 PNG，不混入目录中的旧 JPG。
 TRAIN_IMAGE_DIR = "detection_small/data/train_images"  # 训练图片目录，路径相对于仓库根目录。
 TRAIN_LABEL_DIR = "detection_small/data/train_labels"  # 训练标签目录，按图片 stem 配对。
-VAL_IMAGE_DIR = "detection_small/data/train_images"  # 当前指向训练图片，仅能自评；独立验证前需改为验证目录。
-VAL_LABEL_DIR = "detection_small/data/train_labels"  # 当前指向训练标签，需与独立验证图片目录一起核对。
+VAL_IMAGE_DIR = "detection_small/data/val_images"  # 独立验证图片目录，必须与训练集不同。
+VAL_LABEL_DIR = "detection_small/data/val_labels"  # 验证标签目录，标签格式与训练集一致。
 
-# 模型保存策略优化
-MAX_KEEP_CHECKPOINTS = 5  # 常规纯权重保留最近 5 份；不含完整续训状态。
-CHECKPOINT_INTERVAL = 5          # 新数据量较大，每 5 个 epoch 保存一次常规检查点
-BEST_MODELS_TO_KEEP = 3        # 最佳检查点：保留验证集 Loss 最低的 Top 3
-VAL_INTERVAL = 10  # 第 80 轮前每 10 轮验证一次。
-START_DENSE_VAL_EPOCH = 80  # 从第 80 轮起逐轮验证，包含该轮。
-GRADIENT_LOG_INTERVAL = 1000   # 避免大数据集下 TensorBoard 直方图写入过密
+CHECKPOINT_ROOT = Path("detection_small/checkpoints")  # 检查点根目录；每次训练新建带时间戳的子目录。
+RUNS_ROOT = Path("detection_small/runs")  # TensorBoard 日志根目录；与检查点分开。
+NUM_WORKERS = 8  # 数据加载子进程数；设为 0 时在主进程加载，便于定位数据问题。
+PRETRAINED = True  # 是否加载 ImageNet 预训练参数；离线环境可设为 False。
+LOG_GRAPH = True  # 是否向 TensorBoard 写入模型结构图；不影响训练损失。
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"  # 默认优先使用 GPU。
+USE_AUGMENTATION_CURRICULUM = True  # 启用时按轮次从轻增强过渡到强增强；关闭时固定标准增强。
 
-# 早停参数
-EARLY_STOP_PATIENCE = 30        # 连续 15 次验证没有改善就停止
-EARLY_STOP_MIN_DELTA = 1e-4     # 改善幅度小于此值不算改善
+MAX_KEEP_CHECKPOINTS = 5  # 常规检查点最多保留最近几份，不包含最佳模型和早停模型。
+CHECKPOINT_INTERVAL = 5  # 常规检查点保存间隔，单位为轮；最后一轮也保存。
+BEST_MODELS_TO_KEEP = 3  # 保留验证损失最低的几份模型，即 Top-K。
+BEST_F1_MODELS_TO_KEEP = 3  # 保留验证集 F1 最高的几份模型；F1 与 loss 可能不同步。
+VAL_INTERVAL = 10  # 密集验证开始前，每隔多少轮验证一次损失。
+START_DENSE_VAL_EPOCH = 80  # 从这一轮开始逐轮验证，包含该轮。
+METRIC_VAL_INTERVAL = 10  # 每多少轮验证计算一次检测 F1/P/R；0 表示关闭。
+METRIC_INPUT_SIZE = INPUT_SIZE  # 训练期 F1 评估尺寸，默认与训练输入一致。
+METRIC_SCORE_THRESHOLD = 0.7  # 训练期 F1 评估的置信度阈值，取值范围 (0, 1)。
+METRIC_NMS_IOU_THRESHOLD = 0.3  # 训练期 F1 评估的重复框抑制阈值，与部署入口一致。
+METRIC_MATCH_IOU = 0.5  # 预测框与真值匹配的 IoU 阈值。
+BATCH_LOG_INTERVAL = 50  # 每多少 batch 记录一次 batch loss；0 表示关闭。
+GRADIENT_LOG_INTERVAL = 500  # 每多少 batch 记录一次总梯度范数；0 表示关闭。
+VIS_INTERVAL = 20  # 每多少轮写一次验证集可视化图片，减少事件文件体积。
+EARLY_STOP_PATIENCE = 30  # 连续多少次验证未达到最小改善幅度时早停，按验证次数计。
+EARLY_STOP_MIN_DELTA = 1e-4  # 验证损失下降须超过此绝对值才重置早停计数。
 
 
 class EarlyStopping:
-    """
-    早停机制：当验证集 loss 连续多次没有改善时，提前终止训练。
+    """验证损失连续多次没有改善时提前结束训练，并提示过拟合趋势。"""
 
-    工作原理：
-    - 记录历史最佳 val_loss
-    - 每次验证后检查：如果 val_loss 比最佳值改善超过 min_delta，重置计数器
-    - 否则计数器 +1，达到 patience 时触发停止
-    - 同时监控 train/val gap，如果 gap 持续扩大也会触发警告
-    """
-    def __init__(self, patience=40, min_delta=1e-5):
+    def __init__(self, patience=30, min_delta=1e-4):
         self.patience = patience
         self.min_delta = min_delta
         self.counter = 0
         self.best_loss = None
         self.should_stop = False
         self.best_epoch = 0
-        # 用于监控过拟合趋势
         self.gap_history = []
 
     def __call__(self, val_loss, train_loss, epoch):
-        """
-        每次验证后调用。
-        返回: True 表示应该停止训练, False 表示继续
-        """
-        # 记录 train/val gap
-        gap = val_loss - train_loss
-        self.gap_history.append(gap)
-
+        """每次验证后调用；返回 True 表示应该停止训练。"""
+        self.gap_history.append(val_loss - train_loss)
         if self.best_loss is None:
-            # 第一次验证
-            self.best_loss = val_loss
-            self.best_epoch = epoch
+            self.best_loss, self.best_epoch = val_loss, epoch
             return False
 
         if val_loss < self.best_loss - self.min_delta:
-            # 有改善，重置计数器
-            self.best_loss = val_loss
-            self.best_epoch = epoch
+            self.best_loss, self.best_epoch = val_loss, epoch
             self.counter = 0
         else:
-            # 没有改善
             self.counter += 1
-
             if self.counter >= self.patience:
                 self.should_stop = True
-                print(f"\n{'='*60}")
+                print(f"\n{'=' * 60}")
                 print(f"★ 早停触发！连续 {self.counter} 次验证无改善")
                 print(f"  最佳 Val Loss: {self.best_loss:.5f} (Epoch {self.best_epoch})")
                 print(f"  当前 Val Loss: {val_loss:.5f} (Epoch {epoch})")
                 print(f"  建议使用 Epoch {self.best_epoch} 的模型进行推理")
-                print(f"{'='*60}\n")
+                print(f"{'=' * 60}\n")
                 return True
 
-        # 过拟合趋势警告（最近 10 次验证的 gap 是否在扩大）
+        # 过拟合趋势警告（最近 10 次验证的 gap 是否在扩大）。
         if len(self.gap_history) >= 10:
-            recent_gaps = self.gap_history[-10:]
-            older_gaps = self.gap_history[-20:-10] if len(self.gap_history) >= 20 else self.gap_history[:10]
-            avg_recent = sum(recent_gaps) / len(recent_gaps)
-            avg_older = sum(older_gaps) / len(older_gaps)
-            if avg_recent > avg_older * 1.5 and avg_recent > 0.002:
+            recent = self.gap_history[-10:]
+            older = self.gap_history[-20:-10] if len(self.gap_history) >= 20 else self.gap_history[:10]
+            average_recent = sum(recent) / len(recent)
+            average_older = sum(older) / len(older)
+            if average_recent > average_older * 1.5 and average_recent > 0.002:
                 print(f"  ⚠ 过拟合警告: train/val gap 扩大中 "
-                      f"(近期均值: {avg_recent:.5f}, 之前: {avg_older:.5f})")
-
+                      f"(近期均值: {average_recent:.5f}, 之前: {average_older:.5f})")
         return False
 
     def status(self):
-        """返回当前状态字符串，用于打印"""
-        return f"[EarlyStopping] 耐心: {self.counter}/{self.patience}, 最佳: {self.best_loss:.5f} @ Epoch {self.best_epoch}"
+        """返回当前早停状态，用于训练日志。"""
+        if self.best_loss is None:
+            return f"[EarlyStopping] 耐心: 0/{self.patience}, 尚无验证结果"
+        return (f"[EarlyStopping] 耐心: {self.counter}/{self.patience}, "
+                f"最佳: {self.best_loss:.5f} @ Epoch {self.best_epoch}")
 
 
 def validate(model, val_loader, criterion, device, writer, epoch):
-    """
-    在验证集上评估模型，并记录可视化结果。
-    """
-    model.eval() # 切换到评估模式
-    val_loss = 0
-    val_score_loss = 0
-    val_geo_loss = 0
+    """在验证集上评估损失；按间隔写入输入图和预测置信度图。"""
+    model.eval()
+    val_loss = val_score_loss = val_geo_loss = 0.0
+    vis_images = vis_pred_score = None
 
-    # 用于可视化的样本 (只取第一个 batch)
-    vis_images = None
-    vis_true_score = None
-    vis_pred_score = None
-    vis_pred_geo = None
-
-    with torch.no_grad(): # 不计算梯度
+    with torch.no_grad():
         for batch_idx, batch in enumerate(val_loader):
-            images = batch['image'].to(device)
-            true_score_maps = batch['score_map'].to(device).unsqueeze(1)
-            true_geo_maps = batch['geo_map'].to(device)
-
+            images = batch["image"].to(device)
+            true_score_maps = batch["score_map"].to(device).unsqueeze(1)
+            true_geo_maps = batch["geo_map"].to(device)
             pred_score_maps, pred_geo_maps = model(images)
-
             loss, score_loss, geo_loss = criterion(
-                true_score_maps, pred_score_maps,
-                true_geo_maps, pred_geo_maps
-            )
-
+                true_score_maps, pred_score_maps, true_geo_maps, pred_geo_maps,
+                batch["training_mask"].to(device))
             val_loss += loss.item()
             val_score_loss += score_loss.item()
             val_geo_loss += geo_loss.item()
 
-            # 抓取第一个 batch 用于可视化
             if batch_idx == 0:
                 vis_images = images
-                vis_true_score = true_score_maps
                 vis_pred_score = pred_score_maps
-                vis_pred_geo = pred_geo_maps[:, 0:1, :, :]
 
-    avg_loss = val_loss / len(val_loader)
-    avg_score_loss = val_score_loss / len(val_loader)
-    avg_geo_loss = val_geo_loss / len(val_loader)
+    if writer and vis_images is not None and VIS_INTERVAL > 0 and epoch % VIS_INTERVAL == 0:
+        writer.add_images("Vis/Input_Images", vis_images, epoch)
+        writer.add_images("Vis/Pred_Score_Map", vis_pred_score.repeat(1, 3, 1, 1), epoch)
 
-    # TensorBoard 可视化
-    if writer and vis_images is not None:
-        writer.add_images('Vis/Input_Images', vis_images, epoch)
-        writer.add_images('Vis/True_Score_Map', vis_true_score.repeat(1, 3, 1, 1), epoch)
-        writer.add_images('Vis/Pred_Score_Map', vis_pred_score.repeat(1, 3, 1, 1), epoch)
-        if vis_pred_geo.max() > 0:
-            vis_pred_geo = vis_pred_geo / vis_pred_geo.max()
-        writer.add_images('Vis/Pred_Geo_Map_Top', vis_pred_geo.repeat(1, 3, 1, 1), epoch)
-
-    return avg_loss, avg_score_loss, avg_geo_loss
+    count = len(val_loader)
+    return val_loss / count, val_score_loss / count, val_geo_loss / count
 
 
-def save_best_checkpoint(model, epoch, val_loss, best_checkpoints_list):
-    """
-    管理 Top-K 最佳模型的保存与删除
-    """
-    checkpoint_dir = "detection_small/checkpoints/"
-    if not os.path.exists(checkpoint_dir):
-        os.makedirs(checkpoint_dir)
-
-    file_name = f"best_detection_epoch_{epoch}_loss_{val_loss:.5f}.pth"
-    save_path = os.path.join(checkpoint_dir, file_name)
-    torch.save(model.state_dict(), save_path)
+def save_best_checkpoint(model, epoch, val_loss, best_checkpoints_list, checkpoint_dir):
+    """更新 Top-K 最佳丢失模型并删除超出的最差模型。"""
+    save_path = checkpoint_dir / f"best_detection_epoch_{epoch}_loss_{val_loss:.5f}.pth"
+    save_checkpoint(model, save_path)
 
     best_checkpoints_list.append((val_loss, save_path))
-    best_checkpoints_list.sort(key=lambda x: x[0])
-
+    best_checkpoints_list.sort(key=lambda item: item[0])
     if len(best_checkpoints_list) > BEST_MODELS_TO_KEEP:
-        worst_model = best_checkpoints_list.pop()
-        worst_path = worst_model[1]
-        if os.path.exists(worst_path):
-            os.remove(worst_path)
-            print(f"移除旧的 Top-{BEST_MODELS_TO_KEEP + 1} 模型: {os.path.basename(worst_path)}")
-
+        _, worst_path = best_checkpoints_list.pop()
+        if worst_path.exists():
+            worst_path.unlink()
+            print(f"移除旧的 Top-{BEST_MODELS_TO_KEEP + 1} 模型: {worst_path.name}")
     print(f"★ 当前 Top-{BEST_MODELS_TO_KEEP} 模型已更新 (本轮 Loss: {val_loss:.5f})")
 
+
+def save_best_f1_checkpoint(model, epoch, f1, best_checkpoints_list, checkpoint_dir):
+    """按验证集 F1 更新 Top-K 模型；F1 与 loss 可能不同步，单独保留。"""
+    save_path = checkpoint_dir / f"best_f1_detection_epoch_{epoch}_f1_{f1:.5f}.pth"
+    save_checkpoint(model, save_path)
+
+    best_checkpoints_list.append((f1, save_path))
+    best_checkpoints_list.sort(key=lambda item: -item[0])
+    if len(best_checkpoints_list) > BEST_F1_MODELS_TO_KEEP:
+        _, worst_path = best_checkpoints_list.pop()
+        if worst_path.exists():
+            worst_path.unlink()
+            print(f"移除旧的 Top-{BEST_F1_MODELS_TO_KEEP + 1} F1 模型: {worst_path.name}")
+    print(f"★ 当前 Top-{BEST_F1_MODELS_TO_KEEP} F1 模型已更新 (F1: {f1:.5f})")
+
+
+def write_run_config(checkpoint_dir, input_size, device):
+    """记录本次运行的尺寸、数据目录和指标口径，供报告复算使用。"""
+    config = {
+        "input_size": list(input_size),
+        "batch_size": BATCH_SIZE,
+        "epochs": EPOCHS,
+        "learning_rate": LEARNING_RATE,
+        "max_learning_rate": MAX_LEARNING_RATE,
+        "train_image_dir": TRAIN_IMAGE_DIR,
+        "train_label_dir": TRAIN_LABEL_DIR,
+        "val_image_dir": VAL_IMAGE_DIR,
+        "val_label_dir": VAL_LABEL_DIR,
+        "augmentation_count": len(AUGMENTATIONS),
+        "augmentation_curriculum": USE_AUGMENTATION_CURRICULUM,
+        "metric": {
+            "interval": METRIC_VAL_INTERVAL,
+            "input_size": list(normalize_input_size(METRIC_INPUT_SIZE)),
+            "score_threshold": METRIC_SCORE_THRESHOLD,
+            "nms_iou": METRIC_NMS_IOU_THRESHOLD,
+            "match_iou": METRIC_MATCH_IOU,
+        },
+        "device": str(device),
+    }
+    (checkpoint_dir / "run_config.json").write_text(
+        json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def main():
-    """
-    主训练函数。
-    """
-    # TensorBoard 设置
-    log_dir = f"detection_small/runs/ocr_experiment_{int(time.time())}"
-    writer = SummaryWriter(log_dir)
-    print(f"TensorBoard 日志将保存在: {log_dir}")
+    """主训练函数；配置由文件顶部常量控制，检查点和日志按时间自动新建。"""
+    if (min(EPOCHS, BATCH_SIZE) <= 0 or NUM_WORKERS < 0
+            or not math.isfinite(LEARNING_RATE) or LEARNING_RATE <= 0):
+        raise ValueError("EPOCHS/BATCH_SIZE/LEARNING_RATE must be positive; "
+                         "NUM_WORKERS must be nonnegative")
+    input_size = normalize_input_size(INPUT_SIZE)
+    if Path(TRAIN_IMAGE_DIR).resolve() == Path(VAL_IMAGE_DIR).resolve():
+        raise ValueError("Training and validation image directories must differ")
 
-    # 设备设置
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"使用设备: {device}")
+    device = torch.device(DEVICE)
+    print(f"使用设备: {device}；训练输入: {input_size[0]}×{input_size[1]}")
 
-    # 数据加载
-    train_transform = get_transforms(is_train=True, input_size=INPUT_SIZE)
+    # 训练集只加载一次；增强阶段切换时重建 transform 和 DataLoader。
     train_dataset = OCRDataset(
-        image_dir=TRAIN_IMAGE_DIR,
-        label_dir=TRAIN_LABEL_DIR,
-        transform=train_transform,
-        image_extensions=IMAGE_EXTENSIONS,
-        require_labels=True,
-    )
-    if len(train_dataset) == 0:
-        raise RuntimeError(
-            f"训练目录 {TRAIN_IMAGE_DIR} 中没有 PNG 图片。"
-            "请先放入新的训练图片和对应标签。"
-        )
-    print(f"训练集加载完成，共 {len(train_dataset)} 张 PNG 图片，输入尺寸: {INPUT_SIZE}。")
-    train_loader = DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
+        TRAIN_IMAGE_DIR, TRAIN_LABEL_DIR, image_extensions=IMAGE_EXTENSIONS,
+        require_labels=True)
+    val_transform = get_transforms(is_train=False, input_size=input_size)
+    val_dataset = OCRDataset(
+        VAL_IMAGE_DIR, VAL_LABEL_DIR, transform=val_transform,
+        image_extensions=IMAGE_EXTENSIONS, require_labels=True)
+    val_loader = DataLoader(dataset=val_dataset, batch_size=BATCH_SIZE, shuffle=False,
+                            num_workers=NUM_WORKERS, pin_memory=device.type == "cuda")
 
-    val_loader = None
-    if os.path.exists(VAL_IMAGE_DIR) and os.path.exists(VAL_LABEL_DIR):
-        print("发现验证集，正在加载...")
-        val_transform = get_transforms(is_train=False, input_size=INPUT_SIZE)
-        val_dataset = OCRDataset(
-            image_dir=VAL_IMAGE_DIR,
-            label_dir=VAL_LABEL_DIR,
-            transform=val_transform,
-            image_extensions=IMAGE_EXTENSIONS,
-            require_labels=True,
-        )
-        if len(val_dataset) > 0:
-            val_loader = DataLoader(dataset=val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
-            print(f"验证集加载完成，共 {len(val_dataset)} 张图片。")
+    def stage_weights(epoch):
+        """返回当前轮次的增强强度权重；关闭课程时固定标准增强。"""
+        if not USE_AUGMENTATION_CURRICULUM:
+            return {"standard": 1.0}
+        return policy_weights_for_epoch(epoch, EPOCHS)
 
-    # 模型、损失函数和优化器
-    model = EASTModel(pretrained=True).to(device)
-    # model.load_state_dict(torch.load("detection_small/checkpoints/best_detection_490_loss_0.0880.pth"))
-    criterion = EASTLoss(lambda_iou = 3).to(device)
+    def build_train_loader(stage_mix):
+        """按给定增强阶段权重重建训练 transform 和 DataLoader。"""
+        train_dataset.transform = get_transforms(
+            is_train=True, input_size=input_size, stage_weights=stage_mix)
+        return DataLoader(dataset=train_dataset, batch_size=BATCH_SIZE, shuffle=True,
+                          num_workers=NUM_WORKERS, pin_memory=device.type == "cuda")
+
+    initial_stage_mix = stage_weights(1)
+    train_loader = build_train_loader(initial_stage_mix)
+    steps_per_epoch = len(train_loader)
+    print(f"训练集 {len(train_dataset)} 张，验证集 {len(val_dataset)} 张；使用独立目录。")
+    print(f"数据增强: {len(AUGMENTATIONS)} 种，初始阶段权重 {initial_stage_mix}；"
+          f"课程开关 {USE_AUGMENTATION_CURRICULUM}。")
+
+    # TensorBoard 与检查点分别放入本次运行的新目录。
+    run_name = f"ocr_experiment_{time.time_ns()}"
+    checkpoint_dir = CHECKPOINT_ROOT / run_name
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    log_dir = RUNS_ROOT / run_name
+    writer = SummaryWriter(str(log_dir))
+    write_run_config(checkpoint_dir, input_size, device)
+    print(f"TensorBoard 日志: {log_dir}；检查点: {checkpoint_dir}")
+
+    model = EASTModel(pretrained=PRETRAINED).to(device)
+    criterion = EASTLoss(lambda_iou=3).to(device)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
-    scheduler = OneCycleLR(optimizer, max_lr=3e-4,
-                           steps_per_epoch=len(train_loader),
+    scheduler = OneCycleLR(optimizer, max_lr=MAX_LEARNING_RATE,
+                           steps_per_epoch=steps_per_epoch,
                            epochs=EPOCHS, pct_start=0.05)
 
-    # 将模型图写入 TensorBoard (仅一次)
-    if train_loader:
+    if LOG_GRAPH:
         first_batch = next(iter(train_loader))
-        writer.add_graph(model, first_batch['image'].to(device))
+        writer.add_graph(model, first_batch["image"].to(device))
 
-    # 初始化早停
     early_stopping = EarlyStopping(patience=EARLY_STOP_PATIENCE, min_delta=EARLY_STOP_MIN_DELTA)
+    regular_checkpoints, best_checkpoints, best_f1_checkpoints = [], [], []
+    best_f1 = -1.0
+    current_stage_mix = initial_stage_mix
 
-    regular_checkpoints = []
-    best_checkpoints = []
-
-    # 训练循环
     for epoch in range(1, EPOCHS + 1):
-        model.train()
-        epoch_loss = 0
-        epoch_score_loss = 0
-        epoch_geo_loss = 0
+        # 只在课程阶段切换时重建 DataLoader，避免每轮重启 worker。
+        stage_mix = stage_weights(epoch)
+        for stage, value in stage_mix.items():
+            writer.add_scalar(f"Augmentation/{stage}", value, epoch)
+        if stage_mix != current_stage_mix:
+            train_loader = build_train_loader(stage_mix)
+            current_stage_mix = stage_mix
+            print(f"Epoch {epoch} 增强阶段切换: {stage_mix}")
 
+        model.train()
+        epoch_started = time.perf_counter()
+        epoch_loss = epoch_score_loss = epoch_geo_loss = 0.0
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch}/{EPOCHS}")
         for batch_idx, batch in enumerate(progress_bar):
-            images = batch['image'].to(device)
-            true_score_maps = batch['score_map'].to(device).unsqueeze(1)
-            true_geo_maps = batch['geo_map'].to(device)
+            images = batch["image"].to(device)
+            true_score_maps = batch["score_map"].to(device).unsqueeze(1)
+            true_geo_maps = batch["geo_map"].to(device)
 
             optimizer.zero_grad()
             pred_score_maps, pred_geo_maps = model(images)
-            loss, score_loss, geo_loss = criterion(true_score_maps, pred_score_maps, true_geo_maps, pred_geo_maps)
+            loss, score_loss, geo_loss = criterion(
+                true_score_maps, pred_score_maps, true_geo_maps, pred_geo_maps,
+                batch["training_mask"].to(device))
             loss.backward()
 
-            # 低频记录梯度信息，避免大数据集下日志和 I/O 过重
-            if batch_idx % GRADIENT_LOG_INTERVAL == 0:
-                for name, param in model.named_parameters():
-                    if param.grad is not None:
-                        writer.add_histogram(f'Gradients/{name}', param.grad, epoch * len(train_loader) + batch_idx)
-                        writer.add_scalar(f'Gradient_Norm/{name}', param.grad.norm(), epoch * len(train_loader) + batch_idx)
+            # 只记录总梯度范数；逐参数直方图会快速膨胀事件文件。
+            total_grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+            if GRADIENT_LOG_INTERVAL > 0 and batch_idx % GRADIENT_LOG_INTERVAL == 0:
+                step = epoch * len(train_loader) + batch_idx
+                writer.add_scalar("Gradient/total_norm", float(total_grad_norm), step)
 
-            #梯度裁剪
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
             scheduler.step()
 
-            loss_val, score_loss_val, geo_loss_val = loss.item(), score_loss.item(), geo_loss.item()
-            # 记录每个 batch 的训练损失到 TensorBoard
-            global_step = epoch * len(train_loader) + batch_idx
-            writer.add_scalar('batch/loss', loss_val, global_step)
-            writer.add_scalar('batch/score_loss', score_loss_val, global_step)
-            writer.add_scalar('batch/geo_loss', geo_loss_val, global_step)
+            loss_value, score_value, geo_value = loss.item(), score_loss.item(), geo_loss.item()
+            step = epoch * len(train_loader) + batch_idx
+            if BATCH_LOG_INTERVAL > 0 and batch_idx % BATCH_LOG_INTERVAL == 0:
+                writer.add_scalar("batch/loss", loss_value, step)
+            epoch_loss += loss_value
+            epoch_score_loss += score_value
+            epoch_geo_loss += geo_value
+            progress_bar.set_postfix({"loss": f"{loss_value:.4f}", "score": f"{score_value:.4f}",
+                                      "geo": f"{geo_value:.4f}"})
 
-            epoch_loss += loss_val
-            epoch_score_loss += score_loss_val
-            epoch_geo_loss += geo_loss_val
+        average_loss = epoch_loss / len(train_loader)
+        average_score = epoch_score_loss / len(train_loader)
+        average_geo = epoch_geo_loss / len(train_loader)
+        train_seconds = time.perf_counter() - epoch_started
+        current_lr = optimizer.param_groups[0]["lr"]
+        writer.add_scalar("Learning Rate", current_lr, epoch)
+        writer.add_scalar("Performance/train_epoch_seconds", train_seconds, epoch)
+        writer.add_scalar("Performance/train_images_per_second",
+                          len(train_dataset) / train_seconds, epoch)
+        writer.add_scalar("Loss/Train", average_loss, epoch)
+        writer.add_scalar("ScoreLoss/Train", average_score, epoch)
+        writer.add_scalar("GeoLoss/Train", average_geo, epoch)
+        print(f"Epoch {epoch} 训练结束: Loss: {average_loss:.4f} "
+              f"(Score: {average_score:.4f}, Geo: {average_geo:.4f}) Learning: {current_lr}")
 
-            progress_bar.set_postfix({'loss': f"{loss_val:.4f}", 'score': f"{score_loss_val:.4f}", 'geo': f"{geo_loss_val:.4f}"})
+        should_validate = epoch >= START_DENSE_VAL_EPOCH or epoch % VAL_INTERVAL == 0
+        if should_validate:
+            validation_started = time.perf_counter()
+            val_loss, val_score, val_geo = validate(
+                model, val_loader, criterion, device, writer, epoch)
+            print(f"Epoch {epoch} Val Loss: {val_loss:.4f} "
+                  f"(Score: {val_score:.4f}, Geo: {val_geo:.4f})")
+            writer.add_scalar("Loss/Validation", val_loss, epoch)
+            writer.add_scalar("ScoreLoss/Validation", val_score, epoch)
+            writer.add_scalar("GeoLoss/Validation", val_geo, epoch)
 
-        # Epoch 结束统计
-        avg_loss = epoch_loss / len(train_loader)
-        avg_score_loss = epoch_score_loss / len(train_loader)
-        avg_geo_loss = epoch_geo_loss / len(train_loader)
-        current_lr = optimizer.param_groups[0]['lr']
-        writer.add_scalar('Learning Rate', current_lr, epoch)
-        print(f"Epoch {epoch} 训练结束: Loss: {avg_loss:.4f} (Score: {avg_score_loss:.4f}, Geo: {avg_geo_loss:.4f}) Learning: {current_lr}")
+            if METRIC_VAL_INTERVAL > 0 and epoch % METRIC_VAL_INTERVAL == 0:
+                metrics = evaluate_detection(
+                    model, val_dataset, device, METRIC_INPUT_SIZE,
+                    score_threshold=METRIC_SCORE_THRESHOLD,
+                    match_iou=METRIC_MATCH_IOU,
+                    nms_iou=METRIC_NMS_IOU_THRESHOLD)
+                writer.add_scalar("Val/Precision", metrics["precision"], epoch)
+                writer.add_scalar("Val/Recall", metrics["recall"], epoch)
+                writer.add_scalar("Val/F1", metrics["f1"], epoch)
+                print(f"Epoch {epoch} Val F1: {metrics['f1']:.4f} "
+                      f"(P: {metrics['precision']:.4f}, R: {metrics['recall']:.4f})")
+                if metrics["f1"] > best_f1:
+                    best_f1 = metrics["f1"]
+                    save_best_f1_checkpoint(model, epoch, best_f1, best_f1_checkpoints,
+                                            checkpoint_dir)
+                writer.add_scalar("Val/best_F1", best_f1, epoch)
 
-        # 验证步骤
-        should_validate = False
-        if epoch >= START_DENSE_VAL_EPOCH:
-            should_validate = True
-        elif epoch % VAL_INTERVAL == 0:
-            should_validate = True
+            writer.add_scalar("Performance/validation_seconds",
+                              time.perf_counter() - validation_started, epoch)
 
-        if val_loader and should_validate:
-            val_loss, val_score, val_geo = validate(model, val_loader, criterion, device, writer, epoch)
-            print(f"Epoch {epoch} Val Loss: {val_loss:.4f} (Score: {val_score:.4f}, Geo: {val_geo:.4f})")
-            writer.add_scalars('epoch/loss', {'train': avg_loss, 'validation': val_loss}, epoch)
-            writer.add_scalars('epoch/score Loss', {'train': avg_score_loss, 'validation': val_score}, epoch)
-            writer.add_scalars('epoch/geo Loss', {'train': avg_geo_loss, 'validation': val_geo}, epoch)
-
-            # 保存最佳模型
             if len(best_checkpoints) < BEST_MODELS_TO_KEEP or val_loss < best_checkpoints[-1][0]:
-                save_best_checkpoint(model, epoch, val_loss, best_checkpoints)
-
-            # ★ 早停检查
-            if early_stopping(val_loss, avg_loss, epoch):
-                # 触发早停，保存最后一个 checkpoint 后退出
-                checkpoint_dir = "detection_small/checkpoints/"
-                final_path = os.path.join(checkpoint_dir, f"detection_epoch_{epoch}_early_stop.pth")
-                torch.save(model.state_dict(), final_path)
+                save_best_checkpoint(model, epoch, val_loss, best_checkpoints, checkpoint_dir)
+            if early_stopping(val_loss, average_loss, epoch):
+                final_path = checkpoint_dir / f"detection_epoch_{epoch}_early_stop.pth"
+                save_checkpoint(model, final_path)
                 print(f"已保存早停时的模型: {final_path}")
                 break
-
-            # 打印早停状态
             print(f"  {early_stopping.status()}")
 
-        else:
-            writer.add_scalars('epoch/loss_train', {'train': avg_loss}, epoch)
-
-        # 常规检查点保存
         if epoch % CHECKPOINT_INTERVAL == 0 or epoch == EPOCHS:
-            checkpoint_dir = "detection_small/checkpoints/"
-            if not os.path.exists(checkpoint_dir): os.makedirs(checkpoint_dir)
-            checkpoint_filename = os.path.join(checkpoint_dir, f"detection_epoch_{epoch}.pth")
-            torch.save(model.state_dict(), checkpoint_filename)
-            regular_checkpoints.append(checkpoint_filename)
+            checkpoint_path = checkpoint_dir / f"detection_epoch_{epoch}.pth"
+            save_checkpoint(model, checkpoint_path)
+            regular_checkpoints.append(checkpoint_path)
             if len(regular_checkpoints) > MAX_KEEP_CHECKPOINTS:
                 oldest = regular_checkpoints.pop(0)
-                if os.path.exists(oldest):
-                    os.remove(oldest)
+                if oldest.exists():
+                    oldest.unlink()
 
-    # 训练结束总结
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     if early_stopping.should_stop:
         print(f"训练因早停在 Epoch {epoch} 结束")
     else:
         print(f"训练完成，共 {EPOCHS} 个 Epoch")
     if early_stopping.best_loss is not None:
-        print(f"最佳模型: Epoch {early_stopping.best_epoch}, Val Loss: {early_stopping.best_loss:.5f}")
-    else:
-        print("未运行验证：没有可用的 PNG 验证集。")
+        print(f"最佳模型: Epoch {early_stopping.best_epoch}, "
+              f"Val Loss: {early_stopping.best_loss:.5f}")
     if best_checkpoints:
         print(f"Top-{BEST_MODELS_TO_KEEP} 模型:")
-        for i, (loss, path) in enumerate(best_checkpoints):
-            print(f"  {i+1}. {os.path.basename(path)} (Loss: {loss:.5f})")
-    print("="*60)
-
+        for index, (loss, path) in enumerate(best_checkpoints):
+            print(f"  {index + 1}. {path.name} (Loss: {loss:.5f})")
+    if best_f1_checkpoints:
+        print(f"Top-{BEST_F1_MODELS_TO_KEEP} F1 模型:")
+        for index, (f1, path) in enumerate(best_f1_checkpoints):
+            print(f"  {index + 1}. {path.name} (F1: {f1:.5f})")
+    print("=" * 60)
     writer.close()
 
-if __name__ == '__main__':
-    if not os.path.exists(TRAIN_IMAGE_DIR) or not os.path.exists(TRAIN_LABEL_DIR):
-        print(f"错误: 请确保你的数据分别在 '{TRAIN_IMAGE_DIR}' 和 '{TRAIN_LABEL_DIR}' 目录下")
-    else:
-        main()
+
+if __name__ == "__main__":
+    main()

@@ -21,6 +21,7 @@ ROOT_ENTRIES = {
     "detection": ("detection_export_onnx.py", "detection_inference_onnx.py"),
     "detection_small": ("detection_small_export_onnx.py",
                         "detection_small_inference_640.py",
+                        "detection_small_inference_onnx.py",
                         "detection_small_quantize_int8.py"),
     "detection_larger": ("detection_larger_export_onnx.py",
                          "detection_larger_inference_onnx.py"),

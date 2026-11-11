@@ -7,20 +7,20 @@
 
 ## 数据与评估正确性
 
-- [ ] **小图训练的验证集隔离。** [train_resnet.py](../detection_small/train.py) 中两个验证路径指向训练目录。
-  先核对 manifest 与实际独立验证目录，再决定恢复哪些路径；按 stem 和图片内容摘要检查 train/val 交集。
-  完成标准：路径独立、样本交集为零，指标报告记录实际验证集来源。
-- [ ] **小图标签严格加载。** [dataset.py](../detection_small/components/dataset.py) 优先选择 `gt_` 标签，
-  坏行和退化框告警后跳过；`###` 的四边形仍进入真值，连续数字正文可能被当作 quad8 坐标。
-  先确认现有标签实际格式和忽略区域用法，再补缺标签、歧义、坏坐标、数字正文及 `###` 回归测试。
-  完成标准：错误带文件和行号提前停止；忽略区域不贡献训练梯度；不能静默改变现有标注含义。
-- [ ] **小图评估与部署解码对齐。** [eval_metrics.py](../detection_small/components/eval_metrics.py) 使用八连通域、
-  固定小区域阈值、取整 bbox4 辅助解析，批量评估尺寸按标量使用；根目录入口使用四连通域和矩形输入。
-  用同一浮点标签及合成 score/geometry，比较连通域、输入坐标和原图坐标结果；明确采用哪个口径后再改实现。
-  完成标准：矩形输入可评估，数值及框匹配测试覆盖边界，报告注明解码版本。
-- [ ] **小图透明图片一致性。** 当前训练及根目录推理直接转 RGB，裁片又通过 OpenCV 读取原图。
-  用透明黑字、透明白字及混合前景检查训练张量、预览和裁片可见性；若需要合成背景，
-  在小图系统内同步加载路径并补测试，不能通过大图系统引入依赖。
+- [x] **小图训练的验证集隔离。** 2026-11-11 已完成：[train.py](../detection_small/train.py)
+  默认使用 `data/train_*` 和 `data/val_*`，并在启动时拒绝训练/验证图片目录相同；
+  `run_config.json` 记录本次实际目录，报告会复核两者。样本交集仍按 `split_manifest.csv` 人工核对。
+- [x] **小图标签严格加载。** 2026-11-11 已完成：[dataset.py](../detection_small/components/dataset.py)
+  要求 `gt_<stem>.txt` 和 `<stem>.txt` 恰好一份，坏行、退化框、越界框和旋转 quad8 带文件和行号报错；
+  `###` 进入 `ignored` 数组，训练掩码排除对应网格，不贡献置信度或几何梯度。
+  现有 16517 个标签文件已用严格解析器全量扫描，无坏行。
+- [x] **小图评估与部署解码对齐。** 2026-11-11 已完成：[eval_metrics.py](../detection_small/components/eval_metrics.py)
+  改为四连通域、按输入面积缩放小区域阈值、保留浮点标签，并在原图坐标系匹配；
+  训练期 F1、报告和 ONNX runtime 共用 [postprocess.py](../detection_small/components/postprocess.py)
+  的解码/NMS。矩形输入 `256×768` 的小区域阈值为 3，NMS IoU 默认 0.3。
+- [x] **小图透明图片一致性。** 2026-11-11 已完成：训练、训练期指标、报告和新的
+  ONNX runtime 都使用 [image.py](../detection_small/components/image.py) 的 alpha 合成读取；
+  旧 `detection_small_inference_640.py` 仍保留历史 OpenCV/Pillow 读取，但不再是推荐部署入口。
 - [ ] **大图独立目录内的重复数据。** [train.py](../detection_larger/train.py) 只拒绝相同目录路径，
   不检查两目录中复制的同一图片。先只读生成图片内容摘要与标签配对清单，报告跨目录重复。
   完成标准：确认重复处理规则后再调整数据，独立验证指标不包含训练样本。
@@ -50,8 +50,9 @@
 
 - [x] **ONNX 裁片测试显式配置。** [test_onnx_entry_saves_images_labels_and_crops](../tests/test_detection_larger_onnx.py)
   已在测试中显式设置 `SAVE_CROPS=True`，产品入口默认值仍为关闭。
-- [ ] **小图导出成功条件。** [detection_export_onnx.py](../detection_small_export_onnx.py) 数值误差超阈值时只打印告警。
-  用可控错误输出验证失败路径；完成标准：验证失败不发布可误认为成功的目标模型，退出结果可供脚本判断。
+- [x] **小图导出成功条件。** 2026-11-11 已完成：[detection_small_export_onnx.py](../detection_small_export_onnx.py)
+  改为临时文件导出，PyTorch/ONNX Runtime 数值校验失败时抛异常并删除临时文件，不覆盖目标；
+  固定/动态高宽、batch 1/2、ONNX 元数据和动态标志一致性都有回归测试。
 - [ ] **默认写入与命令行收敛。** 旧分隔符转换默认覆盖；部分入口还有固定常量的同义参数。
   本轮只如实标明行为。后续逐入口确认调用方和必要运行参数，补预览/执行回归测试后再改默认或删参数。
   完成标准：帮助、默认值、调用方、测试和文档同时更新，不破坏已使用的入口。
@@ -79,3 +80,17 @@
 2026-10-29 统一检测最终评估与日志调整：全量测试 `.venv/bin/python -m pytest -q` 为 528 通过、0 失败、14 条警告，
 耗时 61.96 秒。新增词/短语拆分回归、训练期 F1 评估、F1 检查点和降频日志；历史检测测试保留。
 ONNX 裁片测试已显式开启裁片并通过。
+
+2026-11-11 小图检测训练与报告改造：新增 29 种按框安全增强、轮次课程、严格标签加载、
+`###` 训练掩码、训练期 F1/P/R、F1 检查点、按运行目录保存检查和
+[report_training.py](../detection_small/report_training.py) 静态 HTML 报告；评估解码改为与矩形部署入口
+一致的四连通域和原图坐标匹配。新增测试 `tests/test_detection_small_augmentation.py`、
+`tests/test_detection_small_report.py`，并保留 `tests/test_detection_rectangular_pipeline.py` 的
+`ResizeAndPad` 兼容性。全量数据标签已用严格解析器扫描通过；本轮未重新训练或重新导出权重。
+
+2026-11-11 小图检测 ONNX 部署改造：新增 `detection_small/runtime` 自包含部署包、
+薄入口 `detection_small_inference_onnx.py`、`ocrsmall_config` 元数据契约、固定/动态高宽导出、
+临时文件原子发布、runtime 同步和部署包构建工具；解码/NMS 统一到
+`components/postprocess.py`，训练指标和报告同时使用。新增
+`tests/test_detection_small_onnx.py`，覆盖导出往返、动态/固定、元数据错配、失败不发布、
+runtime 一致性、同步状态和 bundle 自检。本轮未用真实大数据集重新导出部署模型。

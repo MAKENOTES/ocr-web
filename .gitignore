@@ -15,6 +15,7 @@ detection/reports/
 detection_small/data/
 detection_small/checkpoints/
 detection_small/runs/
+detection_small/reports/
 test_results/
 # 默认忽略识别数据，仅提交数据集标注文件
 recognition/data/*
@@ -51,6 +52,8 @@ best_recognition_layer.onnx
 best_detection_larger.onnx
 best_detection_unified.onnx
 best_detection_unified.onnx.data
+best_detection_small.onnx
+best_detection_small.onnx.data
 
 # 文档检测数据、模型和运行产物独立存放，不提交到仓库。
 detection_larger/data/

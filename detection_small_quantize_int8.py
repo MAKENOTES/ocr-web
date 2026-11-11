@@ -32,7 +32,7 @@ from pathlib import Path
 # 常量
 # ============================================================
 
-INPUT_SIZE = (256, 768)  # (height, width)，与 detection_small/train_resnet.py 一致
+INPUT_SIZE = (256, 768)  # (height, width)，与 detection_small/train.py 一致
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
