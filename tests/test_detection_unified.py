@@ -15,6 +15,7 @@ from detection.components.preprocessing import (
     dynamic_input_size,
     normalize_input_size,
     prepare_image,
+    resize_metadata,
     restore_boxes,
 )
 from detection.components.transforms import get_transforms
@@ -135,15 +136,35 @@ def test_fixed_preprocess_matches_training_and_coordinates_roundtrip(size):
 
 @pytest.mark.parametrize("image_size,max_size,expected", [
     ((320, 128), 256, (128, 256)),
-    ((2539, 57), 640, (64, 640)),
-    ((20, 20), 640, (640, 640)),
-    ((100000, 1), 640, (64, 640)),
+    ((2539, 57), 640, (320, 640)),
+    ((1280, 80), 640, (320, 640)),
+    ((20, 20), 640, (96, 96)),
+    ((100000, 1), 640, (320, 640)),
 ])
 def test_dynamic_input_size_aligns_to_network_stride(image_size, max_size, expected):
     result = dynamic_input_size(image_size, max_size)
     assert result == expected
     assert all(value >= 64 and value % 32 == 0 for value in result)
     assert result[0] <= max_size and result[1] <= max_size
+    # 短边补到长边一半，画布长宽比不超过 2:1，避免超宽图深层特征只剩一两行。
+    assert max(result) <= 2 * min(result)
+
+
+def test_dynamic_input_size_caps_upscale_without_affecting_downscale():
+    # 66×26 按 896 长边会放大 13.6 倍，MAX_UPSCALE=4 时限制到 4 倍。
+    assert dynamic_input_size((66, 26), 896) == (160, 288)
+    # 大图和超宽图是下采样，不受上采样上限影响。
+    assert dynamic_input_size((2554, 56), 896) == (448, 896)
+    assert dynamic_input_size((2483, 3510), 896) == (896, 640)
+
+
+def test_dynamic_short_side_floor_pads_without_rescaling_content():
+    image_size = (2539, 57)
+    target = dynamic_input_size(image_size, 640)
+    assert target == (320, 640)
+    # 补边只抬高画布短边，内容仍按长边缩放到 640，文字尺度保持不变。
+    assert resize_metadata(image_size, target)[0] == pytest.approx(
+        resize_metadata(image_size, (64, 640))[0])
 
 
 def test_dynamic_preprocess_matches_equivalent_fixed_transform():
@@ -396,15 +417,16 @@ def test_detector_dynamic_and_fixed_input_shapes(monkeypatch):
         DocumentDetector("unused.pth", max_input_size=65)
 
 
-def test_detector_defaults_to_fixed_training_canvas(monkeypatch):
-    """默认使用固定 768×768 方形画布，避免超宽图动态压缩短边。"""
+def test_detector_defaults_to_dynamic_canvas(monkeypatch):
+    """默认使用动态尺寸：长边上限 896，超宽图短边补到长边一半。"""
     from detection import inference
 
     monkeypatch.setattr(inference, "load_checkpoint",
                         lambda *args: (object(), {"config": checkpoint_config(768)}))
     detector = DocumentDetector("model.pth")
-    assert detector.dynamic_input is False
-    assert detector._target_size((2589, 57)) == (768, 768)
+    assert detector.dynamic_input is True
+    assert detector._target_size((2589, 57)) == (448, 896)
+    assert detector._target_size((2483, 3510)) == (896, 640)
 
 
 def test_inference_main_uses_constants(tmp_path, monkeypatch):

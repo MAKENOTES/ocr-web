@@ -1,7 +1,8 @@
 """统一检测 PyTorch/GPU 推理：整图缩放、连通域解码、NMS 和原图坐标还原。
 
-PyTorch 检查点默认使用 GPU（不可用时回退 CPU），默认把整图缩放到固定
-INPUT_SIZE 方形画布；DYNAMIC_INPUT=True 时才按原图宽高比选择 32 的倍数尺寸。
+PyTorch 检查点默认使用 GPU（不可用时回退 CPU），默认按原图宽高比选择 32 的倍数
+尺寸（长边上限 INPUT_SIZE=896），并把短边补到长边的一半、上采样不超过 4 倍，
+避免超宽图深层特征过少或小图被放大十几倍。
 本模块只接受 `.pth` 检查点；ONNX/OpenVINO 的 CPU 部署入口是根目录
 detection_inference_onnx.py，该入口独立实现，不依赖本模块。所有输出坐标均
 还原到原图像素空间。
@@ -43,8 +44,8 @@ MODEL_PATH = Path("detection/checkpoints/ocr_experiment_1793283532819507511/best
 IMAGE_PATH = Path("detection/data/test_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
 OUTPUT_DIR = Path("detection/data/test_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
 DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU。
-INPUT_SIZE = 768  # 固定方形输入边长，单位 px；与训练尺寸一致，int 表示正方形，也可设为 (高, 宽)。
-DYNAMIC_INPUT = False  # 默认固定方形画布；True 时按原图宽高比选择 32 的倍数尺寸，超宽图短边会被压到 64。
+INPUT_SIZE = 896  # 动态模式的长边上限，单位 px；全量验证集 F1 0.9786，低于该值时精度下降，高于 896 需重新训练。
+DYNAMIC_INPUT = True  # 默认按原图宽高比选择 32 倍数尺寸，短边至少保留长边的一半；False 时使用 INPUT_SIZE 方形画布。
 SCORE_THRESHOLD = DEFAULT_SCORE_THRESHOLD  # 文字置信度阈值，取值范围为 (0, 1)。
 NMS_IOU_THRESHOLD = DEFAULT_NMS_IOU_THRESHOLD  # 重复框抑制的交并比阈值，取值范围为 (0, 1]。
 SAVE_CROPS = False  # 启用时保存原图文字框 PNG 裁片，供识别使用。

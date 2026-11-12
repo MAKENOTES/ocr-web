@@ -60,6 +60,18 @@ ONNX/OpenVINO 加载各自独立实现；`tests/test_detection_isolation.py` 同
 推理可把 `INPUT_SIZE` 当作最大尺寸，按原图宽高比选择尺寸：最长边不超过上限，
 每条边向上取整到 32 的倍数，较短边最少 64，不足部分补边缘背景色。
 
+动态尺寸的短边不得低于长边的一半（画布长宽比不超过 2:1）：宽高比超过 2:1 的
+图片按长边缩放后，再给短边补背景抬到长边的一半。超宽图（例如 2500×56 的
+界面细条）若把短边压到 64，/32 特征图只剩一两行，检测框会明显退化；补边不改变
+内容缩放比例，只在画布上增加背景。`MIN_SHORT_SIDE_RATIO` 控制该下限，部署
+runtime 由同步脚本生成本模块的副本。
+
+动态尺寸还限制上采样倍数 `MAX_UPSCALE=4.0`：训练按长边 768 归一化，几十像素的
+小图理论上要放大十几倍。全量验证集上限制到 4 倍后 F1 0.97859（无上限 0.97864，
+差 1 个框），平均输入像素从 445k 降到 202k，小于 64px 的小图组为 0.9868；
+6 倍上限 F1 0.97869、291k 且小图组保持 1.0，是零退化档位；3 倍上限降到
+0.97704，不建议。该限制只影响上采样，大图和超宽图的下采样尺寸不变。
+
 ## 数据增强与批次执行
 
 增强全部在 `components/augmentation.py`，共 30 种，分三类执行：
@@ -121,8 +133,9 @@ ONNX 元数据共用 `detection/utils/config.py` 的校验。
 为一致粒度。坐标减去补边偏移、除以缩放比例后裁到原图边界，再按
 `NMS_IOU_THRESHOLD` 抑制重复框，按从上到下、从左到右排序。
 
-`DocumentDetector` 只加载 PyTorch `.pth` 检查点，默认固定方形画布（768×768），
-与训练输入一致；`DYNAMIC_INPUT=True` 时才按宽高比选择尺寸。ONNX/OpenVINO
+`DocumentDetector` 只加载 PyTorch `.pth` 检查点，默认按宽高比选择动态尺寸
+（长边上限 896），并把短边补到长边的一半；`DYNAMIC_INPUT=False` 时回退到
+`INPUT_SIZE` 方形画布。ONNX/OpenVINO
 部署统一走根目录入口和 `detection/runtime`，由导出文件读取实际高宽：动态模型
 使用配置的尺寸上限，固定模型自动改为导出尺寸，并校验元数据、输入输出名称和
 `dynamic_spatial` 一致。
@@ -137,11 +150,12 @@ CPU 部署入口 `detection_inference_onnx.py` 只保留默认常量，推理实
 并在隔离路径下完成一次推理自检；共享源文件修改后未重新同步时，构建脚本会拒绝
 生成，避免仓库与部署代码各自维护。
 
-根目录 `detection_export_onnx.py` 默认导出动态 batch 和固定 768×768 高宽；设置
-`DYNAMIC_SPATIAL=True` 时才导出动态高宽。导出先执行 PyTorch 与
-ONNX Runtime 的数值比较，固定导出覆盖 batch 1/2，动态导出额外覆盖不同高宽；
-直接写入目标文件并校验，目标已存在时覆盖，不创建临时目录。`SIMPLIFY_MODEL`
-只影响图简化，不影响强制数值校验。
+根目录 `detection_export_onnx.py` 默认导出动态 batch 和动态高宽（长边上限 896），
+输出到 `best_detection_dynamic.onnx`；设置 `DYNAMIC_SPATIAL=False` 时导出固定
+方形画布，原固定 768 模型 `best_detection.onnx` 保留给尺寸策略报告对照。导出先执行
+PyTorch 与 ONNX Runtime 的数值比较，固定导出覆盖 batch 1/2，动态导出额外覆盖
+不同高宽；直接写入目标文件并校验，目标已存在时覆盖，不创建临时目录。
+`SIMPLIFY_MODEL` 只影响图简化，不影响强制数值校验。
 
 `components/eval_metrics.py` 直接读取图片和标签目录，按置信度一对一匹配，
 默认匹配 IoU 0.5；预测主要落在 `###` 区域内时不计误检，输出总体和按扩展名

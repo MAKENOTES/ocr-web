@@ -42,6 +42,8 @@ recognition_quantized_model_bak/
 #优化的模型文件
 best_detection.onnx
 best_detection.onnx.data
+best_detection_dynamic.onnx
+best_detection_dynamic.onnx.data
 best_detection.pth
 
 best_recognition.onnx

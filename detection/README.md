@@ -208,7 +208,7 @@ ONNX/OpenVINO 只在验证集复算 CPU 耗时和精度。输出
 
 # 构建独立部署目录；默认在隔离路径下完成一次推理自检
 .venv/bin/python tools/build_detection_bundle.py \
-  --model best_detection.onnx --out dist/detection_runtime
+  --model best_detection_dynamic.onnx --out dist/detection_runtime
 
 # 直接运行包内入口（PyTorch/GPU）：修改 detection/inference.py 的 MODEL_PATH 和 IMAGE_PATH
 .venv/bin/python detection/inference.py
@@ -221,29 +221,38 @@ ONNX/OpenVINO 只在验证集复算 CPU 耗时和精度。输出
 .venv/bin/python detection_export_onnx.py
 ```
 
-推理默认 `DYNAMIC_INPUT=False`：整图按 `INPUT_SIZE`（当前 768）等比缩放并补边到
-固定 768×768 方形画布，与训练输入尺寸一致。`DYNAMIC_INPUT=True` 时按原图宽高比
-把最长边缩放到 `INPUT_SIZE`，每条边向上取整到 32 的倍数、最少 64；超宽图短边会
-被压到 64，实测会明显降低地址栏等 45:1 细条的 F1，只建议在实验里使用。固定尺寸
-导出的 ONNX/OpenVINO 始终使用模型自身尺寸；动态导出的 ONNX/OpenVINO 使用导出
-元数据记录的 `input_size` 作为尺寸上限。
+推理默认动态尺寸：`DYNAMIC_INPUT=True`，按原图宽高比把最长边缩放到 `INPUT_SIZE`
+（当前 896），每条边向上取整到 32 的倍数、最少 64；上采样倍数不超过
+`MAX_UPSCALE`（当前 4.0），避免几十像素的小图被放大十几倍；短边不足长边一半时
+补背景抬到一半（画布长宽比不超过 2:1）。不设短边下限时，45:1 的地址栏细条短边
+会被压到 64，/32 特征图只剩一两行，F1 会明显下降；补边不改变内容缩放。
+全量验证集（1243 张）实测：动态上限 896 的 F1 为 0.9786（固定 896 为 0.9790，
+像素量约为固定 896 的 55%），细条分组不再退化；上限 768 为 0.9743（固定 768
+为 0.9763）。加入 4 倍上采样上限后 F1 为 0.97859（与无上限差 1 个框），平均
+输入像素从 445k 降到 202k，小于 64px 的小图组为 0.9868；6 倍上限 F1 0.97869、
+291k，小图组保持 1.0，是零退化档位；3 倍上限降到 0.97704，不建议。超过 896
+（如 1280）会偏离训练尺度分布，未补多尺度训练前不建议。
+需要固定画布时设 `DYNAMIC_INPUT=False`，整图按 `INPUT_SIZE` 等比缩放并补边到
+方形画布。动态导出的 ONNX/OpenVINO 使用元数据记录的 `input_size` 作为长边上限，
+固定导出始终使用模型自身尺寸。
 输出 `images/<原图文件名>` 画框预览和 `labels/gt_<stem>.txt` bbox4 标签；
 `SAVE_CROPS=True` 时额外保存原图裁片。
 
 后处理默认按低占用列把粘连的整行连通域拆成词/短语框，可通过
 `decode_maps(..., split_word_gaps=False)` 保留整段输出。当前部署配置为
-Epoch 560 / 固定 768×768 / 0.70；历史评估中 566/768/0.88 在验证集上拆分前后 F1 相同，
+Epoch 560 / 动态 896 / 0.70；历史评估中 566/768/0.88 在验证集上拆分前后 F1 相同，
 说明模型已基本输出词/短语级框；拆分器主要作为低分辨率或后续模型的兼容保护。
 
-导出默认 `DYNAMIC_SPATIAL=False`，输出固定 768×768 高宽并校验动态 batch；
-`DYNAMIC_SPATIAL=True` 时额外校验不同高宽。默认输出
-`best_detection.onnx`：导出会直接覆盖同名目标文件并随后完成数值校验，不再创建
+导出默认 `DYNAMIC_SPATIAL=True`、`INPUT_SIZE=896`，输出动态高宽到
+`best_detection_dynamic.onnx`，并校验 batch 1/2 及不同高宽；原固定 768 模型
+`best_detection.onnx` 保留给 `report_size_policy.py` 的历史对照。导出会直接覆盖
+同名目标文件并随后完成数值校验，不再创建
 `onnx-export-*` 临时目录；校验失败时目标文件保留本次产物，需修复后重新导出。
 导出实现、尺寸和动态开关都在根目录
 [detection_export_onnx.py](../detection_export_onnx.py) 顶部，按本次检查点和输出路径运行。
 导出时只定向抑制 torch 2.9 对 torchvision schema 和动态 shape 的内部 WARNING，
 ERROR 及以上仍会输出，PyTorch/ONNX Runtime 数值校验不受影响。
-当前推理默认检查点为 Epoch 560、固定 768×768；修改检查点或尺寸后必须重新导出
+当前推理默认检查点为 Epoch 560、动态 896；修改检查点或尺寸后必须重新导出
 ONNX/OpenVINO，已有模型文件不会自动使用新权重。
 
 ## 评估与检查

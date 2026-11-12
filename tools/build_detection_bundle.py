@@ -3,7 +3,7 @@
 用法（在仓库根目录执行）::
 
     .venv/bin/python tools/build_detection_bundle.py \
-        --model best_detection.onnx \
+        --model best_detection_dynamic.onnx \
         --out dist/detection_runtime
 
 产物包含 detection/runtime 部署快照、根目录推理入口、.onnx 模型、依赖清单和

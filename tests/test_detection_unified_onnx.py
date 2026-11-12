@@ -17,14 +17,17 @@ from detection.models.east_model import create_model
 from detection.utils import ONNX_CONFIG_KEY, save_checkpoint
 
 
-def test_deployment_defaults_use_fixed_canvas():
-    """默认部署与导出都使用固定方形画布，避免超宽图动态压缩短边。"""
+def test_deployment_defaults_use_dynamic_canvas():
+    """默认部署与导出都使用动态尺寸：长边上限 896，超宽图短边补到长边一半。"""
     from detection import inference
+    import detection_inference_onnx as onnx_entry
 
-    assert inference.DYNAMIC_INPUT is False
-    assert inference.INPUT_SIZE == 768
-    assert exporter.DYNAMIC_SPATIAL is False
-    assert exporter.INPUT_SIZE == 768
+    assert inference.DYNAMIC_INPUT is True
+    assert inference.INPUT_SIZE == 896
+    assert exporter.DYNAMIC_SPATIAL is True
+    assert exporter.INPUT_SIZE == 896
+    assert exporter.OUTPUT_PATH.name == "best_detection_dynamic.onnx"
+    assert onnx_entry.MODEL_PATH.name == "best_detection_dynamic.onnx"
 
 
 @pytest.mark.parametrize("dynamic_spatial", [True, False])

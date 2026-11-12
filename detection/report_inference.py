@@ -62,7 +62,7 @@ DETECTION_DIR = REPO_ROOT / "detection"  # 统一检测包目录。
 RUN_NAME = "ocr_experiment_1793283532819507511"  # 本次对照的训练运行名。
 CHECKPOINT_PATH = (DETECTION_DIR / "checkpoints" / RUN_NAME
                    / "best_f1_detection_epoch_560_f1_0.97158.pth")  # PyTorch 推理检查点。
-ONNX_MODEL = REPO_ROOT / "best_detection.onnx"  # 已导出的 ONNX 模型。
+ONNX_MODEL = REPO_ROOT / "best_detection_dynamic.onnx"  # 与 PyTorch 动态尺寸一致的 ONNX 模型。
 OUTPUT_ROOT = DETECTION_DIR / "data" / "inference_eval"  # 预测图片和标签的输出根目录，不提交。
 REPORT_DIR = DETECTION_DIR / "reports" / RUN_NAME / "inference"  # 报告输出目录，不提交。
 TRAINING_SUMMARY = DETECTION_DIR / "reports" / RUN_NAME / "summary.json"  # 训练期指标摘要。
