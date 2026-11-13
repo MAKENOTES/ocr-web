@@ -41,8 +41,8 @@ from detection.utils import load_checkpoint
 
 # 统一检测模型；更换训练结果时修改此路径。
 MODEL_PATH = Path("detection/checkpoints/ocr_experiment_1793283532819507511/best_f1_detection_epoch_560_f1_0.97158.pth")
-IMAGE_PATH = Path("detection/data/test_images")  # 输入图片或图片目录，不直接读取 PDF 文件。
-OUTPUT_DIR = Path("detection/data/test_results")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
+IMAGE_PATH = Path("detection/data/test_images/2")  # 输入图片或图片目录，不直接读取 PDF 文件。
+OUTPUT_DIR = Path("detection/data/test_results/2")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
 DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU。
 INPUT_SIZE = 896  # 动态模式的长边上限，单位 px；全量验证集 F1 0.9786，低于该值时精度下降，高于 896 需重新训练。
 DYNAMIC_INPUT = True  # 默认按原图宽高比选择 32 倍数尺寸，短边至少保留长边的一半；False 时使用 INPUT_SIZE 方形画布。
