@@ -1,4 +1,4 @@
-"""训练统一 ResNet18 EAST，覆盖 UI 小图、PDF 页面和网页表格文字。
+"""训练统一检测 EAST，覆盖 UI 小图、PDF 页面和网页表格文字。
 
 训练使用固定输入尺寸保证批次可直接堆叠；推理入口可再按图片宽高比动态
 选择尺寸。训练与验证目录必须独立，加载器严格按 stem 配对标签。
@@ -25,6 +25,7 @@ from detection.components.eval_metrics import evaluate_model
 from detection.components.loss import EASTLoss
 from detection.components.preprocessing import normalize_input_size
 from detection.components.transforms import get_transforms
+from detection.models.backbones import DEFAULT_BACKBONE
 from detection.models.east_model import EASTModel
 from detection.utils import save_checkpoint
 
@@ -43,8 +44,8 @@ VAL_LABEL_DIR = "detection/data/val_labels"  # 验证文字框标签目录，标
 CHECKPOINT_ROOT = Path("detection/checkpoints")  # 检查点根目录；每次训练在其下新建带时间戳的子目录。
 RUNS_ROOT = Path("detection/runs")  # TensorBoard 日志根目录；与检查点目录分开，避免混入权重文件。
 
-NUM_WORKERS = 8  # 数据加载子进程数；设为 0 时在主进程加载，便于定位数据问题。
-PRETRAINED = True  # 是否加载 ImageNet 预训练参数；无缓存会下载，离线可设 False。
+NUM_WORKERS = 6  # 数据加载子进程数；设为 0 时在主进程加载，便于定位数据问题。
+PRETRAINED = True  # 是否加载所选骨干的 ImageNet 预训练参数；无缓存会下载，离线可设 False。
 LOG_GRAPH = True  # 是否向 TensorBoard 写入模型结构图；不影响训练损失的记录。
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"  # 默认优先使用 GPU，也可手动设为 cpu 或 cuda:设备编号。
 USE_AUGMENTATION_CURRICULUM = True  # 启用时按轮次从轻增强过渡到强增强；关闭时固定使用标准增强。
@@ -192,7 +193,7 @@ def main():
         raise ValueError("Training and validation image directories must differ")
 
     device = torch.device(DEVICE)
-    print(f"使用设备: {device}；训练输入: {input_size[0]}×{input_size[1]}")
+    print(f"使用设备: {device}；训练输入: {input_size[0]}×{input_size[1]}；骨干: {DEFAULT_BACKBONE}")
 
     # 训练集只加载一次；增强阶段切换时重建 transform 和 DataLoader。
     train_dataset = OCRDataset(TRAIN_IMAGE_DIR, TRAIN_LABEL_DIR)
@@ -229,7 +230,7 @@ def main():
     writer = SummaryWriter(str(log_dir))
     print(f"TensorBoard 日志: {log_dir}；检查点: {checkpoint_dir}")
 
-    model = EASTModel(pretrained=PRETRAINED).to(device)
+    model = EASTModel(pretrained=PRETRAINED, backbone=DEFAULT_BACKBONE).to(device)
     criterion = EASTLoss(lambda_iou=3).to(device)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
     scheduler = OneCycleLR(optimizer, max_lr=MAX_LEARNING_RATE,

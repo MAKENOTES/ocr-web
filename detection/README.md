@@ -1,9 +1,10 @@
 # 统一文字检测
 
-本包用 ResNet18 EAST 同时定位 UI 小图、PDF 页面和网页表格中的水平文字框。
-训练、推理和评估只依赖包内实现，不导入两个历史检测目录或识别子系统；ONNX
-导出在根目录 [detection_export_onnx.py](../detection_export_onnx.py) 完成，复用包内
-模型加载和运行时配置。
+本包用可切换骨干的 EAST 同时定位 UI 小图、PDF 页面和网页表格中的水平文字框；
+默认 ResNet18，可选 MobileNetV3-Large。训练、推理和评估只依赖包内实现，不导入
+两个历史检测目录或识别子系统；ONNX 导出在根目录
+[detection_export_onnx.py](../detection_export_onnx.py) 完成，复用包内模型加载和
+运行时配置。
 
 接口细节见[统一检测架构](../docs/detection/architecture.md)；历史实现见
 [小图检测](../detection_small/README.md)和[大图检测](../detection_larger/README.md)。
@@ -27,7 +28,9 @@ detection/
 │   ├── ground_truth.py       # 置信度、log1p 几何和忽略掩码
 │   ├── loss.py               # Dice + Smooth L1
 │   └── eval_metrics.py       # 训练期与目录级 Precision/Recall/F1
-├── models/east_model.py      # ResNet18 多尺度融合网络
+├── models/                   # 网络定义
+│   ├── backbones.py          # ResNet18 / MobileNetV3-Large 骨干注册表
+│   └── east_model.py         # EAST 多尺度融合头，按骨干通道构建
 ├── runtime/                  # 部署运行包；生成文件勿手改
 │   ├── backends.py           # ONNX Runtime/OpenVINO 后端
 │   ├── cli.py                # 推理命令行
@@ -68,7 +71,11 @@ train 和 val。`split_manifest.csv` 记录样本归属、来源路径和内容�
 配置集中在 [train.py](train.py) 顶部，不提供命令行参数：默认 RGB、`768×768`、
 batch 8、`NUM_WORKERS=8`、最多 620 轮；Adam 构造学习率 1.5e-4，OneCycleLR 峰值 4.5e-4；
 训练使用 30 种按框安全增强，验证使用确定性缩放。检查点只保存 `config` 和 `model`；训练从
-`PRETRAINED` 指定的 ImageNet 初始化或随机初始化开始。训练和验证目录路径必须不同。
+`PRETRAINED` 指定的 ImageNet 初始化或随机初始化开始。骨干由
+[models/backbones.py](models/backbones.py) 的 `DEFAULT_BACKBONE` 选择，改这一处即可
+切换训练骨干（默认 `resnet18`，可选 `mobilenet_v3_large`）；检查点会记录骨干，
+推理和导出按记录自动构建对应网络。切换骨干后需要重新训练。训练和验证目录路径
+必须不同。
 
 每次运行在 `detection/checkpoints/<run>/` 下新建检查点目录，`<run>` 为
 `ocr_experiment_<纳秒时间戳>`，根目录由 `CHECKPOINT_ROOT` 控制；TensorBoard 事件

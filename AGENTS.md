@@ -8,7 +8,7 @@
 
 ## 目录与入口
 
-- `detection/`：当前统一检测包。ResNet18 EAST 模型、严格数据加载、真值/损失、训练、推理和评估都在包内独立实现，不导入 `detection_small`、`detection_larger` 或 `recognition`；`detection/inference.py` 面向 PyTorch/GPU 推理，根目录 `detection_inference_onnx.py` 只保留部署常量，ONNX CPU 推理实现在 `detection/runtime/`（生成快照由 `tools/sync_detection_runtime.py` 维护），ONNX 导出入口在根目录 `detection_export_onnx.py`，独立部署包由 `tools/build_detection_bundle.py` 生成。
+- `detection/`：当前统一检测包。可切换骨干（默认 ResNet18，可选 MobileNetV3-Large）的 EAST 模型、严格数据加载、真值/损失、训练、推理和评估都在包内独立实现，不导入 `detection_small`、`detection_larger` 或 `recognition`；`detection/inference.py` 面向 PyTorch/GPU 推理，根目录 `detection_inference_onnx.py` 只保留部署常量，ONNX CPU 推理实现在 `detection/runtime/`（生成快照由 `tools/sync_detection_runtime.py` 维护），ONNX 导出入口在根目录 `detection_export_onnx.py`，独立部署包由 `tools/build_detection_bundle.py` 生成。
 - `detection/components/`：只放训练链路需要的模块，包括图片读取、推理预处理、数据加载、增强、变换、真值、损失和训练期指标；推理后处理、ONNX/OpenVINO 运行时、评估报告等放到 `detection/utils/`。
 - `tools/sync_detection_runtime.py`、`tools/build_detection_bundle.py`：从仓库源文件同步 `detection/runtime` 并组装可独立部署的检测运行目录，不参与训练和常规推理。
 - `tools/sync_detection_small_runtime.py`、`tools/build_detection_small_bundle.py`：同步 `detection_small/runtime` 并组装小图检测独立部署目录。

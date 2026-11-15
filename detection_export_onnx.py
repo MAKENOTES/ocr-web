@@ -19,7 +19,8 @@ import torch
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from detection.utils import ONNX_CONFIG_KEY, checkpoint_config, load_checkpoint
+from detection.components.preprocessing import normalize_input_size
+from detection.utils import LEGACY_BACKBONE, ONNX_CONFIG_KEY, checkpoint_config, load_checkpoint
 
 
 CHECKPOINT_PATH = Path("detection/checkpoints/ocr_experiment_1793283532819507511/best_f1_detection_epoch_560_f1_0.97158.pth")  # 待导出的统一检测检查点，必须包含 config 和 model。
@@ -165,13 +166,16 @@ def export_model(checkpoint_path, output, input_size=None, dynamic_spatial=None)
     import onnxruntime as ort
 
     output = Path(output)
-    input_size = INPUT_SIZE if input_size is None else input_size
+    # 先校验尺寸再读取检查点，参数错误时不产生多余的磁盘访问。
+    input_size = normalize_input_size(INPUT_SIZE if input_size is None else input_size)
     dynamic_spatial = DYNAMIC_SPATIAL if dynamic_spatial is None else dynamic_spatial
-    config = checkpoint_config(input_size, dynamic_spatial)
+    model, checkpoint = load_checkpoint(checkpoint_path)
+    # 骨干以检查点记录为准；旧检查点没有该字段时按兼容兜底 ResNet18 处理。
+    backbone = checkpoint["config"].get("backbone", LEGACY_BACKBONE)
+    config = checkpoint_config(input_size, dynamic_spatial, backbone)
     height, width = config["input_size"]
 
-    model, _ = load_checkpoint(checkpoint_path)
-    print(f"导出输入尺寸：{height}×{width}；动态高宽：{dynamic_spatial}；"
+    print(f"导出输入尺寸：{height}×{width}；骨干：{backbone}；动态高宽：{dynamic_spatial}；"
           f"CPU 测速：{BENCHMARK_ENABLED}", flush=True)
     # batch=2 避免 Dynamo 将示例中的单张 batch 特化为固定 1。
     sample = torch.rand(2, 3, height, width)

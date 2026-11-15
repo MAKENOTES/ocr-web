@@ -31,6 +31,7 @@ from detection.utils import (
     checkpoint_config,
     load_checkpoint,
     save_checkpoint,
+    validate_config,
 )
 
 
@@ -336,6 +337,41 @@ def test_model_supports_dynamic_shapes_and_checkpoint_roundtrip(tmp_path):
     torch.save({"config": {"format": "old-tiled"}, "model": model.state_dict()}, bad)
     with pytest.raises(ValueError, match="unified EAST checkpoint"):
         load_checkpoint(bad)
+
+
+def test_backbone_registry_and_checkpoint_contract(tmp_path):
+    """切换骨干后模型、检查点和旧配置兼容性保持一致。"""
+    from detection.models.backbones import BACKBONE_CHANNELS
+    from detection.utils.config import MODEL_FORMATS
+
+    # runtime 配置快照自包含，名称通过测试与骨干注册表保持一致。
+    assert tuple(MODEL_FORMATS) == tuple(BACKBONE_CHANNELS)
+    assert checkpoint_config(64)["backbone"] == "resnet18"
+
+    model = create_model(backbone="mobilenet_v3_large").eval()
+    with torch.no_grad():
+        for shape in [(2, 3, 64, 96), (1, 3, 96, 64)]:
+            score, geometry = model(torch.randn(*shape))
+            assert score.shape == (shape[0], 1, shape[2] // 4, shape[3] // 4)
+            assert geometry.shape == (shape[0], 4, shape[2] // 4, shape[3] // 4)
+
+    path = tmp_path / "mobile.pth"
+    save_checkpoint(model, path, (64, 96))
+    loaded, checkpoint = load_checkpoint(path)
+    assert checkpoint["config"]["backbone"] == "mobilenet_v3_large"
+    assert checkpoint["config"]["format"] == MODEL_FORMATS["mobilenet_v3_large"]
+    same_input = torch.randn(1, 3, 64, 96)
+    with torch.no_grad():
+        torch.testing.assert_close(loaded(same_input)[0], model(same_input)[0])
+
+    # 旧检查点没有 backbone 字段，按 resnet18 格式补齐后仍应通过校验。
+    legacy = checkpoint_config(64)
+    legacy.pop("backbone")
+    assert validate_config(legacy)["backbone"] == "resnet18"
+    with pytest.raises(ValueError, match="骨干"):
+        checkpoint_config(64, backbone="unknown")
+    with pytest.raises(ValueError, match="unified EAST checkpoint"):
+        validate_config(dict(legacy, backbone="mobilenet_v3_large"))
 
 
 def test_whole_image_inference_restores_long_lines_and_cells():

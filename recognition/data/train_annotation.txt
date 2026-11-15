@@ -176,7 +176,7 @@ train_images/000008-000051.png	法定代表人授权委托书
 train_images/000008-000052.png	提供法定代表人授权委托书，由法定
 train_images/000008-000054.png	代表人及其委托代理人签字或盖章，并加
 train_images/000008-000055.png	5
-train_images/000008-000056.png	|人及其委托代理人签字或盖章，并加盖投标
+train_images/000008-000056.png	人及其委托代理人签字或盖章，并加盖投标
 train_images/000008-000057.png	第13页
 train_images/000008-000059.png	人公章（如法定代表人自行处理投标事宜，
 train_images/000008-000060.png	标事宜，委托代理人即为法定代表人）。
@@ -504,7 +504,7 @@ train_images/000021-000004.png	我公司项目负责人查询结果不存在同�
 train_images/000021-000005.png	第19页
 train_images/000022-000003.png	4.5具有良好的商业信誉和健全的财务会计制度
 train_images/000022-000004.png	承诺函
-train_images/000022-000005.png	致中国烟草总公司海南省公司（招标）
+train_images/000022-000005.png	致中国烟草总公司海南省公司（招标
 train_images/000022-000006.png	我公司在参与本项目投标中，我公司郑重承诺具有良好的商业信誉和健全的财务会计制度。
 train_images/000022-000008.png	投标人名称：
 train_images/000022-000009.png	上海美古生物医药科技有限公司
@@ -1038,7 +1038,7 @@ train_images/000049-000033.png	个
 train_images/000049-000034.png	1300
 train_images/000049-000035.png	11
 train_images/000049-000036.png	1235
-train_images/000049-000038.png	+illumina测序分
+train_images/000049-000038.png	+illumina测序+分
 train_images/000049-000039.png	析。
 train_images/000049-000040.png	30XHiFi（PB）
 train_images/000049-000041.png	+
@@ -1494,7 +1494,7 @@ train_images/000068-000021.png	单价
 train_images/000068-000022.png	金额
 train_images/000068-000023.png	号
 train_images/000068-000024.png	位
-train_images/000068-000026.png	Illumina平台测冷≥
+train_images/000068-000026.png	Illumina平台测序，≥
 train_images/000068-000027.png	1
 train_images/000068-000028.png	份
 train_images/000068-000029.png	上海
@@ -1648,7 +1648,7 @@ train_images/000069-000098.png	670
 train_images/000069-000099.png	6700
 train_images/000069-000101.png	真核一原核互作转
 train_images/000069-000102.png	polyA尾富集文库
-train_images/000069-000103.png	录组一真核-原核互
+train_images/000069-000103.png	录组--真核-原核互
 train_images/000069-000104.png	Illuminap平台测序，
 train_images/000069-000106.png	份
 train_images/000069-000107.png	19
@@ -1801,7 +1801,7 @@ train_images/000074-000006.png	乙方：上海美吉生物医药科技有限公�
 train_images/000074-000007.png	依据《中华人民共和国民法典》的规定，通过友好协商，本着诚信与互利的
 train_images/000074-000008.png	原则，双方就沙州品创科技有限公司基因组学检测服务项目一标段服务事宜达
 train_images/000074-000009.png	成协作如下：
-train_images/000074-000011.png	-
+train_images/000074-000011.png	一、
 train_images/000074-000012.png	本合同有效期为自合同签订之日起至2025年9月30日，费用依照服务费用
 train_images/000074-000013.png	明细报价按季度进行结算（含6%税率），如后期增值税一般纳税人税率有调整，
 train_images/000074-000014.png	则含税价调整为：以上述不含税价为基础，按调整后的一般纳税人税率确定的含
@@ -2456,7 +2456,7 @@ train_images/000127-000023.png	甲方所在地有管辖权的人民法院起诉�
 train_images/000127-000024.png	十、合同解除
 train_images/000127-000026.png	解除本合同：
 train_images/000127-000027.png	（1）发生不可抗力。
-train_images/000127-000028.png	（2）因对方违约使合同不能继续履行或没有必要继续履行。
+train_images/000127-000028.png	（2）因对方违约使合同不能继续履行或没有必要继续履行
 train_images/000127-000029.png	十一、合同生效
 train_images/000127-000031.png	法定代表人或授权代表签字并盖章后生效。
 train_images/000127-000032.png	十二、补充约定
@@ -2506,7 +2506,7 @@ train_images/000130-000033.png	第128页
 train_images/000131-000002.png	投标文件
 train_images/000131-000003.png	第五条甲乙双方的权利和义务
 train_images/000131-000004.png	1、甲方应按本合同的约定对乙方服务进行验收、支付服务费；
-train_images/000131-000006.png	3、乙方应按本合同的约定向甲方提供服务：
+train_images/000131-000006.png	3、乙方应按本合同的约定向甲方提供服务；
 train_images/000131-000007.png	4、乙方不得将合同的全部或部分项目转包、分包。
 train_images/000131-000008.png	第六条违约责任
 train_images/000131-000009.png	1、乙方提交的项目成果未能通过甲方验收的，乙方应在15日内按照评审组反馈意见完
@@ -2565,11 +2565,10 @@ train_images/000133-000023.png	纳税人识别号：
 train_images/000133-000025.png	91310115684066165B
 train_images/000133-000026.png	上海浦东发展银行张江科技支行
 train_images/000133-000027.png	开户银行：
-train_images/000133-000028.png	开产银行：
+train_images/000133-000028.png	开户银行：
 train_images/000133-000030.png	账号：
 train_images/000133-000031.png	97160154740003720
 train_images/000133-000032.png	地址：
-train_images/000133-000033.png	：云南省昆明市盘龙区北京路2238号
 train_images/000133-000035.png	地址：
 train_images/000133-000036.png	时代医创园3号
 train_images/000133-000037.png	电话：
@@ -2732,7 +2731,7 @@ train_images/000149-000017.png	源不承担任何审查义务及法律责任，�
 train_images/000149-000018.png	指控时，甲方应承担相应法律责任，并使乙方免于承担任何责任。
 train_images/000149-000020.png	①未开展实验项目的所有样品类型，保存时间为1个月，甲方送样前应及时与乙方沟
 train_images/000149-000021.png	通，如样本到公司后一个月内未开展实验，乙方有权对样本进行销毁，因此项原因产生的费
-train_images/000149-000022.png	用，由甲方承担，乙方不承担任何责在
+train_images/000149-000022.png	用，由甲方承担，乙方不承担任何责任
 train_images/000149-000023.png	②检测合格待建库的核酸、PCR产物，保存时间为3个月，甲方应在乙方发送样本质检
 train_images/000149-000025.png	由此产生的项目风险：如逾期未反馈，乙方有权对样品进行销毁。
 train_images/000149-000026.png	③对于检测不合格的样本，甲方应在乙方将样本检测报告发出后7天内与乙方联系，
@@ -2805,7 +2804,7 @@ train_images/000156-000024.png	分组方案）。
 train_images/000156-000026.png	乙方，在表中需备注重要说明等情况（填表时应尽量避免错误、遗漏以及容易引起歧义的词汇及描述方法）。因
 train_images/000156-000027.png	不规范送样造成的项目问题均由甲方承担。
 train_images/000156-000028.png	不规范送样包括但不限于以下情况：
-train_images/000156-000029.png	①未按照送样要求处理样本并包装：
+train_images/000156-000029.png	①未按照送样要求处理样本并包装；
 train_images/000156-000031.png	③未及时告知乙方送样信息。
 train_images/000156-000032.png	（2）甲方提供的样本不符合乙方要求（包括但不限于样本制备不符合本合同要求、达不到信息采集标准、样
 train_images/000156-000033.png	本污染、样本损坏等）导致合同终止时，甲方按照乙方实际工作量以市场价格支付全部费用并赔偿乙方的其他损
@@ -3646,7 +3645,7 @@ train_images/000200-000005.png	承诺函
 train_images/000200-000006.png	（招标人）：
 train_images/000200-000007.png	致中国烟草总公司海南省
 train_images/000200-000008.png	我公司在参与本项目投标中，我公司郑重承诺：
-train_images/000200-000010.png	_，
+train_images/000200-000010.png	一、
 train_images/000200-000011.png	完成检测并出具内容齐全、完整清晰的检测报告及相关成果资料。鉴于采购标的难以确定、不能确定详细
 train_images/000200-000012.png	规格或具体要求的情况，特满足以下要求：
 train_images/000200-000013.png	二、除了满足采购人提出或明确的特别需求，检测/测试分析具体内容包括业内常规内容
@@ -5141,7 +5140,7 @@ train_images/000347-000004.png	为甲方项目联系人，电话号码：
 train_images/000347-000005.png	乙
 train_images/000347-000006.png	方指定张敬1为乙方项目联系人，电话号码：18512117135。
 train_images/000347-000007.png	项目联系人承担以下责任：
-train_images/000347-000009.png	2）对该合同各条款相关事宜及时进行沟通：
+train_images/000347-000009.png	2）对该合同各条款相关事宜及时进行沟通；
 train_images/000347-000010.png	3）一方变更项目联系人的，应当及时以书面形式通知另一方。未及时通知并影响本合同履行或造成损失的，
 train_images/000347-000011.png	应承担相应的责任。
 train_images/000347-000012.png	2.合同结算
@@ -5497,7 +5496,7 @@ train_images/000377-000031.png	聚类分析与可视
 train_images/000377-000032.png	tSNE降维可视化
 train_images/000377-000033.png	聚类之后可视化展示，同时也会展
 train_images/000377-000034.png	化
-train_images/000377-000036.png	|示cluster之间的相关性。
+train_images/000377-000036.png	示cluster之间的相关性。
 train_images/000377-000037.png	Cluster间相关性
 train_images/000377-000038.png	降维与聚类分析
 train_images/000377-000039.png	Marker基因筛选
@@ -5525,11 +5524,11 @@ train_images/000378-000004.png	可视化展示（tSNE/UMAP可视化）
 train_images/000378-000005.png	释-基于软件
 train_images/000378-000006.png	Marker基因可视化
 train_images/000378-000007.png	细胞-cluster-celltype聚类
-train_images/000378-000009.png	|人工判定细胞类型之后，进行可视|
+train_images/000378-000009.png	人工判定细胞类型之后，进行可视
 train_images/000378-000010.png	细胞类型可视化
 train_images/000378-000011.png	化展示
 train_images/000378-000012.png	亚群细胞统计
-train_images/000378-000014.png	|针对感兴趣的细胞类型再次进行亚|
+train_images/000378-000014.png	针对感兴趣的细胞类型再次进行亚
 train_images/000378-000015.png	细胞亚群降维聚
 train_images/000378-000016.png	群细分，得到聚类之后可视化展示
 train_images/000378-000017.png	tSNE降维可视化
@@ -5703,7 +5702,7 @@ train_images/000459-000021.png	测序与生信分析
 train_images/000459-000022.png	第97页
 train_images/000462-000003.png	在本合同签订之前，请仔细阅读以下内容：
 train_images/000462-000004.png	除非另有约定，本合同使用的下列术语应具有如下界定的含义
-train_images/000462-000005.png	1.“合同”或“本合同”：指本合同正文和其附件，共同构成合同整体并相互补充：
+train_images/000462-000005.png	1.“合同”或“本合同”：指本合同正文和其附件，共同构成合同整体并相互补充；
 train_images/000462-000006.png	2.“交付成果”：指乙方根据本合同规定交付的服务成果，包括信息采集数据或分析结果等；
 train_images/000462-000008.png	线、履行合同所使用的设备、仪器、软件等本身的缺陷或局限性、生物特性、生物个体差异性等导致的无法克服
 train_images/000462-000009.png	的技术问题。
@@ -6026,7 +6025,7 @@ train_images/000499-000022.png	责人负责组织评价、论证，从而制定�
 train_images/000499-000023.png	2.3将纠正措施方案提交发出纠正措施要求的部门审批后予以实施。
 train_images/000499-000024.png	3.纠正措施的实施
 train_images/000499-000026.png	责任部门的整改情况汇报。
-train_images/000499-000027.png	3.2单一部门的纠正措施实施进度由发出纠正要求的部门进行检查。
+train_images/000499-000027.png	3.2单一部门的纠正措施实施进度由发出纠正要求的部门进行检查
 train_images/000499-000028.png	4.纠正措施的验证和评审
 train_images/000499-000029.png	4.1纠正措施的跟踪确认，应确认责任部门是否按计划完成了所有纠正措施，并对纠正措施的有效性
 train_images/000499-000031.png	行情况和效果达到要求，对同一要素重复出现的问题，必须加大审核的频次及力度，严格审查纠正措施的
@@ -6047,7 +6046,7 @@ train_images/000500-000010.png	3.当投诉成立时由责任部门对客户投�
 train_images/000500-000011.png	4.纠正措施的实施情况由质量负责人予以跟踪确认。
 train_images/000500-000013.png	6.质量部及时和投诉人沟通，并将处理意见通知投诉人，若客户不接受处理结果时可提出第三方仲
 train_images/000500-000014.png	裁。
-train_images/000500-000015.png	7.当投诉影响到管理体系的正常运行或对检测结果的准确性有怀疑时，由质量负责人提出附加审核。
+train_images/000500-000015.png	7.当投诉影响到管理体系的正常运行或对检测结果的准确性有怀疑时，由质量负责人提出附加审核
 train_images/000500-000016.png	具体执行《内部审核控制程序》。
 train_images/000500-000018.png	程序》。
 train_images/000500-000019.png	第138页
@@ -6267,7 +6266,7 @@ train_images/000536-000015.png	著作权名称
 train_images/000536-000016.png	美吉生物MAGs云分析在线交互分析系统
 train_images/000536-000018.png	2024SR1573706
 train_images/000536-000019.png	1
-train_images/000536-000020.png	美吉生物挥发性代谢组学云平台交互分析系：
+train_images/000536-000020.png	美吉生物挥发性代谢组学云平台交互分析系
 train_images/000536-000021.png	2024-07-08
 train_images/000536-000023.png	2
 train_images/000536-000024.png	2024-07-05
@@ -6364,7 +6363,7 @@ train_images/000537-000032.png	30
 train_images/000537-000034.png	2022SR0971586
 train_images/000537-000035.png	2022-07-27
 train_images/000537-000036.png	31
-train_images/000537-000037.png	pdf转tiff-png图片软件
+train_images/000537-000037.png	pdf转tiff-jpg图片软件
 train_images/000537-000039.png	2022-07-27
 train_images/000537-000040.png	32
 train_images/000537-000041.png	非靶代谢项目合同列表拆分与分发软件
@@ -6987,7 +6986,7 @@ train_images/000563-000009.png	4
 train_images/000563-000010.png	1.2.1具有良好的商业信誉的承诺函.
 train_images/000563-000012.png	1.2.22022年财务审计报告
 train_images/000563-000013.png	5
-train_images/000563-000014.png	1.3具有履行合同所必需的设备和专业技术能力。
+train_images/000563-000014.png	1.3具有履行合同所必需的设备和专业技术能力
 train_images/000563-000015.png	62
 train_images/000563-000017.png	1.4具有依法缴纳税收和社会保障资金的良好记录
 train_images/000563-000018.png	1.5参加本次采购活动前三年内，在经营活动中没有重大违法记录
@@ -7088,7 +7087,7 @@ train_images/000579-000021.png	先对取得的被购买方各项可辨认资产�
 train_images/000579-000023.png	额计入当期损益。
 train_images/000579-000024.png	（五）合并财务报表的编制方法
 train_images/000579-000025.png	母公司将其控制的所有子公司纳入合并财务报表的合并范围。合并财务报表以母公司及
-train_images/000579-000026.png	其子公司的财务报表为基础，根据其他有关资料，由母公司按照《企业会计准则第33号—
+train_images/000579-000026.png	其子公司的财务报表为基础，根据其他有关资料，由母公司按照《企业会计准则第33号一
 train_images/000579-000028.png	（六）现金及现金等价物的确定标准
 train_images/000579-000029.png	列示于现金流量表中的现金是指库存现金以及可以随时用于支付的存款。现金等价物是
 train_images/000579-000030.png	指企业持有的期限短、流动性强、易于转换为已知金额现金、价值变动风险很小的投资。
@@ -7144,7 +7143,7 @@ train_images/000581-000025.png	4）以摊余成本计量的金融负债
 train_images/000581-000027.png	融负债所产生的利得或损失，在终止确认、按照实际利率法摊销时计入当期损益。
 train_images/000581-000028.png	（4）金融资产和金融负债的终止确认
 train_images/000581-000029.png	1）当满足下列条件之一时，终止确认金融资产：
-train_images/000581-000030.png	①收取金融资产现金流量的合同权利已终止：
+train_images/000581-000030.png	①收取金融资产现金流量的合同权利已终止；
 train_images/000581-000032.png	融资产终止确认的规定。
 train_images/000581-000033.png	第15页共58页
 train_images/000581-000034.png	第19页
@@ -7167,7 +7166,7 @@ train_images/000582-000021.png	以公允价值计量且其变动计入其他综�
 train_images/000582-000022.png	4.金融资产和金融负债的公允价值确定方法
 train_images/000582-000024.png	关金融资产和金融负债的公允价值。公司将估值技术使用的输入值分以下层级，并依次使用：
 train_images/000582-000025.png	（1）第一层次输入值是在计量日能够取得的相同资产或负债在活跃市场上未经调整的
-train_images/000582-000026.png	报价：
+train_images/000582-000026.png	报价；
 train_images/000582-000027.png	（2）第二层次输入值是除第一层次输入值外相关资产或负债直接或间接可观察的输入
 train_images/000582-000029.png	除报价以外的其他可观察输入值，如在正常报价间隔期间可观察的利率和收益率曲线等；市
 train_images/000582-000030.png	场验证的输入值等：
@@ -7213,7 +7212,7 @@ train_images/000584-000013.png	状况以及对未来经济状况的预测，
 train_images/000584-000014.png	其他应收款-
 train_images/000584-000015.png	一应收备用金组合
 train_images/000584-000016.png	通过违约风险敞口和未来12个月内
-train_images/000584-000018.png	其他应收款-
+train_images/000584-000018.png	其他应收款一
 train_images/000584-000019.png	一应收关联方款项组合
 train_images/000584-000020.png	或整个存续期预期信用损失率，计
 train_images/000584-000021.png	算预期信用损失
@@ -7259,14 +7258,14 @@ train_images/000585-000010.png	的，计入当期损益。
 train_images/000585-000011.png	2.各类固定资产的折旧方法
 train_images/000585-000013.png	残值率（%）
 train_images/000585-000014.png	折旧年限（年）
-train_images/000585-000015.png	项一目
+train_images/000585-000015.png	项目
 train_images/000585-000016.png	折旧方法
 train_images/000585-000018.png	房屋建筑物
 train_images/000585-000019.png	5.00
 train_images/000585-000020.png	20
 train_images/000585-000021.png	9.50-25.00
 train_images/000585-000023.png	0.00-5.00
-train_images/000585-000024.png	运输设备。
+train_images/000585-000024.png	运输设备
 train_images/000585-000025.png	4-10
 train_images/000585-000026.png	3-10
 train_images/000585-000028.png	0.00-5.00
@@ -7463,7 +7462,7 @@ train_images/000592-000013.png	的进项税额后，差额部分为应交增值�
 train_images/000592-000014.png	企业所得税
 train_images/000592-000016.png	应纳税所得额
 train_images/000592-000017.png	不同税率的纳税主体企业所得税税率说明
-train_images/000592-000018.png	所得税税率。
+train_images/000592-000018.png	所得税税率
 train_images/000592-000019.png	纳税主体名称
 train_images/000592-000021.png	15%
 train_images/000592-000022.png	上海美吉医学检验有限公司（以下简称美吉医检公司）
@@ -8191,7 +8190,7 @@ train_images/000659-000015.png	申请本课题而改变。
 train_images/000659-000016.png	2.本协议所产生的所有成果的知识产权全部归属于委託方（甲方），受委托方（乙方）
 train_images/000659-000018.png	3.在课题执行过程中各自向对方提供的相关信息，不构成向对方授予任何关于知识产权
 train_images/000659-000019.png	的许可行为。
-train_images/000659-000020.png	4.本合作协议不在各方之间建立任何商业上的代理、合作关系、
+train_images/000659-000020.png	4.本合作协议不在各方之间建立任何商业上的代理、合作关系。
 train_images/000659-000021.png	第六条保密条款
 train_images/000659-000023.png	信息和资料。包括但不限于本协议的委托内容及结果。
 train_images/000659-000024.png	2.双方保证采取一切合理和必要措施和方式对委托中知悉的对方商业秘密进行保
@@ -8404,7 +8403,7 @@ train_images/000684-000027.png	乙方代表：
 train_images/000684-000030.png	日期：
 train_images/000684-000032.png	地址/Addr：上海市浦东新区国际医学园区康新公路3399弄3号楼
 train_images/000684-000033.png	电话/Tel：021-51875086
-train_images/000684-000034.png	阿扯/Web：www.majorbio.com
+train_images/000684-000034.png	网址/Web：www.majorbio.com
 train_images/000684-000036.png	第122页
 train_images/000700-000002.png	响应文件
 train_images/000700-000003.png	7.2.2本项目拟配备的人员情况
@@ -8731,7 +8730,6 @@ train_images/000808-000033.png	后附仪器购买合同
 train_images/000857-000002.png	响应文件
 train_images/000857-000003.png	7.8样本运输和储存专项方案
 train_images/000857-000004.png	1.目的
-train_images/000857-000005.png	为保证实验过程中样品的原始和真实、具有可追溯性，便于抽查、复查，满足监督管理要求、分清局
 train_images/000857-000007.png	2.范围
 train_images/000857-000008.png	适用于实验样品的运输、接收、流转、存储、保留、清理及返还的管理
 train_images/000857-000009.png	3.职责
@@ -8995,7 +8993,7 @@ train_images/000870-000027.png	开展的全过程：
 train_images/000870-000029.png	附件二：客户信息表：
 train_images/000870-000030.png	附件三：邮件快件绿色包装规范：
 train_images/000870-000031.png	附件四：寄递物品安全保障协议书；
-train_images/000870-000032.png	附件五：结算账单模板：
+train_images/000870-000032.png	附件五：结算账单模板；
 train_images/000870-000034.png	1.1运费将按照货物实际重量和体积重量中较高者计算，乙方可以对任何快件重新称量和测量以确认其计算
 train_images/000870-000035.png	数据。如面单重量、托寄物、产品、资费等信息与实际不符，乙方可根据货物实际计费重量、实际使
 train_images/000870-000036.png	用产品等如实修正系统数据，基于无纸化电子运单的推广，重量、费用将以乙方出具的结算账单为准。
@@ -9006,7 +9004,6 @@ train_images/000871-000003.png	《医药运输及运输辅助服务合同》2023
 train_images/000871-000004.png	履行本合同期间，如甲方出现拖欠费用等违约行为的，乙方有权扣减部分或全部保证金用于弥补损失，
 train_images/000871-000006.png	无息返还履约保证金。
 train_images/000871-000007.png	1.3关于额外费用的约定：
-train_images/000871-000008.png	1.3.1若甲方交寄乙方的快件重量或长度超过乙方的收寄标准，该收寄标准以乙方官方网站、服务热约
 train_images/000871-000009.png	等渠道上公布的为准，则乙方有权每票加收超长超重附加服务费
 train_images/000871-000011.png	有权停止运输，在甲方同意承担与当票托寄物运输（含出入境）有关的所有费用，包括但不限于往返
 train_images/000871-000012.png	派送费、仓储费、保价费、入仓费、税费等，乙方可进行快件运输。
@@ -9246,7 +9243,7 @@ train_images/000906-000029.png	6）精品云课堂和文库，海量资源随心
 train_images/000906-000030.png	拥有“一站式组学无忧解决方案”，告别科研小白圈，助您实现组学分析自由。
 train_images/000906-000032.png	样品抽提质量是获得可靠研究结果的基石，送样品到美吉，助您赢在起跑线!
 train_images/000906-000033.png	客户样品使用干冰进行运输，保证样品的质量。
-train_images/000906-000034.png	公司项目经验丰富，累计百万级别样本处理能力。
+train_images/000906-000034.png	公司项目经验丰富，累计百万级别样本处理能力
 train_images/000906-000035.png	第344页
 train_images/000911-000003.png	7.11合同履行承诺函
 train_images/000911-000004.png	致：自贡市第四人民医院
@@ -9550,7 +9547,7 @@ train_images/001011-000006.png	2）表面含有较多蜡质或次生代谢产物
 train_images/001011-000007.png	得率需要加大送样量（普通送样量的3-4倍）。
 train_images/001011-000009.png	1）取生长状态良好细胞，确定细胞数量；
 train_images/001011-000010.png	2）贴壁细胞：用1×PBS缓冲液洗涤细胞1-2次；悬浮细胞：离心，吸除细胞培养液，1×PBS洗涤，离心弃
-train_images/001011-000011.png	PBS<i>，</i>洗1-2次；
+train_images/001011-000011.png	PBS，洗1-2次；
 train_images/001011-000012.png	3）加入适量Trizol裂解液反复吹打至裂解充分；
 train_images/001011-000014.png	注意事项：
 train_images/001011-000015.png	1）细胞必须裂解充分后再寄送，勿将干冻的细胞直接寄送；
@@ -10245,7 +10242,7 @@ train_images/001035-000012.png	人账户所进行的行为；甲方理解并同�
 train_images/001035-000013.png	户下的所有操作行为以及由此产生的结果，都将由甲方自行承担全部责任。
 train_images/001035-000015.png	可约定的内容：
 train_images/001035-000016.png	①联合分析、个性化分析的具体实施标准与流程；
-train_images/001035-000017.png	②样品的接收、处理及存储相关规范；
+train_images/001035-000017.png	②样品的接收、处理及存储相关规范
 train_images/001035-000018.png	③服务过程中产生的数据的使用范围、权限及保密要求；
 train_images/001035-000020.png	⑤云项目分析服务的服务周期、起止时间及延期处理方式。
 train_images/001035-000021.png	任何一方试图在本合同补充条款中对上述内容进行约定的，该部分约定自始无效，相关权利义务仍应按照本
@@ -11388,7 +11385,7 @@ train_images/001074-000024.png	性条件下的DNA变性。
 train_images/001074-000025.png	D.由于福尔马林固定液的主要成分——甲醛，可使DNA与蛋白质之间产生广泛交联而形成牢固的复合物，可
 train_images/001074-000027.png	液；如果不得不使用福尔马林，建议用10%缓冲福尔马林固定液（100ml
 train_images/001074-000028.png	蒸馏水，4g
-train_images/001074-000029.png	甲醛<i>，</i>900ml
+train_images/001074-000029.png	甲醛，900ml
 train_images/001074-000030.png	NaH2PO4，6.5gNa2HPO4）在低温（4℃）下固定保存。
 train_images/001074-000032.png	面，吸水纸吸干水份，切碎后转入冻存管或离心管中，液氮速冻，干冰运输。
 train_images/001074-000033.png	1.2血样
@@ -11649,7 +11646,7 @@ train_images/001082-000008.png	个月。若甲方未在届满期前10日书面�
 train_images/001082-000009.png	如若甲方在届满期前10日书面提出继续保存数据，则需签订补充协议并根据实际存储数据量与存储时间进行计
 train_images/001082-000010.png	费。
 train_images/001082-000011.png	四、双方责任
-train_images/001082-000013.png	（1）甲方须按照合同约定向乙方提供合格的足量样本（
+train_images/001082-000013.png	（1）甲方须按照合同约定向乙方提供合格的足量样本
 train_images/001082-000014.png	（1）甲
 train_images/001082-000015.png	写《样本信息表》，并在表中备注重要说明等情况（填表时应尽量避免错误、遗漏以及容易引起歧义的词汇及描
 train_images/001082-000016.png	述方法）。甲方向乙方寄送样品时须附带填写完整的《样本信息表》，并同时将电子版的样本信息表发送给乙
@@ -11796,7 +11793,7 @@ train_images/001087-000034.png	5'-GTGCCAGCMGCCGCGG-3'
 train_images/001087-000036.png	V5区，
 train_images/001087-000037.png	[3]
 train_images/001087-000038.png	392bp
-train_images/001087-000039.png	含宿主样。
+train_images/001087-000039.png	含宿主样
 train_images/001087-000041.png	5'-CCGTCAATTCMTTTRAGTTT-3'
 train_images/001087-000042.png	PE250/PE300
 train_images/001087-000043.png	907R
@@ -11869,7 +11866,7 @@ train_images/001087-000126.png	5'-TCCTCCGCTTATTGATATGC-3'
 train_images/001087-000127.png	ITS4
 train_images/001087-000128.png	PE300
 train_images/001087-000129.png	SSU0817F
-train_images/001087-000131.png	真菌185
+train_images/001087-000131.png	真菌18S
 train_images/001087-000132.png	[13]V5-V7区PE250/PE300
 train_images/001087-000133.png	379bp
 train_images/001087-000134.png	1196R
@@ -11885,7 +11882,7 @@ train_images/001088-000007.png	5'-TGATCCTTCTGCAGGTTCACCTAC-3'
 train_images/001088-000008.png	PE250/PE300
 train_images/001088-000009.png	EukBr
 train_images/001088-000010.png	5'-CCAGCASCYGCGGTAATTCC-3'
-train_images/001088-000012.png	真核生物185
+train_images/001088-000012.png	真核生物18S
 train_images/001088-000013.png	[15]V4区
 train_images/001088-000014.png	~420bp
 train_images/001088-000015.png	5'-ACTTTCGTTCTTGATYRA-3'
@@ -11897,7 +11894,7 @@ train_images/001088-000022.png	~400bp
 train_images/001088-000023.png	TAReukREV3R
 train_images/001088-000024.png	5'-ACTTTCGTTCTTGATYRA-3'
 train_images/001088-000025.png	PE250/PE300
-train_images/001088-000027.png	真核生物185
+train_images/001088-000027.png	真核生物18S
 train_images/001088-000028.png	[17]
 train_images/001088-000029.png	405bp
 train_images/001088-000030.png	5'-ACTTTCGTTCTTGATYRA-3'
@@ -11910,7 +11907,7 @@ train_images/001088-000038.png	V4-euk-R2R
 train_images/001088-000039.png	PE300
 train_images/001088-000040.png	5'-ACGGTATCTRATCRTCTTCG-3'
 train_images/001088-000042.png	5'-GGTGGTGCATGGCCGTTCTTAGTT-3'
-train_images/001088-000043.png	线虫185引物
+train_images/001088-000043.png	线虫18S引物
 train_images/001088-000044.png	[19]
 train_images/001088-000045.png	~400bp
 train_images/001088-000047.png	18Sr2bR
@@ -11970,7 +11967,7 @@ train_images/001088-000113.png	MiFish-U-F
 train_images/001088-000114.png	5'-GTCGGTAAAACTCGTGCCAGC-3'
 train_images/001088-000115.png	5'-CATAGTGGGGTATCTAATCCCAGTTTG-
 train_images/001088-000117.png	MiFish-U-R
-train_images/001088-000118.png	线粒体125
+train_images/001088-000118.png	线粒体12S
 train_images/001088-000119.png	3'
 train_images/001088-000120.png	[27]-
 train_images/001088-000122.png	地址/Addr：上海市浦东新区国际医学园区康新公路3399弄3号楼
@@ -12113,7 +12110,7 @@ train_images/001090-000055.png	5'-AAGCTCGTAGTTGAATTTCG-3'
 train_images/001090-000056.png	5'-CCCAACTATCCCTATTAATCAT-3'
 train_images/001090-000057.png	PE250/PE300
 train_images/001090-000058.png	AMDGR
-train_images/001090-000060.png	（27F/338R）RavelJ，GajerP，AbdoZ，etal.Vaginalmicrobiomeofreproductive-agewomen[
+train_images/001090-000060.png	1.（27F/338R）RavelJ，GajerP，AbdoZ，etal.Vaginalmicrobiomeofreproductive-agewomen[
 train_images/001090-000061.png	ProceedingsoftheNationalAcademyofSciences，2011，108：4680-4687.
 train_images/001090-000062.png	2.（27F/533R）ChenW，LiuF，LingZ，etal.Humanintestinallumenandmucosa-associated
 train_images/001090-000063.png	microbiotainpatientswithcolorectalcancer[J].PloSone，2012，7（6）：e39743.
@@ -12131,7 +12128,7 @@ train_images/001090-000078.png	服务热线：400-660-1216
 train_images/001091-000001.png	7.（341F/785R）Herlemann，D.，Labrenz，M.，Jürgens，K.etal.Transitionsinbacterialcommunitiesalongthe2000km
 train_images/001091-000003.png	8.（Ba9F/Ba515RmodR）Henderson，G.，Cox，F.，Ganesh，S.etal.Rumenmicrobialcommunity
 train_images/001091-000004.png	compositionvarieswithdietandhost，butacoremicrobiomeisfoundacrossawidegeographical
-train_images/001091-000005.png	range.SciRep5<i>，</i>14567（2015）.
+train_images/001091-000005.png	range.SciRep5，14567（2015）.
 train_images/001091-000006.png	9.（ITS1F/ITS2R）AdamsRI，MilettoM，TaylorJW，etal.Dispersalinmicrobes：fungiinindoorairaredominatedby
 train_images/001091-000008.png	10.（1737F/2043R）ZhangL，ZhangH，WangZ，etal.Dynamicchangesofthedominantfunctioningmicrobial
 train_images/001091-000009.png	communityinthecompostofa90-m3aerobicsolidstatefermentorrevealedbyintegratedmeta-omics[J].Bioresource
@@ -12188,7 +12185,7 @@ train_images/001092-000028.png	32.（cd3aF/R3cd）PalmerK，BiasiC，HornMA.Cont
 train_images/001092-000030.png	33.（nirS4F/nirS6R）LiuL，ShenG，SunM，etal.Effectofbiocharonnitrousoxideemissionanditspotential
 train_images/001092-000031.png	mechanisms[J].JournaloftheAir&WasteManagementAssociation，2014，64（8）：894-902.
 train_images/001092-000032.png	34.（nifHF/nifHR）RöschC，MergelA，BotheH.Biodiversityofdenitrifyinganddinitrogen-fixingbacteriainanacid
-train_images/001092-000033.png	forestsoil[J].AppliedandEnvironmentalMicrobiology，2002，68（8）：3818-3829.
+train_images/001092-000033.png	forestsoil[J].AppliedandEnvironmentalMicrobiology，2002，68（8）：3818-3829
 train_images/001092-000035.png	bacterialcommunityassociatedwithoat（Avenasativa）assessedbymolecularandmicrobiologicaltechniques[J].
 train_images/001092-000036.png	AppliedSoilEcology，2006，33（3）：221-234.
 train_images/001092-000037.png	36.（PolyF/PolyF）TuQ，DengY，YanQ，ShenL，LinL，HeZ，WuL，VanNostrandJD，BuzzardV，MichaletzST，EnquistBJ
@@ -12694,7 +12691,6 @@ train_images/001112-000021.png	26.（ArBa515F/Arch806R）BatesST，Berg-LyonsD�
 train_images/001112-000022.png	ofdominantarchaealpopulationsinsoil[J].TheISMEjournal，2011，5（5）：908-917.
 train_images/001112-000023.png	27.（MiFish-U-F/MiFish-U-R）MiFish，asetofuniversalPCRprimersformetabarcodingenvironmenta
 train_images/001112-000025.png	28.（799F）BulgarelliD，RottM，SchlaeppiK，etal.Revealingstructureandassemblycuesfor
-train_images/001112-000026.png	Arabidopsisroot-inhabitingbacterialmicrobiota[J].Nature，2012，488（7409）：91-95
 train_images/001112-000027.png	29.（1392R）LundbergDS，LebeisSL，ParedesSH，etal.DefiningthecoreArabidopsisthaliana
 train_images/001112-000028.png	rootmicrobiome[J].Nature，2012，488（7409）：86-90.
 train_images/001112-000030.png	rootmicrobiotainwildanddomesticatedbarley[J].Cellhost&microbe，2015，17（3）：392-403
@@ -12710,7 +12706,6 @@ train_images/001112-000042.png	网i/Web：www.majorbio.com
 train_images/001112-000043.png	服务热线：400-660-1216
 train_images/001113-000001.png	anacidforestsoil[J].AppliedandEnvironmentalMicrobiology，2002，68（8）：3818-3829.
 train_images/001113-000003.png	nitrogenfixingbacterialcommunityassociatedwithoat（Avenasativa）assessedbymolecularand
-train_images/001113-000004.png	microbiologicaltechniques[J].AppliedSoilEcology，2006，33（3）：221-234.
 train_images/001113-000005.png	36.（PolyF/PolyF）TuQ，DengY，YanQ，ShenL，LinL，HeZ，WuL，VanNostrandJD，BuzzardV，MichaletzST，
 train_images/001113-000006.png	EnquistBJ，WeiserMD，KaspariM，WaideR，BrownJH，andZhouJ.2016.Biogeographicpatternsofsoil
 train_images/001113-000008.png	37.（nirK1aCuF/nirKR3CuR）PalmerK，BiasiC，HornMA.Contrastingdenitrifiercommunitiesrelateto
@@ -13080,7 +13075,7 @@ train_images/001125-000020.png	电话/Tel：021-51875086
 train_images/001125-000022.png	服务热线：400-660-1216
 train_images/001131-000001.png	6.（515F/926R）WaltersW，HydeER，Berg-LyonsD，AckermannG，HumphreyG，ParadaA，GilbertJA，
 train_images/001131-000002.png	JanssonJK，CaporasoJG，FuhrmanJA，ApprillA，KnightR.ImprovedBacterial16SrRNAGene（V4andV4-
-train_images/001131-000003.png	5）andFungalInternalTranscribedSpacerMarkerGenePrimersforMicrobialCommunitySurveys.
+train_images/001131-000003.png	5）andFungalInternalTranscribedSpacerMarkerGenePrimersforMicrobialCommunitySurveys
 train_images/001131-000005.png	PMC5069754.
 train_images/001131-000006.png	7.（341F/785R）Herlemann，D.，Labrenz，M.，Jürgens，K.etal.Transitionsinbacterialcommunitiesalong
 train_images/001131-000007.png	the2000kmsalinitygradientoftheBalticSea.ISMEJ5，1571-1579（2011）
@@ -14194,7 +14189,6 @@ train_images/001132-01702.png	王文晟
 train_images/001132-01703.png	王雨
 train_images/001132-01704.png	高玉蓉
 train_images/001132-01706.png	姚应上
-train_images/001132-01707.png	：武汉影子基因科技有限公司
 train_images/001132-01709.png	李情
 train_images/001132-01710.png	盛海君
 train_images/001132-01713.png	高雪源
@@ -14721,7 +14715,6 @@ train_images/001132-02564.png	周世兴
 train_images/001132-02565.png	郑永杰
 train_images/001132-02566.png	刘亚洁
 train_images/001132-02567.png	蒙萍
-train_images/001132-02569.png	：西藏自治区农牧科学院农业研究所
 train_images/001132-02571.png	曹海燕
 train_images/001132-02574.png	阮梅
 train_images/001132-02575.png	杨晓平
@@ -14782,7 +14775,6 @@ train_images/001132-02659.png	马洋
 train_images/001132-02660.png	吴玉
 train_images/001132-02662.png	李佳豪
 train_images/001132-02665.png	白敏
-train_images/001132-02666.png	：厦门大学附属第一医院
 train_images/001132-02667.png	曹海艳
 train_images/001132-02668.png	袁海荣
 train_images/001132-02670.png	曹珺
@@ -15368,7 +15360,6 @@ train_images/001132-03585.png	焦萌
 train_images/001132-03588.png	哈尔滨商业大学
 train_images/001132-03589.png	喻江
 train_images/001132-03590.png	牛绍伟
-train_images/001132-03591.png	：纪国豪
 train_images/001132-03593.png	柏妍
 train_images/001132-03594.png	魏占波
 train_images/001132-03595.png	张思奇
@@ -15660,7 +15651,6 @@ train_images/001132-04025.png	刘浩
 train_images/001132-04027.png	黎东怡
 train_images/001132-04028.png	日喀则市农牧业科学研究推广中心
 train_images/001132-04029.png	胡盼
-train_images/001132-04030.png	：大连医科大学附属第二医院
 train_images/001132-04033.png	王世铭
 train_images/001132-04035.png	宋立岩
 train_images/001132-04036.png	湖南省人民医院（湖南师范大学附属第一医院）
@@ -16695,7 +16685,6 @@ train_images/001132-05666.png	郭盛
 train_images/001132-05667.png	周少玉
 train_images/001132-05670.png	郑慧丽
 train_images/001132-05671.png	刘露
-train_images/001132-05672.png	：万冰莹
 train_images/001132-05673.png	唐中华
 train_images/001132-05675.png	上海美农生物科技股份有限公司
 train_images/001132-05676.png	程建波
@@ -17011,7 +17000,6 @@ train_images/001132-06158.png	郎佳平
 train_images/001132-06161.png	靳淑红
 train_images/001132-06163.png	易成刚
 train_images/001132-06164.png	帅婷婷
-train_images/001132-06165.png	：厦门医学院附属第二医院
 train_images/001132-06166.png	杜婉婷
 train_images/001132-06173.png	李子圆
 train_images/001132-06175.png	袁琴
@@ -17433,7 +17421,6 @@ train_images/001132-06822.png	黄雯瑾
 train_images/001132-06824.png	西北工业大学深圳研究院
 train_images/001132-06825.png	钱进
 train_images/001132-06826.png	刘鑫
-train_images/001132-06828.png	：刘炜
 train_images/001132-06830.png	余国辉
 train_images/001132-06831.png	陈广明
 train_images/001132-06832.png	聂辉
@@ -17656,14 +17643,12 @@ train_images/001132-07180.png	泰州学院
 train_images/001132-07182.png	唐鑫
 train_images/001132-07186.png	汪祖华
 train_images/001132-07187.png	吕梁学院
-train_images/001132-07188.png	：岳麓山实验室
 train_images/001132-07191.png	陈秀梅
 train_images/001132-07192.png	万英明
 train_images/001132-07193.png	韩志强
 train_images/001132-07194.png	任放
 train_images/001132-07198.png	胡海燕
 train_images/001132-07200.png	李世军
-train_images/001132-07202.png	：湖南省茶叶研究所
 train_images/001132-07203.png	黎娜
 train_images/001132-07205.png	：中国科学院烟台海岸带研究所
 train_images/001132-07206.png	李发永
@@ -17898,7 +17883,6 @@ train_images/001132-07568.png	陆忠亮
 train_images/001132-07570.png	信阳农林学院
 train_images/001132-07571.png	杨连智
 train_images/001132-07573.png	宋文煜
-train_images/001132-07574.png	：天津中医药大学
 train_images/001132-07576.png	胡欢
 train_images/001132-07577.png	郑慧芳
 train_images/001132-07579.png	杨黎
@@ -18087,7 +18071,6 @@ train_images/001132-07877.png	汪长中
 train_images/001132-07878.png	李璨
 train_images/001132-07883.png	吕南宁
 train_images/001132-07884.png	张春香
-train_images/001132-07887.png	）：贵州省畜禽遗传资源管理站
 train_images/001132-07888.png	刘嘉
 train_images/001132-07892.png	刘磊
 train_images/001132-07893.png	朱志明
@@ -18154,7 +18137,6 @@ train_images/001132-07987.png	左佳伟
 train_images/001132-07989.png	桂林理工大学
 train_images/001132-07992.png	贾利蓉
 train_images/001132-07996.png	袁莉
-train_images/001132-07997.png	：王玉芳
 train_images/001132-07999.png	夏远志
 train_images/001132-08000.png	江西省妇幼保健院
 train_images/001132-08002.png	边名鸿
@@ -18335,7 +18317,6 @@ train_images/001132-08265.png	程晓真
 train_images/001132-08266.png	袁子能
 train_images/001132-08268.png	熊炜组
 train_images/001132-08269.png	刘亚丽
-train_images/001132-08270.png	：湖北医药学院
 train_images/001132-08271.png	冯莹
 train_images/001132-08273.png	郭泽文
 train_images/001132-08274.png	李嘉敏
@@ -19041,7 +19022,7 @@ train_images/001132-09383.png	张巧娥
 train_images/001132-09384.png	张金宝
 train_images/001132-09385.png	袁小兵
 train_images/001132-09387.png	常秀亭
-train_images/001132-09389.png	：郭芳芸
+train_images/001132-09389.png	郭芳芸
 train_images/001132-09390.png	崔东临
 train_images/001132-09391.png	刘红梅
 train_images/001132-09392.png	伍俊豪
@@ -19297,7 +19278,6 @@ train_images/001132-09784.png	周翠
 train_images/001132-09787.png	邹常健
 train_images/001132-09788.png	王浩丞
 train_images/001132-09790.png	张嘉杰
-train_images/001132-09791.png	：福州市第二总医院
 train_images/001132-09793.png	乔景璇
 train_images/001132-09794.png	刘盈
 train_images/001132-09796.png	张思杰
@@ -19325,7 +19305,6 @@ train_images/001132-09827.png	马春霞
 train_images/001132-09828.png	重庆大学附属涪陵医院
 train_images/001132-09829.png	李红艳
 train_images/001132-09834.png	上海科雅生物科技有限公司
-train_images/001132-09835.png	：皖西学院
 train_images/001132-09839.png	姜晟
 train_images/001132-09840.png	刘婉婷
 train_images/001132-09842.png	郑州轻工业大学
@@ -19466,7 +19445,6 @@ train_images/001132-10063.png	张美（华东）
 train_images/001132-10065.png	朱科学
 train_images/001132-10067.png	贺波
 train_images/001132-10069.png	尹青春
-train_images/001132-10070.png	：青岛市口腔医院
 train_images/001132-10071.png	付玉
 train_images/001132-10074.png	集美大学
 train_images/001132-10075.png	辽宁省杨树研究所
@@ -19597,7 +19575,6 @@ train_images/001132-09192.png	魏庆镇
 train_images/001132-09749.png	重庆措莱扬奥生物科技有限公司
 train_images/001132-09768.png	中国科学院上海免疫与感染研究所
 train_images/001132-10178.png	章诗辞
-train_images/001132-00019.png	：南阳师范学院
 train_images/001132-00021.png	朱向东
 train_images/001132-00047.png	张捍民
 train_images/001132-00075.png	黄跃生
@@ -20100,7 +20077,6 @@ train_images/001132-07167.png	熊鹰
 train_images/001132-07195.png	刘婷
 train_images/001132-07201.png	张娅
 train_images/001132-07208.png	谢惠春
-train_images/001132-07226.png	：沈阳药科大学
 train_images/001132-07238.png	南昌大学
 train_images/001132-07239.png	陈晓
 train_images/001132-07271.png	谢文丹
@@ -20634,7 +20610,6 @@ train_images/001133-00416.png	刘思佳
 train_images/001133-00417.png	YF20250727004
 train_images/001133-00419.png	潘鹭翔
 train_images/001133-00420.png	潘鹭翔
-train_images/001133-00421.png	：深圳市前海蛇口自贸区医院
 train_images/001133-00422.png	：深圳市前海蛇口自贸区医院
 train_images/001133-00424.png	泮文静
 train_images/001133-00425.png	泮文静
@@ -21072,14 +21047,12 @@ train_images/001133-01006.png	湖北省烟草科学研究院
 train_images/001133-01008.png	亳州学院
 train_images/001133-01009.png	同少飞
 train_images/001133-01010.png	同少飞
-train_images/001133-01012.png	：MJ20250816077
 train_images/001133-01013.png	朱林锋
 train_images/001133-01014.png	钟钰
 train_images/001133-01015.png	：YF20251027039
 train_images/001133-01017.png	赵倩倩
 train_images/001133-01019.png	邢晓华
 train_images/001133-01020.png	方熠
-train_images/001133-01021.png	：BZ20251027307
 train_images/001133-01023.png	）：吐鲁番市农业技术推广中心
 train_images/001133-01024.png	阿衣加玛丽
 train_images/001133-01025.png	阿衣加玛丽
@@ -21087,7 +21060,6 @@ train_images/001133-01026.png	庹悦婷
 train_images/001133-01028.png	令狐克刚
 train_images/001133-01029.png	颜维军
 train_images/001133-01030.png	YF20251028011
-train_images/001133-01031.png	：BZ20251028099
 train_images/001133-01033.png	彭祥燕
 train_images/001133-01034.png	YF20251018108
 train_images/001133-01035.png	张丽娜
@@ -21242,7 +21214,6 @@ train_images/001133-01237.png	YF20251113147
 train_images/001133-01238.png	YF20251113170
 train_images/001133-01240.png	詹娜娜
 train_images/001133-01241.png	詹娜娜
-train_images/001133-01242.png	·同编号：YF20251114060
 train_images/001133-01243.png	孙亿倍
 train_images/001133-01245.png	廉政
 train_images/001133-01246.png	廉政
@@ -21310,7 +21281,7 @@ train_images/001133-01326.png	黄克依
 train_images/001133-01327.png	黄克依
 train_images/001133-01329.png	YF20251117089
 train_images/001133-01330.png	北京慢性病防治与健康教育研究会
-train_images/001133-01331.png	宫连瑾
+train_images/001133-01331.png	宫连瑾1
 train_images/001133-01332.png	：YF20251117186
 train_images/001133-01334.png	刘米艳
 train_images/001133-01335.png	YF20251117120
@@ -21430,7 +21401,6 @@ train_images/001133-01484.png	YF20251120170
 train_images/001133-01485.png	冯晓康
 train_images/001133-01487.png	张显玉
 train_images/001133-01488.png	张显玉
-train_images/001133-01489.png	420241108012
 train_images/001133-01490.png	：YF20251126035
 train_images/001133-01492.png	鄢廷芮
 train_images/001133-01493.png	YF20251026111
@@ -21514,7 +21484,6 @@ train_images/001133-01593.png	：YF20251204013
 train_images/001133-01594.png	邵慕阳
 train_images/001133-01596.png	邵慕阳
 train_images/001133-01597.png	中国农业科学院有料作物研究所
-train_images/001133-01598.png	：黑龙江省黑土保护利用研究院
 train_images/001133-01599.png	孙林华
 train_images/001133-01601.png	张华宇
 train_images/001133-01602.png	缪丽燕
@@ -22721,7 +22690,7 @@ train_images/001133-03204.png	YF20260622247
 train_images/001133-03206.png	YF20260623066
 train_images/001133-03207.png	孙闻聪
 train_images/001133-03209.png	YF20260623149
-train_images/001133-03210.png	：戚宇锋
+train_images/001133-03210.png	戚宇锋
 train_images/001133-03211.png	YF20260624066
 train_images/001133-03212.png	廖经球
 train_images/001133-03214.png	YF20260624003
@@ -22857,7 +22826,6 @@ train_images/001133-03382.png	岑泰圻
 train_images/001133-03383.png	哈丽代·热合木江
 train_images/001133-03384.png	哈丽代·热合木江
 train_images/001133-03386.png	YF20260710054
-train_images/001133-03387.png	：MJ20260706480
 train_images/001133-03388.png	韩炙轩
 train_images/001133-03389.png	韩炙轩
 train_images/001133-03391.png	袁逖飞
@@ -23081,8 +23049,8 @@ train_images/001133-03673.png	黑龙江省黑土保护利用研究院
 train_images/001133-03674.png	YF20260811124
 train_images/001133-03675.png	YF20260812016
 train_images/001133-03677.png	YF20260803084
-train_images/001133-03678.png	：张翀
-train_images/001133-03679.png	：张翀
+train_images/001133-03678.png	张翀
+train_images/001133-03679.png	张翀
 train_images/001133-03680.png	吴永杳
 train_images/001133-03682.png	YF20260812053
 train_images/001133-03683.png	：赣南医科大学第一附属医院
@@ -23144,7 +23112,6 @@ train_images/001133-03756.png	周菘玺
 train_images/001133-03757.png	黄小龙
 train_images/001133-03759.png	YF20260818094
 train_images/001133-03760.png	YF20260723051
-train_images/001133-03762.png	：重庆巴斯德生物医药科技有限公司
 train_images/001133-03763.png	YF20260625170
 train_images/001133-03764.png	北京致雅博文生物技术有限公司
 train_images/001133-03765.png	北京致雅博文生物技术有限公司
@@ -23165,9 +23132,7 @@ train_images/001133-03783.png	YF20260819094
 train_images/001133-03784.png	YF20260820018
 train_images/001133-03786.png	林岢
 train_images/001133-03788.png	YF20260820073
-train_images/001133-03789.png	：鹭江创新实验室
 train_images/001133-03790.png	鹭江创新实验室
-train_images/001133-03791.png	：鹭江创新实验室
 train_images/001133-03793.png	曾秀翠
 train_images/du20260828-000001-000001.png	56
 train_images/du20260828-000001-000002.png	项目进度
@@ -24784,7 +24749,6 @@ train_images/du20260828-001541-000001.png	正常
 train_images/du20260828-001542-000001.png	正常
 train_images/du20260828-001543-000001.png	QPCR正式实验
 train_images/du20260828-001544-000001.png	超合同
-train_images/du20260828-001546-000001.png	招合同
 train_images/du20260828-001547-000001.png	4
 train_images/du20260828-001548-000001.png	2
 train_images/du20260828-001549-000001.png	5
@@ -25835,7 +25799,7 @@ train_images/du20260828-002552-000001.png	dist
 train_images/du20260828-002554-000001.png	config.json
 train_images/du20260828-002555-000001.png	driver_path.txt
 train_images/du20260828-002556-000001.png	副本【4】非多样性（基因组、宏基因组、转录组）送样单模板（1）0629.xlsx
-train_images/du20260828-002557-000001.png	非多样性（基因组、宏基因组、转录组）送样单模板（5）（2）（1）.xls>
+train_images/du20260828-002557-000001.png	非多样性（基因组、宏基因组、转录组）送样单模板（5）（2）（1）.xlsx
 train_images/du20260828-002558-000002.png	样品
 train_images/du20260828-002559-000001.png	129
 train_images/du20260828-002559-000002.png	营销
@@ -27384,7 +27348,6 @@ train_images/du20260828-004281-000003.png	宣讲
 train_images/du20260828-004281-000004.png	市场部QQ
 train_images/du20260828-004281-000005.png	测序相关QQ群
 train_images/du20260828-004281-000006.png	百度商桥
-train_images/du20260828-004281-000008.png	生物在结
 train_images/du20260828-004281-000009.png	定向邮件
 train_images/du20260828-004281-000010.png	官网
 train_images/du20260828-004281-000011.png	中国生物器材网
@@ -27758,7 +27721,6 @@ train_images/du20260828-004554-000002.png	1
 train_images/du20260828-004555-000001.png	23
 train_images/du20260828-004555-000003.png	31
 train_images/du20260828-004556-000001.png	取消
-train_images/du20260828-004557-000001.png	项目进度
 train_images/du20260828-004558-000001.png	77
 train_images/du20260828-004559-000001.png	4223
 train_images/du20260828-004559-000002.png	账款
@@ -27902,7 +27864,6 @@ train_images/du20260828-004671-000001.png	提成
 train_images/du20260828-004672-000001.png	异常快递
 train_images/du20260828-004673-000001.png	样品存储
 train_images/du20260828-004674-000001.png	取消
-train_images/du20260828-004675-000001.png	送样单管理
 train_images/du20260828-004675-000002.png	31
 train_images/du20260828-004677-000001.png	77
 train_images/du20260828-004677-000002.png	样品
@@ -27934,7 +27895,6 @@ train_images/du20260828-004693-000001.png	快递列表
 train_images/du20260828-004694-000001.png	侧边栏
 train_images/du20260828-004695-000001.png	待认领快递
 train_images/du20260828-004696-000001.png	招标
-train_images/du20260828-004697-000001.png	送样单管理
 train_images/du20260828-004697-000002.png	31
 train_images/du20260828-004698-000002.png	1
 train_images/du20260828-004699-000001.png	样品存储
@@ -27969,7 +27929,6 @@ train_images/du20260828-004718-000002.png	订单
 train_images/du20260828-004719-000001.png	查询
 train_images/du20260828-004720-000001.png	意向
 train_images/du20260828-004722-000001.png	待认领快递
-train_images/du20260828-004723-000001.png	送样单管理
 train_images/du20260828-004723-000002.png	31
 train_images/du20260828-004724-000001.png	样品存储
 train_images/du20260828-004726-000001.png	异常快递
@@ -28007,7 +27966,6 @@ train_images/du20260828-004745-000001.png	待认领快递
 train_images/du20260828-004747-000001.png	查询
 train_images/du20260828-004748-000001.png	快递列表
 train_images/du20260828-004749-000001.png	招标
-train_images/du20260828-004750-000001.png	送样单管理
 train_images/du20260828-004751-000001.png	取消
 train_images/du20260828-004752-000001.png	异常快递
 train_images/du20260828-004752-000002.png	1
@@ -28102,7 +28060,6 @@ train_images/du20260828-004829-000001.png	查询
 train_images/du20260828-004830-000001.png	招标
 train_images/du20260828-004832-000001.png	样品存储
 train_images/du20260828-004833-000001.png	意向
-train_images/du20260828-004834-000001.png	送样单管理
 train_images/du20260828-004834-000002.png	31
 train_images/du20260828-004835-000002.png	1
 train_images/du20260828-004836-000001.png	取消
@@ -28183,7 +28140,6 @@ train_images/du20260828-004861-000002.png	全屏
 train_images/du20260828-004862-000002.png	31
 train_images/du20260828-004863-000001.png	取消
 train_images/du20260828-004864-000001.png	干冰快递费用情况
-train_images/du20260828-004865-000001.png	项目进度
 train_images/du20260828-004866-000002.png	样品
 train_images/du20260828-004867-000001.png	1735
 train_images/du20260828-004867-000002.png	合同
@@ -28220,8 +28176,6 @@ train_images/du20260828-004888-000003.png	曹维
 train_images/du20260828-004888-000004.png	常规（北京）
 train_images/du20260828-004888-000005.png	常雪峰
 train_images/du20260828-004888-000006.png	陈丙友
-train_images/du20260828-004888-000008.png	R车天
-train_images/du20260828-004889-000001.png	送样单管理
 train_images/du20260828-004889-000002.png	31
 train_images/du20260828-004890-000001.png	样品存储
 train_images/du20260828-004892-000001.png	77
@@ -28266,7 +28220,6 @@ train_images/du20260828-004917-000004.png	常规（北京）
 train_images/du20260828-004917-000005.png	常雪峰
 train_images/du20260828-004917-000007.png	陈锦溶
 train_images/du20260828-004918-000001.png	干冰快递费用情况
-train_images/du20260828-004919-000001.png	项目进度
 train_images/du20260828-004920-000001.png	77
 train_images/du20260828-004921-000001.png	4223
 train_images/du20260828-004921-000002.png	账款
@@ -28301,7 +28254,6 @@ train_images/du20260828-004939-000001.png	待认领快递
 train_images/du20260828-004940-000001.png	样品存储
 train_images/du20260828-004941-000001.png	取消
 train_images/du20260828-004942-000002.png	1
-train_images/du20260828-004943-000001.png	送样单管理
 train_images/du20260828-004943-000002.png	31
 train_images/du20260828-004944-000001.png	招标
 train_images/du20260828-004946-000001.png	56
@@ -28365,7 +28317,6 @@ train_images/du20260828-004998-000001.png	6
 train_images/du20260828-004999-000001.png	2
 train_images/du20260828-005000-000001.png	5
 train_images/du20260828-005004-000001.png	68
-train_images/du20260828-005005-000001.png	项目进度
 train_images/du20260828-005006-000001.png	77
 train_images/du20260828-005006-000002.png	样品
 train_images/du20260828-005007-000002.png	账款
@@ -28455,7 +28406,6 @@ train_images/du20260828-005079-000001.png	导出全部
 train_images/du20260828-005081-000001.png	查询
 train_images/du20260828-005082-000001.png	样品存储
 train_images/du20260828-005083-000001.png	重置
-train_images/du20260828-005084-000001.png	23.
 train_images/du20260828-005085-000001.png	待认领快递
 train_images/du20260828-005086-000001.png	导出
 train_images/du20260828-005087-000001.png	快递列表
@@ -28507,7 +28457,6 @@ train_images/du20260828-005128-000001.png	快递管理
 train_images/du20260828-005129-000001.png	招标
 train_images/du20260828-005130-000001.png	重置
 train_images/du20260828-005131-000001.png	导出报销明细
-train_images/du20260828-005132-000001.png	234样单管理
 train_images/du20260828-005133-000001.png	已接收
 train_images/du20260828-005134-000001.png	已接收
 train_images/du20260828-005135-000001.png	已接收
@@ -28604,7 +28553,6 @@ train_images/du20260828-005216-000002.png	审批
 train_images/du20260828-005217-000001.png	异常快递
 train_images/du20260828-005217-000002.png	1
 train_images/du20260828-005218-000001.png	706
-train_images/du20260828-005219-000001.png	送样单管理
 train_images/du20260828-005219-000002.png	31
 train_images/du20260828-005220-000001.png	提成
 train_images/du20260828-005221-000001.png	意向
@@ -28625,7 +28573,6 @@ train_images/du20260828-005238-000001.png	北直区销售部
 train_images/du20260828-005239-000001.png	北京市
 train_images/du20260828-005240-000001.png	274
 train_images/du20260828-005240-000002.png	首页
-train_images/du20260828-005241-000001.png	项目进度
 train_images/du20260828-005242-000001.png	40
 train_images/du20260828-005243-000001.png	4223
 train_images/du20260828-005243-000002.png	账款
@@ -28655,7 +28602,6 @@ train_images/du20260828-005261-000001.png	系统更新
 train_images/du20260828-005262-000001.png	项目运营
 train_images/du20260828-005263-000001.png	票款须知
 train_images/du20260828-005264-000001.png	新建快递
-train_images/du20260828-005266-000001.png	2
 train_images/du20260828-005266-000002.png	新建课题组
 train_images/du20260828-005267-000001.png	销售出行包
 train_images/du20260828-005268-000001.png	送样单模板
@@ -28745,7 +28691,7 @@ train_images/du20260828-005334-000001.png	查询
 train_images/du20260828-005335-000001.png	样品存储
 train_images/du20260828-005337-000001.png	保存草稿
 train_images/du20260828-005338-000001.png	请选择意向
-train_images/du20260828-005339-000001.png	23，
+train_images/du20260828-005339-000001.png	23
 train_images/du20260828-005339-000002.png	送样单管理
 train_images/du20260828-005340-000001.png	异常快递
 train_images/du20260828-005340-000002.png	1
@@ -28875,7 +28821,6 @@ train_images/du20260828-005431-000001.png	待认领快递
 train_images/du20260828-005432-000001.png	查询
 train_images/du20260828-005433-000001.png	招标
 train_images/du20260828-005434-000001.png	样品存储
-train_images/du20260828-005436-000001.png	234样单管理
 train_images/du20260828-005436-000002.png	31
 train_images/du20260828-005437-000001.png	异常快递
 train_images/du20260828-005437-000002.png	1
@@ -29250,7 +29195,6 @@ train_images/du20260828-005718-000004.png	安冬捷
 train_images/du20260828-005719-000001.png	招标
 train_images/du20260828-005720-000001.png	查询
 train_images/du20260828-005721-000001.png	样品存储
-train_images/du20260828-005722-000001.png	234样单管理
 train_images/du20260828-005723-000001.png	异常快递
 train_images/du20260828-005723-000002.png	1
 train_images/du20260828-005724-000001.png	上传送样单
@@ -29838,7 +29782,6 @@ train_images/du20260829-000175-000003.png	纯文库项目
 train_images/du20260829-000175-000005.png	空间代谢项目
 train_images/du20260829-000175-000006.png	原位空间转录
 train_images/du20260829-000175-000007.png	RNA项目
-train_images/du20260829-000175-000008.png	单细胞smart顶目
 train_images/du20260829-000177-000001.png	2
 train_images/du20260829-000178-000001.png	3
 train_images/du20260829-000180-000001.png	4
@@ -30009,7 +29952,6 @@ train_images/du20260829-000308-000001.png	配置
 train_images/du20260829-000309-000001.png	需要
 train_images/du20260829-000310-000002.png	0/0
 train_images/du20260829-000311-000001.png	否
-train_images/du20260829-000312-000001.png	展示说
 train_images/du20260829-000313-000001.png	用核酸下单：
 train_images/du20260829-000313-000003.png	否
 train_images/du20260829-000314-000001.png	不需要
@@ -30703,7 +30645,6 @@ train_images/du20260829-001051-000001.png	4
 train_images/du20260829-001052-000001.png	2
 train_images/du20260829-001053-000001.png	微生物产品
 train_images/du20260829-001053-000002.png	转录与调控产品
-train_images/du20260829-001053-000004.png	訓
 train_images/du20260829-001053-000005.png	蛋白产品
 train_images/du20260829-001053-000006.png	73
 train_images/du20260829-001053-000007.png	代谢产品
@@ -30785,7 +30726,7 @@ train_images/du20260829-001145-000001.png	实验要求
 train_images/du20260829-001146-000001.png	添加试剂：
 train_images/du20260829-001147-000001.png	返回列表
 train_images/du20260829-001148-000001.png	对照组信息：
-train_images/du20260829-001148-000002.png	1766454081687.png
+train_images/du20260829-001148-000002.png	1766454081687.jpg
 train_images/du20260829-001149-000001.png	点击上传
 train_images/du20260829-001151-000001.png	NGS下单
 train_images/du20260829-001152-000001.png	样品处置
@@ -30883,7 +30824,7 @@ train_images/du20260829-001210-000002.png	无
 train_images/du20260829-001211-000001.png	否
 train_images/du20260829-001212-000001.png	试测订单：
 train_images/du20260829-001212-000002.png	否
-train_images/du20260829-001213-000002.png	1766454081687.png
+train_images/du20260829-001213-000002.png	1766454081687.jpg
 train_images/du20260829-001214-000001.png	应用中心
 train_images/du20260829-001215-000001.png	蛋白质检
 train_images/du20260829-001216-000001.png	信息查询
@@ -32314,7 +32255,6 @@ train_images/du20260829-002777-000001.png	5
 train_images/du20260829-002777-000002.png	2
 train_images/du20260829-002778-000001.png	8
 train_images/du20260829-002779-000002.png	1
-train_images/du20260829-002780-000001.png	高级卵
 train_images/du20260829-002781-000001.png	3
 train_images/du20260829-002782-000001.png	1
 train_images/du20260829-002784-000001.png	2026年8月
@@ -33007,7 +32947,6 @@ train_images/du20260829-003494-000001.png	6
 train_images/du20260829-003495-000001.png	2
 train_images/du20260829-003498-000001.png	5
 train_images/du20260829-003499-000001.png	二代
-train_images/du20260829-003499-000002.png	二代
 train_images/du20260829-003500-000001.png	搜索
 train_images/du20260829-003502-000001.png	合成需求
 train_images/du20260829-003503-000001.png	质谱任务单
@@ -33292,7 +33231,6 @@ train_images/du20260829-003855-000001.png	微生物产品
 train_images/du20260829-003855-000003.png	单细胞产品
 train_images/du20260829-003855-000004.png	蛋白产品
 train_images/du20260829-003855-000005.png	代谢产品
-train_images/du20260829-003855-000006.png	动植物其用组立具
 train_images/du20260829-003857-000001.png	搜索
 train_images/du20260829-003858-000001.png	项目核查
 train_images/du20260829-003859-000001.png	质谱任务单
@@ -34241,7 +34179,7 @@ train_images/du20260902-000249.png	MJ20260413382
 train_images/du20260902-000250.png	MJ20260312249
 train_images/du20260902-000251.png	SY260411100
 train_images/du20260902-000252.png	MJ20260312249
-train_images/du20260902-000254.png	【6】相对定量.
+train_images/du20260902-000254.png	【6】相对定量
 train_images/du20260902-000255.png	2026011709H
 train_images/du20260902-000256.png	张靖彬
 train_images/du20260902-000257.png	2026011612H
@@ -34338,7 +34276,6 @@ train_images/du20260902-000370.png	SY251102003
 train_images/du20260902-000371.png	MJ-M-20241207115
 train_images/du20260902-000372.png	SY260314056
 train_images/du20260902-000374.png	2025120703H（
-train_images/du20260902-000375.png	2025102116H3
 train_images/du20260902-000376.png	MJ20260128575
 train_images/du20260902-000377.png	2026010312H5
 train_images/du20260902-000379.png	聂秀青
@@ -35351,7 +35288,6 @@ train_images/du20260902-001636.png	编辑
 train_images/du20260902-001637.png	处理
 train_images/du20260902-001639.png	销毁
 train_images/du20260902-001640.png	打印
-train_images/du20260902-001641.png	处理
 train_images/du20260902-001642.png	处理
 train_images/du20260902-001644.png	快递公司：
 train_images/du20260902-001645.png	SY260413031
@@ -35510,7 +35446,6 @@ train_images/du20260902-001835.png	改讲度
 train_images/du20260902-001836.png	改标签
 train_images/du20260902-001837.png	下单
 train_images/du20260902-001839.png	下单
-train_images/du20260902-001840.png	各注
 train_images/du20260902-001841.png	下单
 train_images/du20260902-001842.png	下单
 train_images/du20260902-001844.png	样品类型：
@@ -35561,7 +35496,6 @@ train_images/du20260902-001899.png	查看
 train_images/du20260902-001900.png	送样形式：
 train_images/du20260902-001901.png	环境样品
 train_images/du20260902-001902.png	日志：
-train_images/du20260902-001904.png	场州大学-王圣森老师-（8）个微生物多样性（多引物）分析-土填
 train_images/du20260902-001905.png	快递单号：
 train_images/du20260902-001906.png	送样单状态：
 train_images/du20260902-001907.png	送样联系人：
@@ -36280,9 +36214,7 @@ train_images/du20260902-002800.png	订单联系人：
 train_images/du20260902-002801.png	实验员：
 train_images/du20260902-002802.png	DXB250509004
 train_images/du20260902-002803.png	DXB260604015
-train_images/du20260902-002805.png	DXB260612010j
 train_images/du20260902-002806.png	DXB260604005
-train_images/du20260902-002807.png	DXB260520002J
 train_images/du20260902-002808.png	DXB250507009
 train_images/du20260902-002810.png	产品：
 train_images/du20260902-002811.png	DXB250428013
@@ -36493,8 +36425,6 @@ train_images/du20260902-003067.png	备注
 train_images/du20260902-003068.png	备注
 train_images/du20260902-003070.png	备注
 train_images/du20260902-003071.png	备注
-train_images/du20260902-003072.png	VIDEOCOCOOA
-train_images/du20260902-003073.png	CHOCOCOOOAA
 train_images/du20260902-003075.png	送测单编号：
 train_images/du20260902-003076.png	纯化单编号：
 train_images/du20260902-003077.png	订单联系人：
@@ -37085,7 +37015,6 @@ train_images/du20260902-003807.png	意向来源：
 train_images/du20260902-003808.png	主要问题：
 train_images/du20260902-003810.png	如土壤/水体/小鼠肠道/人肺组织
 train_images/du20260902-003811.png	单价：
-train_images/du20260902-003812.png	灰叶成交时间：
 train_images/du20260902-003813.png	样品来源：
 train_images/du20260902-003815.png	乙方单位：
 train_images/du20260902-003816.png	产品类型：
@@ -37189,7 +37118,7 @@ train_images/du20260902-003937.png	SY260402179
 train_images/du20260902-003938.png	SY260305187
 train_images/du20260902-003940.png	SY251225383
 train_images/du20260902-003941.png	SY260205209
-train_images/du20260902-003942.png	2026011311F
+train_images/du20260902-003942.png	2026011311H
 train_images/du20260902-003943.png	SY251127325
 train_images/du20260902-003945.png	SY251213193
 train_images/du20260902-003946.png	SY251212167
@@ -37842,7 +37771,7 @@ train_images/du20260902-004753.png	*项目分类：
 train_images/du20260902-004755.png	*分装送样单：
 train_images/du20260902-004756.png	*快递单号?：
 train_images/du20260902-004757.png	*送样联系人：
-train_images/du20260902-004758.png	送样单备注?
+train_images/du20260902-004758.png	送样单备注?：
 train_images/du20260902-004760.png	*课题组：
 train_images/du20260902-004761.png	合同编号：
 train_images/du20260902-004762.png	*意向名称：

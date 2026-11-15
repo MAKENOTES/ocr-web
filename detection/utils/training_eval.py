@@ -47,6 +47,7 @@ from detection.inference import (
     suppress_boxes,
 )
 from detection.models.east_model import EASTModel
+from detection.utils.config import LEGACY_BACKBONE
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # 仓库根目录；报告内所有默认路径都相对它解析。
@@ -190,10 +191,12 @@ def load_model(checkpoint_path, device):
     payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     if "model" not in payload:
         raise ValueError(f"检查点缺少 model 字段: {checkpoint_path}")
-    model = EASTModel(pretrained=False)
+    config = payload.get("config") or {}
+    # 旧检查点没有 backbone 字段，按历史格式兜底为 ResNet18；不能用训练默认骨干。
+    model = EASTModel(pretrained=False, backbone=config.get("backbone", LEGACY_BACKBONE))
     model.load_state_dict(payload["model"])
     model.to(device).eval()
-    return model, payload.get("config") or {}
+    return model, config
 
 
 def evaluate_model_on_val(model, dataset, device, input_sizes, thresholds, collect_images=False):

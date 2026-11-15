@@ -105,6 +105,30 @@ def test_detector_rejects_dynamic_flag_mismatch(tmp_path, monkeypatch):
         detection_runtime.exported_shape(backend)
 
 
+def test_export_mobilenet_backbone_records_metadata(tmp_path, monkeypatch):
+    """MobileNetV3-Large 检查点按自身骨干导出，runtime 读取到同一配置。"""
+    import onnx
+
+    monkeypatch.setattr(exporter, "BENCHMARK_ENABLED", False)
+    previous = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        model = create_model(backbone="mobilenet_v3_large").eval()
+        checkpoint, output = tmp_path / "mobile.pth", tmp_path / "mobile.onnx"
+        save_checkpoint(model, checkpoint, (64, 96))
+        config = exporter.export_model(checkpoint, output, input_size=(64, 96),
+                                       dynamic_spatial=False)
+        assert config["backbone"] == "mobilenet_v3_large"
+
+        graph = onnx.load(output)
+        properties = {entry.key: entry.value for entry in graph.metadata_props}
+        assert json.loads(properties[ONNX_CONFIG_KEY]) == config
+        backend = detection_runtime.load_backend(output, "onnx")
+        assert backend.config["backbone"] == "mobilenet_v3_large"
+    finally:
+        torch.set_num_threads(previous)
+
+
 def test_failed_export_does_not_publish(tmp_path, monkeypatch):
     monkeypatch.setattr(exporter, "load_checkpoint",
                         lambda _: (object(), {"config": {"input_size": [64, 64]}}))

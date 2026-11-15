@@ -1,6 +1,7 @@
 """统一检测的通用工具；配置契约和检查点读写由本文件汇总导出，其余模块按需直接导入。"""
 from detection.utils.checkpoint import load_checkpoint, save_checkpoint
 from detection.utils.config import (
+    LEGACY_BACKBONE,
     MODEL_FORMAT,
     ONNX_CONFIG_KEY,
     checkpoint_config,
@@ -8,6 +9,7 @@ from detection.utils.config import (
 )
 
 __all__ = [
+    "LEGACY_BACKBONE",
     "MODEL_FORMAT",
     "ONNX_CONFIG_KEY",
     "checkpoint_config",

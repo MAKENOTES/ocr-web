@@ -5,6 +5,7 @@ import torch
 
 from detection.models.east_model import create_model
 from detection.utils.config import (
+    LEGACY_BACKBONE,
     MODEL_FORMAT,
     ONNX_CONFIG_KEY,
     checkpoint_config,
@@ -15,7 +16,8 @@ from detection.utils.config import (
 def save_checkpoint(model, path, input_size, dynamic_spatial=False):
     """按契约写入 config 和 model；先写临时文件再替换，避免留下半个权重文件。"""
     path = Path(path)
-    payload = {"config": checkpoint_config(input_size, dynamic_spatial),
+    backbone = getattr(model, "backbone_name", LEGACY_BACKBONE)
+    payload = {"config": checkpoint_config(input_size, dynamic_spatial, backbone),
                "model": model.state_dict()}
     temporary = path.with_suffix(path.suffix + ".tmp")
     torch.save(payload, temporary)
@@ -23,11 +25,12 @@ def save_checkpoint(model, path, input_size, dynamic_spatial=False):
 
 
 def load_checkpoint(path, device="cpu"):
-    """校验检查点契约后构建模型并切到评估模式；返回模型和原始检查点字典。"""
+    """校验检查点契约后按记录的主干构建模型并切到评估模式；返回模型和检查点字典。"""
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(checkpoint, dict) or "config" not in checkpoint or "model" not in checkpoint:
         raise ValueError(f"Expected a unified detection checkpoint with config and model: {path}")
-    validate_config(checkpoint["config"])
-    model = create_model()
+    # 旧检查点没有 backbone 字段，校验后的副本会补齐，供后续导出等调用方读取。
+    checkpoint["config"] = validate_config(checkpoint["config"])
+    model = create_model(backbone=checkpoint["config"]["backbone"])
     model.load_state_dict(checkpoint["model"])
     return model.to(device).eval(), checkpoint

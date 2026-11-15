@@ -112,16 +112,27 @@ score/geo loss 和重复 `epoch/loss_train` 组不再产生。
 
 ## 模型与损失
 
-ResNet18 的 `/4`、`/8`、`/16`、`/32` 四级特征通过转置卷积逐级融合，在步长 4
-的特征图上输出 Sigmoid 置信度和四通道线性几何值。网络是纯卷积结构，因此
-PyTorch 可接受任意 32 倍数高宽；ONNX 可导出动态高宽。
+骨干在 `detection/models/backbones.py` 注册，按配置输出 `/4`、`/8`、`/16`、`/32`
+四级特征：默认 ResNet18（64/128/256/512 通道），可选 MobileNetV3-Large
+（24/40/112/160 通道，启用 `MobileNet_V3_Large_Weights.IMAGENET1K_V2` 预训练）。
+四级特征通过转置卷积逐级融合，在步长 4 的特征图上输出 Sigmoid 置信度和四通道
+线性几何值；融合头输出通道固定为 128/64/32，切换骨干不改变解码契约。ResNet18
+的参数名称和形状保持历史检查点兼容。网络是纯卷积结构，因此 PyTorch 可接受
+任意 32 倍数高宽；ONNX 可导出动态高宽。
+
+训练骨干由 `detection/models/backbones.py` 的 `DEFAULT_BACKBONE` 选择，检查点
+`config.backbone` 记录选择结果；PyTorch 推理、报告评估和 ONNX 导出都按该字段
+构建网络，不需要重复传参。旧检查点缺少该字段时按格式版本兜底为 ResNet18。
+切换骨干必须重新训练，不同骨干的权重不能互相加载。
 
 损失为整个 batch 的 Dice 加 3 × 正样本 Smooth L1；`###` 掩码同时作用于置信度和
 几何损失。纯背景 batch 的几何损失为零，Dice 平滑项保证损失有限。
 
-检查点格式为 `unified-east-resnet18-v1`，保存 `config` 和 `model`。`config` 记录
+检查点格式按骨干区分：`unified-east-resnet18-v1` 或
+`unified-east-mobilenetv3-v1`，保存 `config` 和 `model`。`config` 记录骨干、
 输入尺寸上限、步长、几何编码、预处理版本和是否动态导出；训练、推理、导出和
-ONNX 元数据共用 `detection/utils/config.py` 的校验。
+ONNX 元数据共用 `detection/utils/config.py` 的校验。旧检查点和 ONNX 元数据
+没有 `backbone` 字段，校验时按格式版本补齐为 ResNet18 后继续兼容。
 
 ## 推理、评估与导出
 
