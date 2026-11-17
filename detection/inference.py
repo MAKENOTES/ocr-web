@@ -43,15 +43,15 @@ from detection.utils import load_checkpoint
 
 # 统一检测模型；更换训练结果时修改此路径。
 MODEL_PATH = Path("detection/checkpoints/ocr_experiment_1794656480922890043/best_f1_detection_epoch_560_f1_0.96569.pth")
-IMAGE_PATH = Path("detection/data/test_images/1")  # 输入图片或图片目录，不直接读取 PDF 文件。
-OUTPUT_DIR = Path("detection/data/test_results/1")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
+IMAGE_PATH = Path("detection/data/test_images/3")  # 输入图片或图片目录，不直接读取 PDF 文件。
+OUTPUT_DIR = Path("detection/data/test_results/3")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
 DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU。
 INPUT_SIZE = 896  # 动态模式的长边上限，单位 px；896 在验证集上优于 768，但耗时更高，更换检查点后需重新核对。
 DYNAMIC_INPUT = True  # 默认按原图宽高比选择 32 倍数尺寸，短边至少保留长边的一半；False 时使用 INPUT_SIZE 方形画布。
 SCORE_THRESHOLD = DEFAULT_SCORE_THRESHOLD  # 文字置信度阈值，取值范围为 (0, 1)。
 NMS_IOU_THRESHOLD = DEFAULT_NMS_IOU_THRESHOLD  # 重复框抑制的交并比阈值，取值范围为 (0, 1]。
 MERGE_SAME_ROW = True  # 命令行入口把同排词框合并为整行框，便于整行识别；评估、ONNX 部署和部署报告仍保持词/短语粒度。
-SAVE_CROPS = False  # 启用时保存原图文字框 PNG 裁片，供识别使用。
+SAVE_CROPS = True  # 启用时保存原图文字框 PNG 裁片，供识别使用。
 CROP_DIR = Path("detection/data/crops/test_images")  # 裁片平铺目录；启用时覆盖同名裁片并清理该原图多余的旧序号。
 
 

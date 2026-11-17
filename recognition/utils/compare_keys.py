@@ -101,11 +101,11 @@ def main() -> int:
     try:
         compare_keys(
             annotation_files=[
-                "recognition/data/train_annotation.txt",
-                "recognition/data/val_annotation.txt",
-                "recognition/data/append_annotation.txt",
-                "recognition/data/bench1_annotation.txt",
-                "recognition/data/bench2_annotation.txt",
+                # "recognition/data/train_annotation.txt",
+                # "recognition/data/val_annotation.txt",
+                "recognition/data/append2_annotation.txt",
+                # "recognition/data/bench1_annotation.txt",
+                # "recognition/data/bench2_annotation.txt",
             ],
             keys_file="recognition/keys.txt",
             output_file="recognition/keys-compare.txt",
