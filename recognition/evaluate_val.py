@@ -37,7 +37,7 @@ KEYS_PATH = "recognition/keys.txt"  # 权重训练时的字符字典，内容及
 # VAL_ANNOTATION = "recognition/data/synthesis_degraded_annotation.txt"
 # VAL_ANNOTATION = "recognition/data/synthesis_edge_annotation.txt"
 # VAL_ANNOTATION = "recognition/data/append1_annotation.txt"
-VAL_ANNOTATION = "recognition/data/append_tmp_annotation.txt"
+# VAL_ANNOTATION = "recognition/data/append_tmp_annotation.txt"
 
 ERROR_OUTPUT_FILE = "recognition/error_cases.txt"  # 错误案例保存文件（可设为 None）
 

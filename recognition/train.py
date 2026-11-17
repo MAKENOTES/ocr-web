@@ -37,7 +37,7 @@ CHECKPOINT_DIR = "recognition/checkpoints/"  # 固定检查点根目录，每次
 LOG_DIR = "recognition/runs"  # 固定 TensorBoard 根目录，每次运行独立建目录。
 
 # 2. 训练超参数
-EPOCHS = 680  # 目标总轮数 680。
+EPOCHS = 650  # 目标总轮数 650。
 LEARNING_RATE = 3e-4  # 新运行的 AdamW 初始学习率。
 RANDOM_SEED = 42  # 新运行的 Python、NumPy、PyTorch 随机种子。
 
