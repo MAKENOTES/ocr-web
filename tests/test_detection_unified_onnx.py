@@ -26,8 +26,8 @@ def test_deployment_defaults_use_dynamic_canvas():
     assert inference.INPUT_SIZE == 896
     assert exporter.DYNAMIC_SPATIAL is True
     assert exporter.INPUT_SIZE == 896
-    assert exporter.OUTPUT_PATH.name == "best_detection_dynamic.onnx"
-    assert onnx_entry.MODEL_PATH.name == "best_detection_dynamic.onnx"
+    assert exporter.OUTPUT_PATH.name == "best_detection_m_dynamic.onnx"
+    assert onnx_entry.MODEL_PATH.name == "best_detection_m_dynamic.onnx"
 
 
 @pytest.mark.parametrize("dynamic_spatial", [True, False])

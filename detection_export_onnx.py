@@ -23,8 +23,8 @@ from detection.components.preprocessing import normalize_input_size
 from detection.utils import LEGACY_BACKBONE, ONNX_CONFIG_KEY, checkpoint_config, load_checkpoint
 
 
-CHECKPOINT_PATH = Path("detection/checkpoints/ocr_experiment_1793283532819507511/best_f1_detection_epoch_560_f1_0.97158.pth")  # 待导出的统一检测检查点，必须包含 config 和 model。
-OUTPUT_PATH = Path("best_detection_dynamic.onnx")  # 动态高宽导出路径；保留固定 768 模型 best_detection.onnx 供历史报告对照。
+CHECKPOINT_PATH = Path("detection/checkpoints/ocr_experiment_1794656480922890043/best_f1_detection_epoch_560_f1_0.96569.pth")  # 待导出的统一检测检查点，必须包含 config 和 model。
+OUTPUT_PATH = Path("best_detection_m_dynamic.onnx")  # 动态高宽导出路径；MobileNetV3 用 _m_ 后缀与历史 ResNet 模型 best_detection_dynamic.onnx 区分。
 INPUT_SIZE = 896  # 动态导出的长边上限，单位 px；与 PyTorch 推理入口一致，可改为 (高, 宽)。
 DYNAMIC_SPATIAL = True  # 默认导出动态高宽；False 时导出固定 INPUT_SIZE 方形画布。
 BENCHMARK_ENABLED = True  # 启用时额外比较 CPU batch=1 前向速度；数值校验始终执行。

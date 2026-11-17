@@ -23,6 +23,7 @@ from detection.inference import (
     DocumentDetector,
     decode_maps,
     expand_predictions,
+    merge_same_row_boxes,
     run_inference,
     suppress_boxes,
 )
@@ -275,6 +276,85 @@ def test_decode_maps_splits_merged_words_by_wide_gap():
 
     narrow_score, narrow_geometry = make_maps(2)
     assert len(decode_maps(narrow_score, narrow_geometry, threshold=.5)[0]) == 1
+
+
+def test_decode_maps_clips_adjacent_components_at_support_gap():
+    """同排相邻连通域的边缘回归越界时，框边界截断在两者支撑间隙中点。"""
+    def make_maps(right_row=10, left_right_edge=46):
+        score = np.zeros((1, 40, 80), dtype=np.float32)
+        geometry = np.zeros((4, 40, 80), dtype=np.float32)
+        # 左块右边缘回归到 46，越过两支撑间隙中点 35 并压进右块左侧 6 像素（窄条交叉）。
+        for x0, x1, row0, right_edge in ((10, 30, 10, left_right_edge), (40, 60, right_row, 60)):
+            score[0, row0:row0 + 10, x0:x1] = .95
+            rows, columns = np.mgrid[row0:row0 + 10, x0:x1]
+            geometry[0, row0:row0 + 10, x0:x1] = np.log1p(rows + .5 - row0)
+            geometry[1, row0:row0 + 10, x0:x1] = np.log1p(right_edge - (columns + .5))
+            geometry[2, row0:row0 + 10, x0:x1] = np.log1p(row0 + 10 - (rows + .5))
+            geometry[3, row0:row0 + 10, x0:x1] = np.log1p(columns + .5 - x0)
+        return score, geometry
+
+    boxes, _ = decode_maps(*make_maps(), threshold=.5)
+    assert len(boxes) == 2
+    np.testing.assert_allclose(boxes, [[40, 40, 140, 80], [160, 40, 240, 80]], atol=1e-3)
+
+    # 不同文本行的纵向支撑不重叠，不参与间隙截断。
+    other_rows, _ = decode_maps(*make_maps(right_row=30), threshold=.5)
+    np.testing.assert_allclose(other_rows[0], [40, 40, 184, 80], atol=1e-3)
+
+    # 交集占较小框一半以上属于重复框，保留原始边缘交给 NMS。
+    duplicate, _ = decode_maps(*make_maps(left_right_edge=60), threshold=.5)
+    np.testing.assert_allclose(duplicate[0], [40, 40, 240, 80], atol=1e-3)
+
+
+# filedet.png 和 MobileNetV3 检查点是本地回归样本，未纳入版本库。
+FILEDET_IMAGE = Path("detection/data/test_images/1/filedet.png")
+MOBILENET_CHECKPOINT = Path(
+    "detection/checkpoints/ocr_experiment_1794656480922890043/"
+    "best_f1_detection_epoch_560_f1_0.96569.pth")
+
+
+@pytest.mark.skipif(not FILEDET_IMAGE.is_file() or not MOBILENET_CHECKPOINT.is_file(),
+                    reason="本地缺少 filedet.png 或 MobileNetV3 检查点")
+def test_mobilenet_filedet_word_boxes_stop_at_gap():
+    """MobileNetV3 检查点在词间空白处的两个框不再交叉。"""
+    detector = DocumentDetector(MOBILENET_CHECKPOINT, "cpu")
+    predictions = detector.predict(load_rgb_image(FILEDET_IMAGE))
+    boxes = np.asarray([prediction["box"] for prediction in predictions], dtype=np.float32)
+    assert boxes.shape == (2, 4)
+    assert boxes[0, 2] <= boxes[1, 0]
+    assert 150 <= boxes[0, 2] <= 165
+
+
+def test_merge_same_row_boxes_merges_line_words_and_keeps_layout():
+    """同排词框按间隙和中心偏移合并，角标和不同行不合并。"""
+    boxes = np.array([[0, 0, 40, 20], [48, 0, 90, 20],
+                      [0, 40, 40, 60], [200, 0, 240, 20]], dtype=np.float32)
+    scores = np.array([.9, .8, .7, .6], dtype=np.float32)
+    merged, merged_scores = merge_same_row_boxes(boxes, scores)
+    np.testing.assert_allclose(merged, [[0, 0, 90, 20], [0, 40, 40, 60], [200, 0, 240, 20]])
+    np.testing.assert_allclose(merged_scores, [.9, .7, .6])
+
+    # 图标旁的数量角标垂直中心偏移大，不合并。
+    badge, _ = merge_same_row_boxes(
+        np.array([[0, 0, 40, 40], [50, 20, 65, 40]], dtype=np.float32),
+        np.array([.9, .8], dtype=np.float32))
+    assert len(badge) == 2
+
+    empty, empty_scores = merge_same_row_boxes(np.zeros((0, 4)), np.zeros(0))
+    assert empty.shape == (0, 4) and empty_scores.shape == (0,)
+    with pytest.raises(ValueError, match="length mismatch"):
+        merge_same_row_boxes(np.zeros((1, 4)), np.zeros(2))
+
+
+@pytest.mark.skipif(not FILEDET_IMAGE.is_file() or not MOBILENET_CHECKPOINT.is_file(),
+                    reason="本地缺少 filedet.png 或 MobileNetV3 检查点")
+def test_mobilenet_filedet_merge_same_row_writes_one_line(tmp_path):
+    """入口开启同排合并后，词间空白两侧的框合成一个整行框。"""
+    run_inference(MOBILENET_CHECKPOINT, FILEDET_IMAGE, tmp_path, "cpu", merge_same_row=True)
+    lines = (tmp_path / "labels" / "gt_filedet.txt").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    x0, y0, x1, y1 = (float(value) for value in lines[0].split())
+    assert x0 < 40 and x1 > 225 and y1 - y0 > 15
 
 
 def test_decode_maps_keeps_all_regions_above_threshold_and_rejects_bad_threshold():

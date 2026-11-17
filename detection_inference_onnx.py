@@ -15,7 +15,7 @@ if __package__ in (None, ""):
 from detection.runtime.cli import main as _cli_main
 
 
-MODEL_PATH = Path("best_detection_dynamic.onnx")  # 已导出的动态统一检测 ONNX；本入口只接受 .onnx。
+MODEL_PATH = Path("best_detection_m_dynamic.onnx")  # 已导出的 MobileNetV3 动态统一检测 ONNX；本入口只接受 .onnx。
 BACKEND = "openvino"  # auto 固定使用 ONNX Runtime；openvino 需显式选择。
 WARMUP_RUNS = 3  # 正式计时前的模型前向预热次数，0 表示关闭。
 EXPAND_BOX = False  # 启用时扩展最终框；默认关闭，避免表格相邻单元格混入裁片。

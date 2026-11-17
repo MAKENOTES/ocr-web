@@ -3,8 +3,10 @@
 用法：
     .venv/bin/python detection/report_training.py --run detection/checkpoints/<run>
 
-默认输出到 detection/reports/<run>/index.html；报告自包含图表和问题图片，
-可直接用浏览器打开，不需要启动 TensorBoard。
+默认输出到 detection/reports/<run>/index.html；报告自包含图表，可直接用浏览器打开。
+在验证集上重新评估检查点，并在训练集上做同配置的 in-sample 对照；逐图错误写入
+同目录的 errors_{train,val}.csv、error_previews_{train,val}.csv 和
+error_previews/<split>/ 原尺寸预览图，便于逐框核对。
 """
 import argparse
 import json
@@ -22,6 +24,7 @@ from detection.utils.training_eval import (
     json_safe,
     render_report,
     report_summary,
+    write_error_details,
 )
 
 
@@ -50,15 +53,23 @@ def main(argv=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"分析运行: {run_dir.name}")
     print(f"推理设备: {device}")
-    report = collect_report(run_dir, device)
+    report = collect_report(run_dir, device, output_dir)
     html_path = output_dir / "index.html"
     html_path.write_text(render_report(report), encoding="utf-8")
     summary_path = output_dir / "summary.json"
     summary_path.write_text(
         json.dumps(json_safe(report_summary(report)), ensure_ascii=False, indent=2),
         encoding="utf-8")
+    error_csv_paths = []
+    for split, analysis_key in (("val", "error_analysis"),
+                                ("train", "train_error_analysis")):
+        analysis = report.get(analysis_key) or {}
+        error_csv_paths += write_error_details(
+            analysis.get("records") or [], output_dir, split)
     print(f"HTML 报告: {html_path}")
     print(f"JSON 摘要: {summary_path}")
+    for csv_path in error_csv_paths:
+        print(f"错误明细: {csv_path}")
 
 
 if __name__ == "__main__":

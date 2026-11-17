@@ -25,6 +25,10 @@ WORD_SPLIT_GAP_RATIO = 0.18  # 潜在空隙宽度至少为连通域高度的该�
 DEFAULT_SCORE_THRESHOLD = 0.7  # 默认文字置信度阈值，取值范围 (0, 1)。
 DEFAULT_NMS_IOU_THRESHOLD = 0.3  # 默认重复框抑制交并比，取值范围 (0, 1]。
 CROP_INDEX_DIGITS = 5  # 裁片文件名序号位数，序号从 1 开始并左侧补零。
+ADJACENT_ROW_OVERLAP_RATIO = 0.5  # 判定同排相邻框的纵向支撑重叠比例；低于较矮框高度的一半视为不同文本行，不做间隙截断。
+ADJACENT_DUPLICATE_OVERLAP_RATIO = 0.5  # 相邻框交集占较小框面积达到该比例时视为重复框，交给 NMS，不做间隙截断。
+SAME_ROW_MERGE_GAP_RATIO = 0.5  # 同排合并允许的最大水平间隙，单位为较矮框高度的比例；超过视为不同界面元素。
+SAME_ROW_MERGE_CENTER_RATIO = 0.25  # 同排合并允许的垂直中心偏移，单位为较矮框高度的比例；用于排除图标角标等上下错位的元素。
 
 
 def scaled_small_region_area(input_size):
@@ -127,18 +131,68 @@ def split_component(ys, xs):
     return segments or [(ys, xs)]
 
 
+def _support_extent(ys, xs):
+    """返回连通域或拆分段的像素支撑范围 (x_min, x_max, y_min, y_max)，单位为特征像素。"""
+    return int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
+
+
+def clip_adjacent_boxes(boxes, supports, stride=STRIDE):
+    """把同排相邻连通域的框边界截断在两者支撑间隙中点，消除交叉框。
+
+    几何回归只学习到文字框边缘的距离，词间空白两侧的连通域可能同时把边缘
+    回归到对方区域，形成 IoU 很低、NMS 压不掉的交叉框。这里用连通域自身
+    的像素支撑约束：同排（纵向支撑重叠不低于较矮框高度的一半）且 x 支撑
+    分离的两个框，各自贴向间隙的一侧不得越过两者支撑间隙的中点。只收紧
+    越过中点的边缘，不移动支撑范围内的正确边缘；交集占较小框面积一半以上
+    的近似重复框不截断，避免把该由 NMS 合并的重复框拆成两个 FP。
+    """
+    order = sorted(range(len(boxes)), key=lambda index: supports[index][0])
+    for position, left in enumerate(order):
+        _, left_x1, left_y0, left_y1 = supports[left]
+        for right in order[position + 1:]:
+            right_x0, _, right_y0, right_y1 = supports[right]
+            if right_x0 <= left_x1:
+                # x 支撑相交或包含，不属于左右相邻的文字区域。
+                continue
+            left_height = left_y1 - left_y0 + 1
+            right_height = right_y1 - right_y0 + 1
+            vertical_overlap = min(left_y1, right_y1) - max(left_y0, right_y0) + 1
+            if vertical_overlap < ADJACENT_ROW_OVERLAP_RATIO * min(left_height, right_height):
+                continue
+            # 近似重复的框交给 NMS；截断只处理窄条交叉，避免把重复框拆成两个 FP。
+            left_box, right_box = boxes[left], boxes[right]
+            cross_width = min(left_box[2], right_box[2]) - max(left_box[0], right_box[0])
+            cross_height = min(left_box[3], right_box[3]) - max(left_box[1], right_box[1])
+            if cross_width > 0 and cross_height > 0:
+                left_area = (left_box[2] - left_box[0]) * (left_box[3] - left_box[1])
+                right_area = (right_box[2] - right_box[0]) * (right_box[3] - right_box[1])
+                if cross_width * cross_height >= ADJACENT_DUPLICATE_OVERLAP_RATIO * min(left_area, right_area):
+                    continue
+            # 支撑 x_max 为闭区间末像素，右侧边界为 x_max + 1；两边界中点即间隙中点。
+            midpoint = (left_x1 + 1 + right_x0) / 2.0 * stride
+            boxes[left][2] = min(boxes[left][2], midpoint)
+            boxes[right][0] = max(boxes[right][0], midpoint)
+
+
 def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
                                      min_area, small_region_area, split_word_gaps=True):
     """单轮四连通域检测，返回输入图像素坐标的 xyxy 框。
 
     大连通域用边缘像素中位数采样，小连通域用全像素中位数；不按连通域
     长宽比过滤。默认按低占用列把粘连的整行框拆成词/短语框；设置
-    split_word_gaps=False 可保留旧的整段输出。
+    split_word_gaps=False 可保留旧的整段输出。同排相邻连通域的越过间隙
+    中点的边缘会被截断，避免左右两框交叉。
     """
     stride = float(STRIDE)
-    boxes = []
+    boxes, supports = [], []
     binary = (score_map_np > score_threshold).astype(np.uint8)
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=4)
+
+    def append_box(box, ys, xs, min_width):
+        """记录有效框及其支撑范围，支撑范围用于后续同排间隙截断。"""
+        if box[2] - box[0] > min_width and box[3] - box[1] > min_width:
+            boxes.append(box)
+            supports.append(_support_extent(ys, xs))
 
     for label_id in range(1, num_labels):
         area = stats[label_id, cv2.CC_STAT_AREA]
@@ -147,9 +201,7 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
         ys, xs = np.where(labels == label_id)
 
         if area < small_region_area:
-            box = box_from_small_region(ys, xs, geo_map_np, stride)
-            if box[2] - box[0] > 1 and box[3] - box[1] > 1:
-                boxes.append(box)
+            append_box(box_from_small_region(ys, xs, geo_map_np, stride), ys, xs, 1)
             continue
 
         segments = split_component(ys, xs) if split_word_gaps else [(ys, xs)]
@@ -157,14 +209,13 @@ def boxes_from_connected_components(score_map_np, geo_map_np, score_threshold,
             if len(segment_xs) < min_area:
                 continue
             if len(segment_xs) < small_region_area:
-                box = box_from_small_region(segment_ys, segment_xs, geo_map_np, stride)
-                if box[2] - box[0] > 1 and box[3] - box[1] > 1:
-                    boxes.append(box)
+                append_box(box_from_small_region(
+                    segment_ys, segment_xs, geo_map_np, stride), segment_ys, segment_xs, 1)
             else:
-                box = box_from_large_region(segment_ys, segment_xs, geo_map_np, stride)
-                if box[2] - box[0] > 2 and box[3] - box[1] > 2:
-                    boxes.append(box)
+                append_box(box_from_large_region(
+                    segment_ys, segment_xs, geo_map_np, stride), segment_ys, segment_xs, 2)
 
+    clip_adjacent_boxes(boxes, supports, stride)
     return np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
 
 
@@ -176,6 +227,54 @@ def suppress_boxes(boxes, scores, iou_threshold=DEFAULT_NMS_IOU_THRESHOLD):
         return np.empty(0, dtype=np.int64)
     return nms(torch.as_tensor(boxes, dtype=torch.float32),
                torch.as_tensor(scores, dtype=torch.float32), iou_threshold).numpy()
+
+
+def merge_same_row_boxes(boxes, scores, gap_ratio=SAME_ROW_MERGE_GAP_RATIO,
+                         center_ratio=SAME_ROW_MERGE_CENTER_RATIO):
+    """把同一行的词框合并为整行框，返回 (boxes, scores)。
+
+    两个框满足纵向重叠不低于较矮框高度的一半、垂直中心偏移不超过较矮框
+    高度的 center_ratio、水平间隙不超过较矮框高度的 gap_ratio 时合并；
+    中心偏移约束用于排除图标旁的数量角标等上下错位的元素。合并框取组内
+    并集，分数取组内最大值。供需要整行文本的推理入口按需调用；默认解码、
+    评估和 ONNX 部署仍输出词/短语粒度。
+    """
+    if not (np.isfinite(gap_ratio) and gap_ratio >= 0
+            and np.isfinite(center_ratio) and center_ratio >= 0):
+        raise ValueError("gap_ratio and center_ratio must be finite and nonnegative")
+    boxes = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
+    scores = np.asarray(scores, dtype=np.float32).reshape(-1)
+    if len(boxes) != len(scores):
+        raise ValueError(f"boxes/scores length mismatch: {len(boxes)} != {len(scores)}")
+    if not len(boxes):
+        return boxes, scores
+
+    order = np.argsort(boxes[:, 0], kind="stable")
+    groups = []  # 每个分组合并后的框和最高分，按 x 从左到右扩展。
+    for index in order:
+        box = boxes[index]
+        box_center = (box[1] + box[3]) / 2.0
+        box_height = box[3] - box[1]
+        for group in groups:
+            merged = group["box"]
+            min_height = min(box_height, merged[3] - merged[1])
+            vertical_overlap = min(box[3], merged[3]) - max(box[1], merged[1])
+            if vertical_overlap < ADJACENT_ROW_OVERLAP_RATIO * min_height:
+                continue
+            if abs(box_center - (merged[1] + merged[3]) / 2.0) > center_ratio * min_height:
+                continue
+            gap = max(0.0, max(box[0], merged[0]) - min(box[2], merged[2]))
+            if gap <= gap_ratio * min_height:
+                group["box"] = [min(merged[0], float(box[0])), min(merged[1], float(box[1])),
+                                max(merged[2], float(box[2])), max(merged[3], float(box[3]))]
+                group["score"] = max(group["score"], float(scores[index]))
+                break
+        else:
+            groups.append({"box": [float(value) for value in box],
+                           "score": float(scores[index])})
+
+    return (np.asarray([group["box"] for group in groups], dtype=np.float32),
+            np.asarray([group["score"] for group in groups], dtype=np.float32))
 
 
 def decode_maps(score, geometry, threshold=DEFAULT_SCORE_THRESHOLD, split_word_gaps=True):

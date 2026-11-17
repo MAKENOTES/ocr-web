@@ -114,19 +114,30 @@ F1 每 `METRIC_VAL_INTERVAL`（默认 10）轮评估一次，默认按 `METRIC_I
 ```
 
 默认输出 `detection/reports/<run>/index.html` 和 `summary.json`，报告自包含
-内嵌 SVG 曲线和错误图片，可以直接用浏览器离线打开。内容包括：
+内嵌 SVG 曲线和错误图片，可以直接用浏览器离线打开。逐图错误另外写到同目录的
+`errors_{train,val}.csv`、`error_previews_{train,val}.csv` 和
+`error_previews/<split>/` 原尺寸叠加预览图，字段与部署推理报告的错误产物保持一致。
+内容包括：
 
 - 验证集 F1、训练/验证 loss、学习率和增强阶段曲线；
-- 主配置的总体/doc/ui TP/FP/FN/P/R/F1；
-- 训练尺寸与更大输入、不同置信度阈值的工作点对比；
-- 最佳 F1、最佳 loss 和最后一轮检查点的主配置指标；
-- 错误集中度、横向/纵向文档页拆分，以及最差图片的漏检/误检可视化；
+- 主配置在验证集和训练集（in-sample）的总体/doc/ui TP/FP/FN/P/R/F1，以及两者的 F1 差；
+- 验证集和训练集在训练尺寸与更大输入、不同置信度阈值下的工作点对比；
+- 最佳 F1、最佳 loss 和最后一轮检查点的主配置指标（只在验证集复算）；
+- 两个划分各自的错误集中度、横向/纵向文档页拆分，以及最差图片的漏检/误检可视化；
+- 逐图错误明细表：列出全部有 FP/FN 的图片，支持按文件名筛选和点击表头排序，
+  “预览”列链接到原尺寸叠加图（橙色为漏检真值框，红色为误检预测框）；
 - 历史标注复核是否过期、推理和 ONNX 导出默认值是否与最佳检查点一致。
 
-报告会在验证集上重新评估最佳 F1、最佳 loss 和最后一轮检查点，建议在 GPU
-环境运行。验证集同时用于检查点选择和工作点对比，报告中的最佳工作点存在乐观
-偏差；上线前应使用未参与训练和调参的独立标注集复核。`detection/reports/` 属于
-本地产物，不提交到仓库。
+叠加预览图按原图尺寸、JPEG 质量 82 保存，不额外放大；同一报告目录重新生成时会
+删除本次错误清单之外的旧预览图，避免不同检查点的产物混杂。两个划分的逐图统计
+统一使用验证集选出的最佳工作点，训练集只做同工作点的 in-sample 对照，不参与
+检查点或工作点选择。
+
+报告会在验证集上重新评估最佳 F1、最佳 loss 和最后一轮检查点，并在训练集上对
+主检查点做相同尺寸/阈值的复算，建议在 GPU 环境运行（训练集图片数是验证集的
+约 4 倍，耗时会相应增加）。验证集同时用于检查点选择和工作点对比，报告中的最佳
+工作点存在乐观偏差；训练集指标是 in-sample 结果，只表示拟合程度。上线前应使用
+未参与训练和调参的独立标注集复核。`detection/reports/` 属于本地产物，不提交到仓库。
 
 ## 部署推理评估报告
 
@@ -215,7 +226,7 @@ ONNX/OpenVINO 只在验证集复算 CPU 耗时和精度。输出
 
 # 构建独立部署目录；默认在隔离路径下完成一次推理自检
 .venv/bin/python tools/build_detection_bundle.py \
-  --model best_detection_dynamic.onnx --out dist/detection_runtime
+  --model best_detection_m_dynamic.onnx --out dist/detection_runtime
 
 # 直接运行包内入口（PyTorch/GPU）：修改 detection/inference.py 的 MODEL_PATH 和 IMAGE_PATH
 .venv/bin/python detection/inference.py
@@ -238,7 +249,9 @@ ONNX/OpenVINO 只在验证集复算 CPU 耗时和精度。输出
 为 0.9763）。加入 4 倍上采样上限后 F1 为 0.97859（与无上限差 1 个框），平均
 输入像素从 445k 降到 202k，小于 64px 的小图组为 0.9868；6 倍上限 F1 0.97869、
 291k，小图组保持 1.0，是零退化档位；3 倍上限降到 0.97704，不建议。超过 896
-（如 1280）会偏离训练尺度分布，未补多尺度训练前不建议。
+（如 1280）会偏离训练尺度分布，未补多尺度训练前不建议。以上是 ResNet18 检查点的
+历史记录；当前 MobileNetV3 检查点在 768/0.70 为 0.9666，896/0.70 为 0.9704，
+896/0.85 为 0.9708（均为验证集，存在调参乐观偏差）。
 需要固定画布时设 `DYNAMIC_INPUT=False`，整图按 `INPUT_SIZE` 等比缩放并补边到
 方形画布。动态导出的 ONNX/OpenVINO 使用元数据记录的 `input_size` 作为长边上限，
 固定导出始终使用模型自身尺寸。
@@ -250,9 +263,17 @@ ONNX/OpenVINO 只在验证集复算 CPU 耗时和精度。输出
 Epoch 560 / 动态 896 / 0.70；历史评估中 566/768/0.88 在验证集上拆分前后 F1 相同，
 说明模型已基本输出词/短语级框；拆分器主要作为低分辨率或后续模型的兼容保护。
 
-导出默认 `DYNAMIC_SPATIAL=True`、`INPUT_SIZE=896`，输出动态高宽到
-`best_detection_dynamic.onnx`，并校验 batch 1/2 及不同高宽；原固定 768 模型
-`best_detection.onnx` 保留给 `report_size_policy.py` 的历史对照。导出会直接覆盖
+命令行入口默认 `MERGE_SAME_ROW=True`，把同排词框合并为整行框：水平间隙不超过
+较矮框高度的一半、垂直中心偏移不超过较矮框高度的 1/4 时合并，分数取组内最大值。
+该开关只作用于 `detection/inference.py` 的输出、裁片和标签，`DocumentDetector.predict`、
+评估、部署报告和 ONNX 入口仍输出词/短语粒度，两种粒度的 F1 不能直接比较。UI
+验证集上按合并后的整行真值评估，F1 为 0.9884（未合并的词级为 0.9900）；需要
+词/短语裁片时把 `MERGE_SAME_ROW` 设为 `False`。
+
+导出默认 `DYNAMIC_SPATIAL=True`、`INPUT_SIZE=896`；MobileNetV3 检查点输出动态高宽到
+`best_detection_m_dynamic.onnx`，并校验 batch 1/2 及不同高宽。历史 ResNet18 的动态模型
+`best_detection_dynamic.onnx` 和固定 768 模型 `best_detection.onnx` 保留原名，供旧报告对照；
+两个动态文件不要相互覆盖。导出会直接覆盖
 同名目标文件并随后完成数值校验，不再创建
 `onnx-export-*` 临时目录；校验失败时目标文件保留本次产物，需修复后重新导出。
 导出实现、尺寸和动态开关都在根目录

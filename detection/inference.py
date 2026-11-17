@@ -5,7 +5,8 @@ PyTorch 检查点默认使用 GPU（不可用时回退 CPU），默认按原图�
 避免超宽图深层特征过少或小图被放大十几倍。
 本模块只接受 `.pth` 检查点；ONNX/OpenVINO 的 CPU 部署入口是根目录
 detection_inference_onnx.py，该入口独立实现，不依赖本模块。所有输出坐标均
-还原到原图像素空间。
+还原到原图像素空间。命令行入口可用 `MERGE_SAME_ROW` 把同排词框合并为整行框，
+供整行识别使用；`DocumentDetector.predict`、评估和部署报告保持词/短语粒度。
 """
 import sys
 import time
@@ -27,6 +28,7 @@ from detection.utils.postprocess import (
     crop_path,
     decode_maps,
     expand_predictions,
+    merge_same_row_boxes,
     remove_stale_crops,
     suppress_boxes,
 )
@@ -44,10 +46,11 @@ MODEL_PATH = Path("detection/checkpoints/ocr_experiment_1794656480922890043/best
 IMAGE_PATH = Path("detection/data/test_images/1")  # 输入图片或图片目录，不直接读取 PDF 文件。
 OUTPUT_DIR = Path("detection/data/test_results/1")  # 推理输出目录；重复运行覆盖本次输入对应的同名图片和标签。
 DEVICE = "auto"  # PyTorch 自动优先使用 CUDA，无可用 GPU 时使用 CPU。
-INPUT_SIZE = 896  # 动态模式的长边上限，单位 px；全量验证集 F1 0.9786，低于该值时精度下降，高于 896 需重新训练。
+INPUT_SIZE = 896  # 动态模式的长边上限，单位 px；896 在验证集上优于 768，但耗时更高，更换检查点后需重新核对。
 DYNAMIC_INPUT = True  # 默认按原图宽高比选择 32 倍数尺寸，短边至少保留长边的一半；False 时使用 INPUT_SIZE 方形画布。
 SCORE_THRESHOLD = DEFAULT_SCORE_THRESHOLD  # 文字置信度阈值，取值范围为 (0, 1)。
 NMS_IOU_THRESHOLD = DEFAULT_NMS_IOU_THRESHOLD  # 重复框抑制的交并比阈值，取值范围为 (0, 1]。
+MERGE_SAME_ROW = True  # 命令行入口把同排词框合并为整行框，便于整行识别；评估、ONNX 部署和部署报告仍保持词/短语粒度。
 SAVE_CROPS = False  # 启用时保存原图文字框 PNG 裁片，供识别使用。
 CROP_DIR = Path("detection/data/crops/test_images")  # 裁片平铺目录；启用时覆盖同名裁片并清理该原图多余的旧序号。
 
@@ -136,8 +139,12 @@ def draw_predictions(image, predictions):
 def run_inference(model_path, image_path, output_dir, device="cpu", *,
                   threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
                   save_crops=False, crop_dir=None, warmup_runs=0,
-                  expand_ratio_w=0.0, expand_ratio_h=0.0):
-    """批量保存画框图、bbox4 标签及可选裁片，统计包含预处理和后处理的单图耗时。"""
+                  expand_ratio_w=0.0, expand_ratio_h=0.0, merge_same_row=False):
+    """批量保存画框图、bbox4 标签及可选裁片，统计包含预处理和后处理的单图耗时。
+
+    merge_same_row=True 时把解码得到的词/短语框按同排规则合并为整行框，
+    标签、裁片和预览图使用合并后的坐标；默认 False，保持评估口径。
+    """
     if save_crops and crop_dir is None:
         raise ValueError("crop_dir is required when save_crops=True")
     if not all(np.isfinite(ratio) and ratio >= 0 for ratio in (expand_ratio_w, expand_ratio_h)):
@@ -174,6 +181,15 @@ def run_inference(model_path, image_path, output_dir, device="cpu", *,
         image = load_rgb_image(path)
         started = time.perf_counter()
         predictions = detector.predict(image, threshold, iou_threshold)
+        if merge_same_row and len(predictions) > 1:
+            boxes = np.asarray([prediction["box"] for prediction in predictions],
+                               dtype=np.float32)
+            scores = np.asarray([prediction["score"] for prediction in predictions],
+                                dtype=np.float32)
+            boxes, scores = merge_same_row_boxes(boxes, scores)
+            order = np.lexsort((boxes[:, 0], boxes[:, 1]))
+            predictions = [{"box": boxes[index].tolist(), "score": float(scores[index])}
+                           for index in order]
         elapsed_ms = (time.perf_counter() - started) * 1000
         total_boxes += len(predictions)
         infer_ms = detector.last_infer_ms
@@ -212,7 +228,8 @@ def main():
     """按顶部常量执行 PyTorch/GPU 推理；ONNX CPU 部署使用根目录独立入口。"""
     run_inference(MODEL_PATH, IMAGE_PATH, OUTPUT_DIR, DEVICE,
                   threshold=SCORE_THRESHOLD, iou_threshold=NMS_IOU_THRESHOLD,
-                  save_crops=SAVE_CROPS, crop_dir=CROP_DIR)
+                  save_crops=SAVE_CROPS, crop_dir=CROP_DIR,
+                  merge_same_row=MERGE_SAME_ROW)
 
 
 if __name__ == "__main__":

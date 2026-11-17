@@ -44,6 +44,8 @@ best_detection.onnx
 best_detection.onnx.data
 best_detection_dynamic.onnx
 best_detection_dynamic.onnx.data
+best_detection_m_dynamic.onnx
+best_detection_m_dynamic.onnx.data
 best_detection.pth
 
 best_recognition.onnx

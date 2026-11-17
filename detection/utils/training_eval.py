@@ -2,10 +2,12 @@
 
 报告覆盖训练曲线、验证集分组指标、不同输入尺寸/阈值工作点、检查点对比、
 错误集中的图片、标注复核结果提示和部署配置检查。所有图表以 SVG 内嵌，
-问题图片以 JPEG data URI 内嵌，生成的 HTML 不依赖外部资源。
+最差图片以 JPEG data URI 内嵌；逐图错误明细另外写成 CSV，并为全部错误图片
+输出原尺寸叠加预览图，生成的 HTML 不依赖外部网络资源。
 """
 import ast
 import base64
+import csv
 import html as html_lib
 import io
 import json
@@ -70,6 +72,19 @@ MAX_VISUALIZED_IMAGES = 12  # 错误可视化最多展示的图片数。
 VISUAL_MAX_WIDTH = 1200  # 可视化图片的最大渲染宽度，单位 px。
 VISUAL_MAX_HEIGHT = 900  # 可视化图片的最大渲染高度，单位 px；纵向长页按高度限制。
 VISUAL_JPEG_QUALITY = 72  # 可视化图片的 JPEG 质量，兼顾清晰度和 HTML 体积。
+ERROR_SPLIT_LABELS = {"train": "训练集（in-sample）", "val": "验证集"}  # 报告评估的两个划分和显示名。
+ERROR_PREVIEW_DIRNAME = "error_previews"  # 逐图错误预览子目录，建在报告输出目录下。
+ERROR_PREVIEW_JPEG_QUALITY = 82  # 落盘预览图的 JPEG 质量，高于内嵌缩略图，便于逐框核对。
+ERROR_CSV_FIELDS = (
+    "image", "path", "split", "source", "width", "height", "gt",
+    "tp", "fp", "fn", "error_count", "error_rate",
+    "input_size", "score_threshold", "nms_iou", "median_text_height",
+)  # errors_val.csv 的列顺序；逐图错误明细，只保留至少有一个 FP/FN 的图片。
+ERROR_PREVIEW_CSV_FIELDS = (
+    "image", "preview", "path", "split", "source", "width", "height", "gt",
+    "tp", "fp", "fn", "error_count", "error_rate",
+    "input_size", "score_threshold", "nms_iou", "median_text_height",
+)  # error_previews_val.csv 的列顺序；比错误明细多一列 preview 相对路径。
 
 BEST_F1_PATTERN = re.compile(r"^best_f1_detection_epoch_(\d+)_f1_([0-9]+\.[0-9]+)\.pth$")  # 最佳 F1 检查点文件名。
 BEST_LOSS_PATTERN = re.compile(r"^best_detection_epoch_(\d+)_loss_([0-9]+\.[0-9]+)\.pth$")  # 最佳 loss 检查点文件名。
@@ -199,11 +214,11 @@ def load_model(checkpoint_path, device):
     return model, config
 
 
-def evaluate_model_on_val(model, dataset, device, input_sizes, thresholds, collect_images=False):
-    """在验证集上评估一个模型，返回各工作点分组指标和可选的逐图缓存。
+def evaluate_model_on_dataset(model, dataset, device, input_sizes, thresholds, collect_images=False):
+    """在给定数据集上评估一个模型，返回各工作点分组指标和可选的逐图缓存。
 
     每个输入尺寸只做一次前向，多个阈值复用同一份 score/geo 图，因此同时
-    对比尺寸和阈值时不会成倍增加推理次数。
+    对比尺寸和阈值时不会成倍增加推理次数。训练集和验证集都使用本函数。
     """
     input_sizes = tuple(dict.fromkeys(int(size) for size in input_sizes))
     thresholds = tuple(dict.fromkeys(float(value) for value in thresholds))
@@ -288,14 +303,15 @@ def build_workpoints(rows):
     return workpoints, best
 
 
-def render_error_image(entry, combo):
-    """把漏检真值框画成橙色、误检预测框画成红色，返回 JPEG data URI。"""
+def draw_error_overlay(entry, combo):
+    """在原图尺寸上画橙色漏检真值框和红色误检预测框，返回新图片。
+
+    先画漏检真值再画误检预测，避免误检框被真值框覆盖；不修改原图。
+    """
     image = load_rgb_image(Path(entry["path"]))
     draw = ImageDraw.Draw(image)
     line_width = max(2, round(max(image.size) / 500))
     used = set(combo["used"])
-
-    # 先画漏检真值，再画误检预测，避免误检框被真值框覆盖。
     for index, box in enumerate(entry["truth_boxes"]):
         if index in used:
             continue
@@ -305,7 +321,12 @@ def render_error_image(entry, combo):
         if status == 0:
             draw.rectangle(tuple(float(value) for value in prediction["box"]),
                            outline="#dc2626", width=line_width)
+    return image
 
+
+def render_error_image(entry, combo):
+    """把错误叠加图缩放到报告内嵌尺寸，返回 JPEG data URI。"""
+    image = draw_error_overlay(entry, combo)
     width, height = image.size
     scale = min(1.0, VISUAL_MAX_WIDTH / width, VISUAL_MAX_HEIGHT / height)
     if scale < 1.0:
@@ -317,20 +338,50 @@ def render_error_image(entry, combo):
     return f"data:image/jpeg;base64,{encoded}"
 
 
-def build_error_analysis(images, combo):
-    """统计逐图错误，并生成错误集中度和最差图片列表。"""
-    if not images:
-        return {"summary": {}, "groups": {}, "orientation": {}, "images": []}
+def save_error_preview(entry, combo, preview_path):
+    """按原图尺寸把错误叠加图保存为 JPEG，返回实际写出的路径。"""
+    preview_path = Path(preview_path)
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
+    image = draw_error_overlay(entry, combo)
+    image.convert("RGB").save(preview_path, format="JPEG",
+                              quality=ERROR_PREVIEW_JPEG_QUALITY, optimize=True)
+    return preview_path
 
-    size = combo[0]
-    records = []
+
+def remove_stale_error_previews(preview_dir, keep_names):
+    """删除本次错误清单之外的旧预览图，避免不同检查点的产物混杂。"""
+    preview_dir = Path(preview_dir)
+    if not preview_dir.is_dir():
+        return 0
+    removed = 0
+    for path in preview_dir.iterdir():
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS and path.name not in keep_names:
+            path.unlink()
+            removed += 1
+    return removed
+
+
+def build_error_analysis(images, combo, split, preview_dir=None, preview_root=None):
+    """统计逐图错误，生成错误集中度、最差图片列表和逐图错误明细。
+
+    split 决定明细里的划分标识和预览文件命名上下文；preview_dir 非空时为
+    每张有 FP/FN 的图片保存一份原尺寸叠加预览图，并把相对 preview_root 的
+    路径写入明细，同时清理本次清单之外的旧预览图。返回的 records 只含标量
+    和字符串，可直接写入 CSV 并渲染页面明细表。
+    """
+    if not images:
+        return {"summary": {}, "groups": {}, "orientation": {}, "images": [], "records": []}
+
+    size, threshold = combo
+    rows = []
     for name, entry in images.items():
         result = entry["combos"][combo]
         tp, fp, fn = result["counts"]
         scale = entry["metadata"][size][0]
-        records.append({
+        rows.append({
             "name": name,
             "group": entry["group"],
+            "path": entry["path"],
             "width": entry["width"],
             "height": entry["height"],
             "gt": entry["gt"],
@@ -343,16 +394,16 @@ def build_error_analysis(images, combo):
             "entry": entry,
         })
 
-    total_errors = sum(item["fp"] + item["fn"] for item in records)
-    error_records = [item for item in records if item["fp"] + item["fn"] > 0]
-    ordered = sorted(records, key=lambda item: (-(item["fp"] + item["fn"]), item["name"]))
+    total_errors = sum(item["fp"] + item["fn"] for item in rows)
+    error_rows = [item for item in rows if item["fp"] + item["fn"] > 0]
+    ordered = sorted(rows, key=lambda item: (-(item["fp"] + item["fn"]), item["name"]))
     top_ten = ordered[:10]
     summary = {
-        "images": len(records),
-        "gt": sum(item["gt"] for item in records),
+        "images": len(rows),
+        "gt": sum(item["gt"] for item in rows),
         "total_errors": total_errors,
-        "error_images": len(error_records),
-        "zero_error_images": len(records) - len(error_records),
+        "error_images": len(error_rows),
+        "zero_error_images": len(rows) - len(error_rows),
         "top_ten_errors": sum(item["fp"] + item["fn"] for item in top_ten),
         "top_ten_share": (sum(item["fp"] + item["fn"] for item in top_ten) / total_errors)
         if total_errors else 0.0,
@@ -360,7 +411,7 @@ def build_error_analysis(images, combo):
 
     groups = {}
     for group in ("doc", "ui", "other"):
-        subset = [item for item in records if item["group"] == group]
+        subset = [item for item in rows if item["group"] == group]
         if not subset:
             continue
         groups[group] = {
@@ -372,11 +423,11 @@ def build_error_analysis(images, combo):
         }
 
     # 横向密集文档页通常文字更小，单独统计便于判断分辨率和页面类型的瓶颈。
-    doc_records = [item for item in records if item["group"] == "doc"]
+    doc_rows = [item for item in rows if item["group"] == "doc"]
     orientation = {}
     for name, subset in (
-            ("wide", [item for item in doc_records if item["width"] >= item["height"]]),
-            ("portrait", [item for item in doc_records if item["width"] < item["height"]])):
+            ("wide", [item for item in doc_rows if item["width"] >= item["height"]]),
+            ("portrait", [item for item in doc_rows if item["width"] < item["height"]])):
         if subset:
             orientation[name] = {
                 "images": len(subset),
@@ -384,6 +435,45 @@ def build_error_analysis(images, combo):
                 "fn": sum(item["fn"] for item in subset),
                 "fp": sum(item["fp"] for item in subset),
             }
+
+    # 逐图明细只保留有错误的图片；预览图按图片 stem 命名，便于和错误 CSV 对齐。
+    preview_dir = Path(preview_dir) if preview_dir is not None else None
+    if preview_dir is not None:
+        keep_names = {f"{Path(item['name']).stem}.jpg" for item in error_rows}
+        removed = remove_stale_error_previews(preview_dir, keep_names)
+        if removed:
+            print(f"  清理旧错误预览 {removed} 张: {preview_dir}")
+
+    details = []
+    for item in sorted(error_rows, key=lambda row: (-(row["fp"] + row["fn"]), row["name"])):
+        preview = ""
+        if preview_dir is not None:
+            preview_path = save_error_preview(
+                item["entry"], item["entry"]["combos"][combo],
+                preview_dir / f"{Path(item['name']).stem}.jpg")
+            preview = (Path(preview_path).relative_to(preview_root).as_posix()
+                       if preview_root is not None else Path(preview_path).as_posix())
+        details.append({
+            "image": Path(item["name"]).stem,
+            "name": item["name"],
+            "preview": preview,
+            "path": item["path"],
+            "split": split,
+            "source": item["group"],
+            "group": item["group"],
+            "width": item["width"],
+            "height": item["height"],
+            "gt": item["gt"],
+            "tp": item["tp"],
+            "fp": item["fp"],
+            "fn": item["fn"],
+            "error_count": item["fp"] + item["fn"],
+            "error_rate": round(item["error_rate"], 6),
+            "input_size": int(size),
+            "score_threshold": float(threshold),
+            "nms_iou": float(NMS_IOU_THRESHOLD),
+            "median_text_height": item["median_text_height"],
+        })
 
     visuals = []
     for item in ordered[:MAX_VISUALIZED_IMAGES]:
@@ -402,7 +492,30 @@ def build_error_analysis(images, combo):
             "median_text_height": item["median_text_height"],
             "image": render_error_image(item["entry"], item["entry"]["combos"][combo]),
         })
-    return {"summary": summary, "groups": groups, "orientation": orientation, "images": visuals}
+    return {"summary": summary, "groups": groups, "orientation": orientation,
+            "images": visuals, "records": details}
+
+
+def write_error_details(records, output_dir, split):
+    """写出指定划分的逐图错误明细和预览记录 CSV，返回两个路径。
+
+    文件名固定为 errors_<split>.csv 和 error_previews_<split>.csv，与部署推理
+    报告的错误产物命名保持一致，方便直接用表格软件打开核对；没有错误图片时
+    仍写出只有表头的 CSV，避免报告目录缺少约定产物。
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for filename, fields in (
+            (f"errors_{split}.csv", ERROR_CSV_FIELDS),
+            (f"error_previews_{split}.csv", ERROR_PREVIEW_CSV_FIELDS)):
+        csv_path = output_dir / filename
+        with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(records)
+        paths.append(csv_path)
+    return paths
 
 
 def count_dataset_split(image_dir, label_dir):
@@ -762,6 +875,31 @@ def render_workpoint_table(workpoints, best):
         + "".join(rows) + "</tbody></table>")
 
 
+def render_train_group_section(train_groups, val_groups):
+    """渲染训练集主配置指标，并给出与验证集的 F1 差；没有训练集数据时省略。"""
+    if not train_groups:
+        return ""
+    parts = ["<h3>训练集（in-sample）</h3>", render_group_table(train_groups)]
+    train_overall = train_groups.get("overall") or {}
+    val_overall = (val_groups or {}).get("overall") or {}
+    if train_overall and val_overall:
+        parts.append(
+            "<p class='muted'>训练集与验证集 F1 差 "
+            f"{format_number(train_overall['f1'] - val_overall['f1'], 5)}"
+            "（训练集 − 验证集）；训练集指标是 in-sample 结果，只表示拟合程度。</p>")
+    return "".join(parts)
+
+
+def render_train_workpoint_section(train_workpoints, train_best):
+    """渲染训练集工作点表；选型仍按验证集，高亮行仅作参考。"""
+    if not train_workpoints:
+        return ""
+    return ("<h3>训练集（in-sample）</h3>"
+            "<p class='muted'>训练集只用于观察拟合程度，工作点仍按验证集选择；"
+            "高亮行是训练集自身最高 F1，不代表可部署的最佳点。</p>"
+            + render_workpoint_table(train_workpoints, train_best))
+
+
 def render_checkpoint_table(checkpoints, primary):
     """渲染检查点列表，并显示各检查点在主配置下的 F1。"""
     rows = []
@@ -855,6 +993,127 @@ def render_error_cards(error_images):
         '<div class="error-grid">' + "".join(cards) + "</div>")
 
 
+def render_error_details(records, split):
+    """渲染指定划分全部错误图片的逐图明细表，支持文件名筛选和点击表头排序。
+
+    预览列链接到报告目录下的原尺寸叠加图；完整数据同时写入 errors_<split>.csv。
+    多个划分同时展示时，表格和筛选框用 data-split 关联，避免 ID 冲突。
+    """
+    if not records:
+        return '<p class="muted">没有可展示的逐图错误明细。</p>'
+    labels = {"doc": "文档页 doc", "ui": "界面小图 ui", "other": "其他"}
+    rows = []
+    for item in records:
+        preview = item.get("preview") or ""
+        preview_cell = (f'<a href="{esc(preview)}" target="_blank" rel="noopener">查看</a>'
+                        if preview else '<span class="muted">—</span>')
+        # data-key 供前端筛选使用，统一小写；动态内容必须转义，避免文件名注入 HTML。
+        key = esc(f"{item.get('name', item.get('image', ''))} {item.get('group', '')}".lower())
+        rows.append(
+            f'<tr data-key="{key}">'
+            f"<td class='mono'>{esc(item.get('name', item.get('image', '')))}</td>"
+            f"<td>{esc(labels.get(item.get('group'), item.get('group') or '—'))}</td>"
+            f"<td>{item.get('gt', 0)}</td><td>{item.get('tp', 0)}</td>"
+            f"<td class='bad'>{item.get('fp', 0)}</td>"
+            f"<td class='warn-text'>{item.get('fn', 0)}</td>"
+            f"<td>{item.get('error_count', 0)}</td>"
+            f"<td>{format_percent(item.get('error_rate', 0.0), 1)}</td>"
+            f"<td>{item.get('median_text_height', 0.0):.1f}</td>"
+            f"<td>{preview_cell}</td></tr>")
+
+    headers = (
+        ('图片', '0', 'text'), ('分组', '1', 'text'), ('GT', '2', 'num'),
+        ('TP', '3', 'num'), ('FP', '4', 'num'), ('FN', '5', 'num'),
+        ('错误数', '6', 'num'), ('错误率', '7', 'num'), ('文字框中位高', '8', 'num'),
+    )
+    head = "".join(
+        f'<th class="sortable" data-sort="{index}" data-type="{kind}" '
+        f'data-order="desc">{title}</th>'
+        for title, index, kind in headers)
+    return (
+        '<h3>逐图错误明细</h3>'
+        f'<p class="muted">共 {len(records)} 张图片存在 FP 或 FN，按错误数从多到少排列。'
+        "点击表头可按该列排序，输入文件名或分组可筛选；预览图在报告目录的 "
+        f"<span class='mono'>{esc(ERROR_PREVIEW_DIRNAME)}/{esc(split)}/</span> 下，"
+        f"完整数据见 <span class='mono'>errors_{esc(split)}.csv</span> 和 "
+        f"<span class='mono'>error_previews_{esc(split)}.csv</span>。</p>"
+        '<div class="detail-tools"><input type="search" class="error-detail-filter"'
+        f' data-split="{esc(split)}" placeholder="按文件名或分组筛选"></div>'
+        '<div class="error-detail"><table class="error-detail-table"'
+        f' data-split="{esc(split)}"><thead><tr>'
+        + head + "<th>预览</th></tr></thead><tbody>" + "".join(rows)
+        + "</tbody></table></div>")
+
+
+def render_error_details_script():
+    """返回逐图明细表的筛选和排序脚本；没有明细表时脚本直接退出。"""
+    return """
+<script>
+(function () {
+  document.querySelectorAll('table.error-detail-table').forEach(function (table) {
+    var split = table.dataset.split || '';
+    var body = table.tBodies[0];
+    if (!body) return;
+    var rows = Array.prototype.slice.call(body.rows);
+    var filter = document.querySelector(
+      '.error-detail-filter[data-split="' + split + '"]');
+    if (filter) {
+      filter.addEventListener('input', function () {
+        var query = filter.value.trim().toLowerCase();
+        rows.forEach(function (row) {
+          var match = !query || (row.dataset.key || '').indexOf(query) >= 0;
+          row.style.display = match ? '' : 'none';
+        });
+      });
+    }
+    table.querySelectorAll('th.sortable').forEach(function (th) {
+      th.addEventListener('click', function () {
+        var index = parseInt(th.dataset.sort, 10);
+        var numeric = th.dataset.type === 'num';
+        var ascending = th.dataset.order !== 'asc';
+        table.querySelectorAll('th.sortable').forEach(function (other) {
+          other.dataset.order = '';
+          other.classList.remove('asc', 'desc');
+        });
+        th.dataset.order = ascending ? 'asc' : 'desc';
+        th.classList.add(ascending ? 'asc' : 'desc');
+        rows.sort(function (a, b) {
+          var left = a.cells[index].textContent.trim();
+          var right = b.cells[index].textContent.trim();
+          if (numeric) {
+            left = parseFloat(left.replace(/[^0-9.\\-]/g, '')) || 0;
+            right = parseFloat(right.replace(/[^0-9.\\-]/g, '')) || 0;
+            return ascending ? left - right : right - left;
+          }
+          return ascending ? left.localeCompare(right) : right.localeCompare(left);
+        });
+        rows.forEach(function (row) { body.appendChild(row); });
+      });
+    });
+  });
+})();
+</script>
+"""
+
+
+def render_error_block(analysis, split):
+    """渲染一个数据划分的错误汇总、逐图明细和最差图片；没有数据时省略。"""
+    if not analysis:
+        return ""
+    label = ERROR_SPLIT_LABELS[split]
+    if not analysis.get("summary"):
+        return (f'<div class="split-block"><h3 class="split-title">{esc(label)}</h3>'
+                '<p class="muted">没有逐图错误数据。</p></div>')
+    return (
+        '<div class="split-block">'
+        f'<h3 class="split-title">{esc(label)}</h3>'
+        + render_error_summary(analysis)
+        + render_error_details(analysis.get("records") or [], split)
+        + "<h3>最差图片</h3>"
+        + render_error_cards(analysis.get("images") or [])
+        + "</div>")
+
+
 def render_dataset_table(dataset):
     """渲染训练集/验证集构成。"""
     rows = []
@@ -931,7 +1190,8 @@ def build_highlights(report):
     run = report["run"]
     primary = report["primary"]
     best = report.get("best_workpoint")
-    error_summary = (report.get("error_summary") or {}).get("summary") or {}
+    error_summary = ((report.get("error_analysis") or {}).get("summary")
+                     or (report.get("error_summary") or {}).get("summary") or {})
     checks = report.get("deployment") or []
 
     if run.get("best_f1") is not None:
@@ -945,6 +1205,14 @@ def build_highlights(report):
             f"验证集最高 F1 出现在 {best['input_size']}px / 阈值 {best['threshold']:.2f}："
             f"<strong>{best['overall']['f1']:.5f}</strong>"
             + (f"，比训练尺寸高 {difference * 100:.2f} 个百分点。" if difference > 0 else "。"))
+    train_overall = (report.get("train_groups") or {}).get("overall") or {}
+    val_overall = (report.get("groups") or {}).get("overall") or {}
+    if train_overall and val_overall:
+        gap = train_overall["f1"] - val_overall["f1"]
+        highlights.append(
+            f"训练集 in-sample F1 为 <strong>{train_overall['f1']:.5f}</strong>，"
+            f"验证集为 {val_overall['f1']:.5f}，差 {gap * 100:+.2f} 个百分点；"
+            "该差值包含过拟合、训练/验证域差异和标注噪声，不能只归因于模型容量。")
     if error_summary:
         highlights.append(
             f"共 {error_summary['total_errors']} 个框级错误，"
@@ -963,10 +1231,15 @@ def render_report(report):
     run = report["run"]
     primary = report["primary"]
     groups = report.get("groups") or {}
+    train_groups = report.get("train_groups") or {}
     workpoints = report.get("workpoints") or []
+    train_workpoints = report.get("train_workpoints") or []
     best_workpoint = report.get("best_workpoint")
+    train_best_workpoint = report.get("train_best_workpoint")
     error_analysis = report.get("error_analysis") or {}
+    train_error_analysis = report.get("train_error_analysis") or {}
     error_summary = error_analysis.get("summary") or {}
+    train_error_summary = train_error_analysis.get("summary") or {}
     highlights = build_highlights(report)
 
     primary_f1 = (groups.get("overall") or {}).get("f1")
@@ -976,6 +1249,8 @@ def render_report(report):
                  if best_workpoint else "无")
     error_note = (f"零错误图片 {error_summary.get('zero_error_images', 0)}/"
                   f"{error_summary.get('images', 0)}" if error_summary else "无逐图数据")
+    if train_error_summary:
+        error_note += f" · 训练集 {train_error_summary.get('total_errors', 0)} 个错误"
 
     cards = [
         ("最佳验证 F1", format_number(run.get("best_f1"), 5),
@@ -984,7 +1259,7 @@ def render_report(report):
          f"{primary['input_size']}px · 阈值 {primary['threshold']:.2f} · {primary_note}", ""),
         ("验证集最佳工作点", format_number((best_workpoint or {}).get("overall", {}).get("f1"), 5),
          best_note, "warn"),
-        ("框级错误", str(error_summary.get("total_errors", "—")), error_note, ""),
+        ("验证集框级错误", str(error_summary.get("total_errors", "—")), error_note, ""),
     ]
     card_html = "".join(
         f'<div class="card {css}"><div class="label">{esc(label)}</div>'
@@ -1025,6 +1300,9 @@ section { background:var(--panel); border:1px solid var(--line); border-radius:1
   padding:18px 20px; margin:16px 0; box-shadow:0 1px 2px rgba(15,23,42,.04); }
 section > h2 { margin:0 0 12px; font-size:19px; }
 h3 { font-size:15px; margin:16px 0 8px; }
+.split-block { border-top:1px solid var(--line); margin-top:16px; padding-top:12px; }
+.split-block:first-of-type { border-top:0; margin-top:0; padding-top:0; }
+.split-title { color:#0f172a; font-size:16px; }
 .kpi { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:14px 0; }
 .card { border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:#fbfdff; }
 .card.accent { border-color:#bfdbfe; background:#eff6ff; }
@@ -1062,6 +1340,18 @@ ul.highlights li { margin:4px 0; }
 .swatch { width:12px; height:4px; display:inline-block; border-radius:2px; }
 .swatch.warn { background:var(--amber); }
 .swatch.bad { background:var(--warn); }
+.detail-tools { display:flex; gap:12px; align-items:center; margin:8px 0; flex-wrap:wrap; }
+.detail-tools input { padding:6px 10px; border:1px solid var(--line); border-radius:8px;
+  min-width:220px; font-size:13px; }
+.error-detail { max-height:560px; overflow:auto; border:1px solid var(--line);
+  border-radius:8px; }
+.error-detail table { margin:0; }
+.error-detail thead th { position:sticky; top:0; z-index:1; white-space:nowrap; }
+.error-detail th.sortable { cursor:pointer; user-select:none; }
+.error-detail th.sortable.asc::after { content:" ▲"; font-size:10px; }
+.error-detail th.sortable.desc::after { content:" ▼"; font-size:10px; }
+.error-detail .bad { color:var(--warn); font-weight:600; }
+.error-detail .warn-text { color:#b45309; font-weight:600; }
 ul.checklist { list-style:none; padding:0; margin:0; }
 li.check { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); }
 li.check:last-child { border-bottom:0; }
@@ -1108,23 +1398,27 @@ summary { cursor:pointer; color:var(--accent); }
   <h2>主配置指标</h2>
   <p class="muted">主配置：最长边 {primary['input_size']}px、置信度阈值 {primary['threshold']:.2f}、
   NMS IoU {primary['nms_iou']:.2f}、匹配 IoU {primary['match_iou']:.2f}。所有指标只评估检测框，不涉及文字识别。</p>
+  <h3>验证集</h3>
   {render_group_table(groups)}
+  {render_train_group_section(train_groups, groups)}
 </section>
 
 <section id="workpoints">
   <h2>工作点对比</h2>
   <p class="muted">同一检查点在验证集上比较输入尺寸和阈值。高亮行只是当前验证集最优，
   不代表独立测试集结论；上线前请用未参与调参的留出集复核。</p>
+  <h3>验证集</h3>
   {render_workpoint_table(workpoints, best_workpoint)}
+  {render_train_workpoint_section(train_workpoints, train_best_workpoint)}
 </section>
 
 <section id="errors">
   <h2>错误分析</h2>
-  <p class="muted">逐图统计使用验证集最佳工作点：
-  {esc(best_note)}；训练期主配置为 {primary['input_size']}px / 阈值 {primary['threshold']:.2f}。</p>
-  {render_error_summary(error_analysis)}
-  <h3>最差图片</h3>
-  {render_error_cards(error_analysis.get('images') or [])}
+  <p class="muted">逐图统计统一使用验证集最佳工作点：
+  {esc(best_note)}；训练期主配置为 {primary['input_size']}px / 阈值 {primary['threshold']:.2f}。
+  训练集使用同一工作点做 in-sample 检查，不作为选型依据。</p>
+  {render_error_block(error_analysis, 'val')}
+  {render_error_block(train_error_analysis, 'train')}
 </section>
 
 <section id="checkpoints">
@@ -1175,7 +1469,8 @@ summary { cursor:pointer; color:var(--accent); }
     return ("<!doctype html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
             f"<title>统一检测训练分析报告 · {esc(run['name'])}</title>\n"
-            f"<style>{css}</style>\n</head>\n<body>{body}</body>\n</html>\n")
+            f"<style>{css}</style>\n</head>\n<body>{body}"
+            f"{render_error_details_script()}</body>\n</html>\n")
 
 
 def json_safe(value):
@@ -1198,18 +1493,26 @@ def json_safe(value):
 
 
 def report_summary(report):
-    """返回适合写入 summary.json 的轻量摘要，去掉曲线和图片 data URI。"""
+    """返回适合写入 summary.json 的轻量摘要，去掉曲线、图片 data URI 和逐图明细。"""
     summary = {key: value for key, value in report.items()
-               if key not in ("curves", "error_analysis")}
-    error_analysis = report.get("error_analysis") or {}
-    summary["error_summary"] = {
-        key: value for key, value in error_analysis.items() if key != "images"
-    }
+               if key not in ("curves", "error_analysis", "train_error_analysis")}
+    for key, analysis_key in (("error_summary", "error_analysis"),
+                              ("train_error_summary", "train_error_analysis")):
+        analysis = report.get(analysis_key) or {}
+        summary[key] = {
+            item_key: item_value for item_key, item_value in analysis.items()
+            if item_key not in ("images", "records")
+        }
     return summary
 
 
-def collect_report(run_dir, device):
-    """读取运行产物、评估验证集并返回渲染报告所需的数据。"""
+def collect_report(run_dir, device, output_dir=None):
+    """读取运行产物，评估训练集和验证集，返回渲染报告所需的数据。
+
+    验证集用于检查点和工作点选型；训练集只做主配置和工作点的 in-sample 对照。
+    output_dir 非空时把逐图错误预览写到 output_dir/error_previews/<split>/，
+    预览路径以 output_dir 为根记录在对应 error_analysis["records"] 中。
+    """
     run_dir = Path(run_dir)
     run_name = run_dir.name
     log_dir = RUNS_DIR / run_name
@@ -1227,7 +1530,10 @@ def collect_report(run_dir, device):
 
     print("统计训练/验证数据构成")
     dataset_summary = build_dataset_summary()
-    dataset = OCRDataset(str(VAL_IMAGE_DIR), str(VAL_LABEL_DIR))
+    datasets = {
+        "train": OCRDataset(str(TRAIN_IMAGE_DIR), str(TRAIN_LABEL_DIR)),
+        "val": OCRDataset(str(VAL_IMAGE_DIR), str(VAL_LABEL_DIR)),
+    }
 
     print(f"评估主检查点: {primary['name']}")
     model, config = load_model(primary["path"], device)
@@ -1235,27 +1541,32 @@ def collect_report(run_dir, device):
     extra_size = int(math.ceil((primary_size + EXTRA_INPUT_DELTA) / 32) * 32)
     extra_size = min(extra_size, MAX_EXTRA_INPUT_SIZE)
     input_sizes = (primary_size,) if extra_size <= primary_size else (primary_size, extra_size)
-    rows, images = evaluate_model_on_val(
-        model, dataset, device, input_sizes, REPORT_THRESHOLDS, collect_images=True)
+    print("  验证集")
+    rows, images = evaluate_model_on_dataset(
+        model, datasets["val"], device, input_sizes, REPORT_THRESHOLDS, collect_images=True)
+    print("  训练集（in-sample）")
+    train_rows, train_images = evaluate_model_on_dataset(
+        model, datasets["train"], device, input_sizes, REPORT_THRESHOLDS, collect_images=True)
     del model
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
     primary_key = (primary_size, float(SCORE_THRESHOLD))
-    if primary_key not in rows:
-        raise ValueError(f"主配置 {primary_key} 没有评估结果")
+    for split, split_rows in (("验证集", rows), ("训练集", train_rows)):
+        if primary_key not in split_rows:
+            raise ValueError(f"{split}主配置 {primary_key} 没有评估结果")
     primary["eval"] = rows[primary_key]
     evaluated = {primary["name"]}
 
-    # 只对比最佳 loss 和最后一轮，避免报告为目录里所有历史检查点重复推理。
+    # 只对比最佳 loss 和最后一轮，且只在验证集上复算，避免为所有历史检查点重复推理。
     for candidate in (chosen["best_loss"], chosen["last"]):
         if candidate is None or candidate["name"] in evaluated:
             continue
         print(f"评估对照检查点: {candidate['name']}")
         candidate_model, _ = load_model(candidate["path"], device)
-        candidate_rows, _ = evaluate_model_on_val(
-            candidate_model, dataset, device, (primary_size,), (float(SCORE_THRESHOLD),),
-            collect_images=False)
+        candidate_rows, _ = evaluate_model_on_dataset(
+            candidate_model, datasets["val"], device, (primary_size,),
+            (float(SCORE_THRESHOLD),), collect_images=False)
         candidate["eval"] = candidate_rows.get((primary_size, float(SCORE_THRESHOLD)))
         evaluated.add(candidate["name"])
         del candidate_model
@@ -1263,10 +1574,19 @@ def collect_report(run_dir, device):
             torch.cuda.empty_cache()
 
     workpoints, best_workpoint = build_workpoints(rows)
+    train_workpoints, train_best_workpoint = build_workpoints(train_rows)
     best_combo = ((best_workpoint["input_size"], best_workpoint["threshold"])
                   if best_workpoint else primary_key)
-    print(f"统计逐图错误，工作点: {best_combo[0]}px / 阈值 {best_combo[1]:.2f}")
-    error_analysis = build_error_analysis(images, best_combo)
+    print(f"统计逐图错误（验证集/训练集），验证集工作点: "
+          f"{best_combo[0]}px / 阈值 {best_combo[1]:.2f}")
+    output_dir = Path(output_dir) if output_dir is not None else None
+    error_analyses = {}
+    for split, split_images in (("val", images), ("train", train_images)):
+        preview_dir = (output_dir / ERROR_PREVIEW_DIRNAME / split
+                       if output_dir is not None else None)
+        error_analyses[split] = build_error_analysis(
+            split_images, best_combo, split,
+            preview_dir=preview_dir, preview_root=output_dir)
 
     review = load_annotation_review()
     deployment = inspect_deployment(
@@ -1286,10 +1606,14 @@ def collect_report(run_dir, device):
             "match_iou": float(REPORT_MATCH_IOU),
         },
         "groups": rows[primary_key],
+        "train_groups": train_rows[primary_key],
         "workpoints": workpoints,
         "best_workpoint": best_workpoint,
+        "train_workpoints": train_workpoints,
+        "train_best_workpoint": train_best_workpoint,
         "checkpoints": checkpoints,
-        "error_analysis": error_analysis,
+        "error_analysis": error_analyses["val"],
+        "train_error_analysis": error_analyses["train"],
         "review": review,
         "deployment": deployment,
     }

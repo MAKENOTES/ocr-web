@@ -140,9 +140,18 @@ ONNX 元数据共用 `detection/utils/config.py` 的校验。旧检查点和 ONN
 全像素几何中位数，大连通域用边缘像素统计；几何预测先 `expm1`，再按步长 4
 还原到输入图像素。高度至少 8 个特征像素的大连通域默认按低占用列拆分：连续低
 占用列宽度需同时达到绝对最小值和连通域高度的 18%，避免把字符内部空隙拆开；
-`split_word_gaps=False` 可保留整段输出。目标粒度是词/短语，整行 GT 需要先合并
+`split_word_gaps=False` 可保留整段输出。同排（纵向支撑重叠不低于较矮框高度的
+一半）相邻且 x 支撑分离的连通域，几何回归出的左右边缘会被截断在两者支撑间隙
+中点，避免词间空白两侧的框交叉；交集占较小框面积一半以上的近似重复框不截断，
+交给 NMS 合并。目标粒度是词/短语，整行 GT 需要先合并
 为一致粒度。坐标减去补边偏移、除以缩放比例后裁到原图边界，再按
 `NMS_IOU_THRESHOLD` 抑制重复框，按从上到下、从左到右排序。
+
+`detection/inference.py` 的命令行入口默认 `MERGE_SAME_ROW=True`，解码后把同排
+词框合并为整行框：水平间隙不超过较矮框高度的一半、垂直中心偏移不超过较矮框
+高度的 1/4 时合并，分数取组内最大值；中心偏移约束用于排除图标旁的数量角标等
+错位元素。该合并只影响该入口的标签、裁片和预览，`DocumentDetector.predict`、
+评估、部署报告和 ONNX 入口仍输出词/短语粒度，两种粒度的指标不能直接比较。
 
 `DocumentDetector` 只加载 PyTorch `.pth` 检查点，默认按宽高比选择动态尺寸
 （长边上限 896），并把短边补到长边的一半；`DYNAMIC_INPUT=False` 时回退到
@@ -162,8 +171,9 @@ CPU 部署入口 `detection_inference_onnx.py` 只保留默认常量，推理实
 生成，避免仓库与部署代码各自维护。
 
 根目录 `detection_export_onnx.py` 默认导出动态 batch 和动态高宽（长边上限 896），
-输出到 `best_detection_dynamic.onnx`；设置 `DYNAMIC_SPATIAL=False` 时导出固定
-方形画布，原固定 768 模型 `best_detection.onnx` 保留给尺寸策略报告对照。导出先执行
+MobileNetV3 检查点输出到 `best_detection_m_dynamic.onnx`；设置 `DYNAMIC_SPATIAL=False`
+时导出固定方形画布。历史 ResNet18 的 `best_detection_dynamic.onnx` 和固定 768 模型
+`best_detection.onnx` 保留原名供旧报告对照。导出先执行
 PyTorch 与 ONNX Runtime 的数值比较，固定导出覆盖 batch 1/2，动态导出额外覆盖
 不同高宽；直接写入目标文件并校验，目标已存在时覆盖，不创建临时目录。
 `SIMPLIFY_MODEL` 只影响图简化，不影响强制数值校验。
@@ -171,6 +181,11 @@ PyTorch 与 ONNX Runtime 的数值比较，固定导出覆盖 batch 1/2，动态
 `components/eval_metrics.py` 直接读取图片和标签目录，按置信度一对一匹配，
 默认匹配 IoU 0.5；预测主要落在 `###` 区域内时不计误检，输出总体和按扩展名
 分组的 TP/FP/FN、Precision、Recall、F1。扩展名只用于分组，不推断业务来源。
+`detection/report_training.py` 在验证集上复算检查点和工作点，并在训练集上对主
+检查点做相同尺寸/阈值的 in-sample 对照，生成训练分析报告；除内嵌图表和缩略图的
+`index.html` 外，还把两个划分中全部有 FP/FN 的图片明细写到
+`errors_{train,val}.csv` 和 `error_previews_{train,val}.csv`，并按原尺寸保存橙色
+漏检真值框、红色误检预测框的 `error_previews/<split>/` 预览图，供逐框核对。
 `detection/report_inference.py` 调用两个部署入口在训练/验证集上生成预测，按同一
 0.5 IoU 口径复核 P/R/F1、两后端框级一致性和入口耗时，并与训练报告摘要对照；
 同时输出 `errors_train.csv` 和 `errors_val.csv` 逐图错误明细。
