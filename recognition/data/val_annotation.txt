@@ -4267,7 +4267,6 @@ val_images/001132-06627.png	陈中宇
 val_images/001132-06632.png	石雨
 val_images/001132-06640.png	杨浏
 val_images/001132-06646.png	周冰莹
-val_images/001132-06652.png	：平凉市农业科学院
 val_images/001132-06658.png	高宏祥
 val_images/001132-06663.png	辽东学院工会委员会
 val_images/001132-06669.png	侯敏
@@ -4423,7 +4422,6 @@ val_images/001132-07659.png	新疆医科大学第一附属医院
 val_images/001132-07665.png	郑慧梅
 val_images/001132-07671.png	彭来
 val_images/001132-07677.png	山东农业工程学院
-val_images/001132-07683.png	：陈家辉
 val_images/001132-07688.png	余亚军
 val_images/001132-07694.png	高静宇
 val_images/001132-07701.png	邢光涛
@@ -4932,7 +4930,6 @@ val_images/001132-06980.png	宿晓云
 val_images/001132-07060.png	张博
 val_images/001132-07125.png	彭雪云
 val_images/001132-07166.png	河北师范大学
-val_images/001132-07216.png	：中国海洋大学
 val_images/001132-07281.png	赵佳鑫
 val_images/001132-07312.png	王琪
 val_images/001132-07359.png	番华彩

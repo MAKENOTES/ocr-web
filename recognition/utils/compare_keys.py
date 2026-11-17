@@ -103,7 +103,7 @@ def main() -> int:
             annotation_files=[
                 # "recognition/data/train_annotation.txt",
                 # "recognition/data/val_annotation.txt",
-                "recognition/data/append2_annotation.txt",
+                "recognition/data/append_tmp_annotation.txt",
                 # "recognition/data/bench1_annotation.txt",
                 # "recognition/data/bench2_annotation.txt",
             ],
