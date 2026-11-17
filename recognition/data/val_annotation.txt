@@ -1985,7 +1985,6 @@ val_images/000654-000004.png	为完成甲方承担的研究任务，经双方协
 val_images/000654-000009.png	1.110xGenomics单细胞转录组
 val_images/000654-000014.png	1.6微生物多样性（细菌、真菌）
 val_images/000654-000019.png	2）10xGenomicsGEMs制备，cDNA扩增；
-val_images/000654-000024.png	样本个数
 val_images/000654-000029.png	20
 val_images/000654-000034.png	文库
 val_images/000654-000039.png	比较理想的结果，是每个细胞的数据量在50k到100kreads之间。
@@ -2650,7 +2649,7 @@ val_images/001051-000042.png	服务热线：400-660-1216
 val_images/001052-000005.png	3.“技术障碍”：指在乙方现有条件下无法克服的技术问题，包括但不限于因合同约定的技术方法、技术路
 val_images/001052-000010.png	一、合作内容
 val_images/001052-000015.png	）样本数量：6个；
-val_images/001052-000020.png	1）完成6个样本RNA提取；
+val_images/001052-000020.png	1）完成6个样本RNA提取
 val_images/001052-000025.png	样本个数
 val_images/001052-000030.png	测序平台
 val_images/001052-000035.png	Grawdata
