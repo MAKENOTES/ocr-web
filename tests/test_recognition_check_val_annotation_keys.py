@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-import recognition.utils.check_val_annotation_keys as check_module
+import recognition.tools.check_val_annotation_keys as check_module
 
 
 def test_script_can_be_run_directly() -> None:

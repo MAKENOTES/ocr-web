@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from recognition.utils.compare_keys import compare_keys
+from recognition.tools.compare_keys import compare_keys
 
 
 def test_writes_characters_missing_from_keys_across_all_annotations(

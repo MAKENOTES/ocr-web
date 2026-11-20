@@ -12,13 +12,13 @@
 
 ```bash
 # 从指定标注提取新字典，默认输入实际为 append1_annotation.txt
-.venv/bin/python recognition/utils/dictionary.py --input recognition/data/train_annotation.txt
+.venv/bin/python recognition/tools/dictionary.py --input recognition/data/train_annotation.txt
 # 比较 keys-new 与 keys，结果写 keys-append.txt，不修改 keys
-.venv/bin/python recognition/utils/compare_key_files.py
+.venv/bin/python recognition/tools/compare_key_files.py
 # 核对 val 的字典外字符，写报告；不传 --move-unknown 不搬移图片
-.venv/bin/python recognition/utils/check_val_annotation_keys.py
+.venv/bin/python recognition/tools/check_val_annotation_keys.py
 # 比较 train/val 中文字完全相同的记录；文字相同不等于图片泄漏
-.venv/bin/python recognition/utils/compare_train_val_same_text.py
+.venv/bin/python recognition/tools/compare_train_val_same_text.py
 ```
 
 新增字典只用于核对，不可直接配旧模型。修改 keys 的内容或顺序后需重新训练、导出及验证。
@@ -30,7 +30,7 @@
 
 ```bash
 .venv/bin/python recognition/evaluate_val.py
-.venv/bin/python recognition/utils/extract_error_keys.py
+.venv/bin/python recognition/tools/extract_error_keys.py
 ```
 
 错误字符清单不等于缺数据清单。先结合原图区分错标、裁切、去章、低清及字典问题，
@@ -40,11 +40,11 @@
 
 ```bash
 # 默认只统计 train、val、synthesis1、synthesis2 四份标注
-.venv/bin/python recognition/utils/character_stats.py
+.venv/bin/python recognition/tools/character_stats.py
 # 默认仅预览命中字符、整条标注及图片的删除计划
-.venv/bin/python recognition/utils/remove_characters_by_stats.py
+.venv/bin/python recognition/tools/remove_characters_by_stats.py
 # 预览 train+val 已覆盖字符构成的合成样本
-.venv/bin/python recognition/utils/remove_common_synthesis.py
+.venv/bin/python recognition/tools/remove_common_synthesis.py
 ```
 
 `remove_characters_by_stats.py` 不是“删除 keys 外字符”的工具：它从 keys 内筛选

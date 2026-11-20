@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from recognition.utils.character_stats import build_statistics, write_statistics
-from recognition.utils import remove_common_synthesis as removal
+from recognition.tools.character_stats import build_statistics, write_statistics
+from recognition.tools import remove_common_synthesis as removal
 
 
 @pytest.fixture
@@ -150,7 +150,7 @@ def test_backup_failure_preserves_sources(dataset, monkeypatch):
     before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
     def fail_copy(*args, **kwargs):
         raise OSError("backup failed")
-    monkeypatch.setattr("recognition.utils.remove_characters_by_stats.shutil.copy2", fail_copy)
+    monkeypatch.setattr("recognition.tools.remove_characters_by_stats.shutil.copy2", fail_copy)
     assert removal.main([*args_for(dataset), "--apply"]) == 1
     for path, content in before.items():
         assert path.read_bytes() == content

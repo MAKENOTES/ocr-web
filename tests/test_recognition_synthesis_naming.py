@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from recognition.utils.synthesis import generate as plain
-from recognition.utils.synthesis import generate_balanced as balanced
-from recognition.utils.synthesis import generate_red_stamp as stamp
-from recognition.utils.synthesis import naming
+from recognition.tools.synthesis import generate as plain
+from recognition.tools.synthesis import generate_balanced as balanced
+from recognition.tools.synthesis import generate_red_stamp as stamp
+from recognition.tools.synthesis import naming
 
 
 def test_numbered_batches_skip_images_annotations_partials_and_reports(tmp_path, monkeypatch):

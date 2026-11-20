@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from recognition.utils.convert_annotation_delimiter import atomic_write, convert_content
+from recognition.tools.convert_annotation_delimiter import atomic_write, convert_content
 
 
 def test_converts_only_first_comma_and_preserves_text_commas() -> None:

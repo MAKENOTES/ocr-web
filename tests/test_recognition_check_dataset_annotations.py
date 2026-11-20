@@ -6,7 +6,7 @@ from pathlib import Path
 SCRIPT = (
     Path(__file__).resolve().parents[1]
     / "recognition"
-    / "utils"
+    / "tools"
     / "check_dataset_annotations.py"
 )
 

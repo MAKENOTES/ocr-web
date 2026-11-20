@@ -2,13 +2,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from recognition.utils.compare_key_files import write_append_keys
+from recognition.tools.compare_key_files import write_append_keys
 
 
 SCRIPT = (
     Path(__file__).resolve().parents[1]
     / "recognition"
-    / "utils"
+    / "tools"
     / "compare_key_files.py"
 )
 

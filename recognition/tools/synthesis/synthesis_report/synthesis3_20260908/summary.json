@@ -1,0 +1,59 @@
+{
+  "images": 1800,
+  "target_characters": 18,
+  "per_char": 100,
+  "counts": {
+    "劼": 100,
+    "垌": 100,
+    "塍": 100,
+    "岽": 100,
+    "敉": 100,
+    "昀": 100,
+    "晞": 100,
+    "楝": 100,
+    "琮": 100,
+    "皁": 100,
+    "笱": 100,
+    "绾": 100,
+    "蓥": 100,
+    "辘": 100,
+    "镓": 100,
+    "镔": 100,
+    "雎": 100,
+    "霈": 100
+  },
+  "seed": 20260907,
+  "batch_name": "synthesis3",
+  "date": "20260908",
+  "renderer": "oh-my-ocr/text_renderer.utils.draw_utils.draw_text_on_bg",
+  "renderer_version": "0.2.0",
+  "tested_upstream_commit": "a08835263289c9488ba8c24abacc321318c3f1e0",
+  "targets": "/home/weiqiang/AI/ocr-web/recognition/keys-append.txt",
+  "targets_sha256": "e35413a4cb89953a9b4673857a554ec558b439da4e5f85347600550745dcca64",
+  "keys": "/home/weiqiang/AI/ocr-web/recognition/keys.txt",
+  "keys_sha256": "8c63758731378171f64a1d2c1d85d23c1b64754e1154d34867a644049cbee236",
+  "output_dir": "/home/weiqiang/AI/ocr-web/recognition/data/synthesis3_images",
+  "annotation": "/home/weiqiang/AI/ocr-web/recognition/data/synthesis3_annotation.txt",
+  "annotation_format": "relative/path.png<TAB>text",
+  "reference_directories": [
+    "/home/weiqiang/AI/ocr-web/recognition/data/train_images",
+    "/home/weiqiang/AI/ocr-web/recognition/data/val_images"
+  ],
+  "reference_styles": 1599,
+  "fonts": {
+    "DroidSansFallbackFull.ttf#0": 401,
+    "NotoSerifCJK-Regular.ttc#2": 347,
+    "NotoSansCJK-Regular.ttc#2": 408,
+    "uming.ttc#0": 372,
+    "NotoSerifCJK-Bold.ttc#2": 133,
+    "NotoSansCJK-Bold.ttc#2": 139
+  },
+  "font_sha256": {
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc": "faa5f3656a78b2e2d450d27fe8382c778bc2b6bb5ea29c986664a6a435056ceb",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc": "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc": "9d3c0d769c703cfe41c49cbe2b14d4718e26545593dc247485486335b783fe94",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc": "93069d8e9e45d515cc421c971a79e6a5777704b348e36a9ef86578bf58adef77",
+    "/usr/share/fonts/truetype/arphic/uming.ttc": "fe952e55617275142d9cefd4d79eade4df446517b0478b2567d9bc7df49f70e2",
+    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf": "acb6440a713d880a13a21b468ba7cd43f5a2b2934972e51be791c880730777b8"
+  }
+}

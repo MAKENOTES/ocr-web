@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from recognition.utils import compare_train_val_same_text
-from recognition.utils.compare_train_val_same_text import (
+from recognition.tools import compare_train_val_same_text
+from recognition.tools.compare_train_val_same_text import (
     find_common_texts,
     format_common_texts,
     load_annotations,

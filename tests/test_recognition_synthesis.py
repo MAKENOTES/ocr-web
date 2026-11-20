@@ -6,10 +6,10 @@ from PIL import Image, ImageDraw, ImageFont
 import pytest
 
 from recognition.utils.annotation import split_annotation_fields
-from recognition.utils.synthesis.generate import (
+from recognition.tools.synthesis.generate import (
     FontFace, companion_pool, generate, load_fonts, make_text, parse_args, read_chars,
 )
-from recognition.utils.synthesis.style import sample_styles
+from recognition.tools.synthesis.style import sample_styles
 
 
 def test_target_quota_excludes_other_targets_from_companions():

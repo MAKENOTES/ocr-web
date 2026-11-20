@@ -34,11 +34,22 @@ recognition/
 ├── models/
 │   ├── model.py              # 当前 Mobile CNN + 多层 BiGRU 模型
 │   └── model_resnet50.py      # 历史模型，实际使用 ResNet34 + BiLSTM
-├── utils/
-│   ├── annotation.py         # Tab 标注解析与格式化
+├── utils/                    # 训练、推理和导出共用的模块
+│   ├── annotation.py         # Tab 标注解析与格式化，训练与数据工具共用
 │   ├── checkpoint.py         # 检查点读取与通道/层数推断
-│   ├── openvino.py           # 长度感知 GRU 的 OpenVINO 图适配
-│   ├── character_stats.py    # 字符统计；同目录另有校对和清理工具
+│   └── openvino.py           # 长度感知 GRU 的 OpenVINO 图适配
+├── tools/                    # 数据校对、统计、清理与合成工具，不参与训练/推理/导出
+│   ├── character_stats.py    # 字符频次统计与覆盖率报告
+│   ├── check_dataset_annotations.py   # all/train/val/val_unknown 四份清单校对
+│   ├── check_val_annotation_keys.py   # 验证集字典外字符核对
+│   ├── compare_keys.py       # 标注包含的字典外字符比较
+│   ├── compare_key_files.py  # 新旧字典的差集提取
+│   ├── compare_train_val_same_text.py # train/val 相同文字比较
+│   ├── convert_annotation_delimiter.py # 旧逗号标注转 Tab
+│   ├── dictionary.py         # 从标注提取字符字典
+│   ├── extract_error_keys.py # 从错误报告提取真实错误字符
+│   ├── remove_characters_by_stats.py  # 按字符统计清理合成样本与 keys
+│   ├── remove_common_synthesis.py     # 清理 train/val 已覆盖的合成样本
 │   └── synthesis/            # 补字、红章、边线及定向合成入口
 ├── datadoc/                  # 数据维护、合成说明和整理历史
 │   └── analysisdata/         # 按日期保存的错误样本分析

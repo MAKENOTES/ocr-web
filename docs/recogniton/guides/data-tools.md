@@ -30,7 +30,7 @@
 手工调整 train/val 或隔离字典外字符样本后，运行下列只读脚本校对四份标注：
 
 ```bash
-.venv/bin/python recognition/utils/check_dataset_annotations.py
+.venv/bin/python recognition/tools/check_dataset_annotations.py
 ```
 
 脚本仅按不含目录的图片文件名判断，例如 `du20260902-002391.png`。它要求
@@ -42,13 +42,13 @@ split 中同名图片后面的识别文字。校对通过返回 0；缺失、多
 
 ```bash
 # 默认统计 train、val、synthesis1、synthesis2 四份标注，按合计占比倒序打印全部字符，并将完整明细写入 CSV
-.venv/bin/python recognition/utils/character_stats.py
+.venv/bin/python recognition/tools/character_stats.py
 
 # 终端只显示“王”的次数和占比，CSV 仍保留 keys 中的全部字符
-.venv/bin/python recognition/utils/character_stats.py --chars 王
+.venv/bin/python recognition/tools/character_stats.py --chars 王
 
 # 自定义统计文件；此例只统计 train 和两份合成数据，排除 val
-.venv/bin/python recognition/utils/character_stats.py \
+.venv/bin/python recognition/tools/character_stats.py \
   --annotations recognition/data/train_annotation.txt \
   recognition/data/synthesis1_annotation.txt recognition/data/synthesis2_annotation.txt \
   --output-dir outputs/recognition_training_character_stats
@@ -72,7 +72,7 @@ train_次数、val_次数、synthesis1_次数、synthesis2_次数、合计_次�
 
 ## 按字符统计移除补充数据
 
-`../../../recognition/utils/remove_characters_by_stats.py` 使用上述默认 CSV，并核对当前
+`../../../recognition/tools/remove_characters_by_stats.py` 使用上述默认 CSV，并核对当前
 `keys.txt` 和 train、val、synthesis1、synthesis2 四份标注中的实际字符次数。
 CSV 缺列、字符集合或次数不一致时停止，需先重新运行 `character_stats.py`。
 
@@ -84,16 +84,16 @@ CSV 缺列、字符集合或次数不一致时停止，需先重新运行 `chara
 
 ```bash
 # 默认只预览，并打印全部命中字符、各文件删除数量及前 20 条图片明细
-.venv/bin/python recognition/utils/remove_characters_by_stats.py
+.venv/bin/python recognition/tools/remove_characters_by_stats.py
 
 # 单独预览第二种方式；0 表示显示全部图片明细
-.venv/bin/python recognition/utils/remove_characters_by_stats.py --mode 2 --max-details 0
+.venv/bin/python recognition/tools/remove_characters_by_stats.py --mode 2 --max-details 0
 
 # 真正执行两种方式的并集（也可以显式指定 --mode 1 或 --mode 2）
-.venv/bin/python recognition/utils/remove_characters_by_stats.py --apply
+.venv/bin/python recognition/tools/remove_characters_by_stats.py --apply
 
 # 只处理指定字符，仍须满足所选方式；不传 --apply 则只预览
-.venv/bin/python recognition/utils/remove_characters_by_stats.py --chars 癫 --apply
+.venv/bin/python recognition/tools/remove_characters_by_stats.py --chars 癫 --apply
 ```
 
 只要标签包含命中字符，就删除对应的**整条标注和图片**，不会只删标签里的个别字。
@@ -113,7 +113,7 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 
 ## 移除 train/val 已覆盖字符的合成样本
 
-`../../../recognition/utils/remove_common_synthesis.py` 专门处理
+`../../../recognition/tools/remove_common_synthesis.py` 专门处理
 `../../../recognition/data/synthesis1_annotation.txt` 和 `synthesis2_annotation.txt`。
 读取 `../../../outputs/recognition_character_stats/character_stats.csv` 的 `train_次数`、`val_次数`，
 以 **train + val 合计 >= 100** 判断常见字，包含恰好 100 次；不使用包含 synthesis 的总次数
@@ -128,13 +128,13 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 
 ```bash
 # 默认预览 all 规则，不写文件
-.venv/bin/python recognition/utils/remove_common_synthesis.py
+.venv/bin/python recognition/tools/remove_common_synthesis.py
 
 # 预览 any 规则，先检查连带减少的低频字数量
-.venv/bin/python recognition/utils/remove_common_synthesis.py --match any
+.venv/bin/python recognition/tools/remove_common_synthesis.py --match any
 
 # 备份后按指定规则执行；此例采用 all
-.venv/bin/python recognition/utils/remove_common_synthesis.py --match all --apply
+.venv/bin/python recognition/tools/remove_common_synthesis.py --match all --apply
 ```
 
 复用现有清理工具的统计校验、备份和原子替换逻辑；检查四份标注实际次数与 CSV 一致，

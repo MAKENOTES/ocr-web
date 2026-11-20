@@ -2,7 +2,7 @@ import csv
 
 import pytest
 
-from recognition.utils.character_stats import DEFAULT_ANNOTATIONS, build_statistics, main
+from recognition.tools.character_stats import DEFAULT_ANNOTATIONS, build_statistics, main
 
 
 def test_default_annotations_produce_train_val_and_two_synthesis_columns(tmp_path, monkeypatch):
@@ -15,7 +15,7 @@ def test_default_annotations_produce_train_val_and_two_synthesis_columns(tmp_pat
     ]
     for index, path in enumerate(annotations, 1):
         path.write_text(f"a.png\t{'甲' * index}\n", encoding="utf-8")
-    monkeypatch.setattr("recognition.utils.character_stats.DEFAULT_ANNOTATIONS", annotations)
+    monkeypatch.setattr("recognition.tools.character_stats.DEFAULT_ANNOTATIONS", annotations)
     output = tmp_path / "stats"
     assert main(["--keys", str(keys), "--output-dir", str(output)]) == 0
     with (output / "character_stats.csv").open(encoding="utf-8-sig", newline="") as handle:

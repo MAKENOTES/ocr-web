@@ -8,11 +8,11 @@ from PIL import Image, ImageDraw, ImageFont
 import pytest
 
 from recognition.utils.annotation import split_annotation_fields
-from recognition.utils.synthesis import error_common as common
-from recognition.utils.synthesis import generate_edge as edge
-from recognition.utils.synthesis import generate_degraded as degraded
-from recognition.utils.synthesis import generate_confusable as confusable
-from recognition.utils.synthesis.style import Style
+from recognition.tools.synthesis import error_common as common
+from recognition.tools.synthesis import generate_edge as edge
+from recognition.tools.synthesis import generate_degraded as degraded
+from recognition.tools.synthesis import generate_confusable as confusable
+from recognition.tools.synthesis.style import Style
 
 STYLE = Style((255, 255, 255), (0, 0, 0), 32, .8, .1, 3, 'test')
 

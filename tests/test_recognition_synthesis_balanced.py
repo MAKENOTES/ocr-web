@@ -6,9 +6,9 @@ from PIL import Image, ImageDraw, ImageFont
 import pytest
 
 from recognition.utils.annotation import split_annotation_fields
-from recognition.utils.synthesis import generate_balanced as balanced
-from recognition.utils.synthesis.generate import FontFace
-from recognition.utils.synthesis.style import Style
+from recognition.tools.synthesis import generate_balanced as balanced
+from recognition.tools.synthesis.generate import FontFace
+from recognition.tools.synthesis.style import Style
 
 
 def write_stats(path, rows):

@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 import pytest
 
 from recognition.utils.annotation import split_annotation_fields
-from recognition.utils.synthesis import generate_red_stamp as stamp
+from recognition.tools.synthesis import generate_red_stamp as stamp
 
 
 @pytest.fixture

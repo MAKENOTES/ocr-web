@@ -8,8 +8,8 @@ from PIL import Image, ImageDraw, ImageFont
 import pytest
 
 from recognition.utils.annotation import split_annotation_fields
-from recognition.utils.synthesis import generate_lines as lines
-from recognition.utils.synthesis.style import Style
+from recognition.tools.synthesis import generate_lines as lines
+from recognition.tools.synthesis.style import Style
 
 
 @pytest.mark.parametrize("pattern", lines.PATTERNS)

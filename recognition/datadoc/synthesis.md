@@ -12,7 +12,7 @@
 默认只校验，`--apply` 才生成，目标图片已存在时拒绝覆盖。
 
 ```bash
-.venv/bin/python recognition/utils/synthesis/restore.py \
+.venv/bin/python recognition/tools/synthesis/restore.py \
   --annotation recognition/data/synthesis_red_annotation.txt \
   --records outputs/recognition_symbol_normalization_20260910_132714/reports/synthesis_red/samples.jsonl \
   --report-dir outputs/synthesis_red_restored
@@ -33,7 +33,7 @@
 默认只检查文本、字典、字体与参考风格，传入 `--apply` 才生成。输出路径必须全新。
 
 ```bash
-.venv/bin/python recognition/utils/synthesis/regenerate.py \
+.venv/bin/python recognition/tools/synthesis/regenerate.py \
   --source-annotation recognition/data/synthesis1_annotation.txt \
   --prefix synthesis1 \
   --output-dir recognition/data/synthesis1_regenerated_images \
@@ -53,7 +53,7 @@
 
 ## 字体和渲染
 
-合成脚本共用 [generate.py](../utils/synthesis/generate.py) 中的字体加载和正文渲染逻辑。
+合成脚本共用 [generate.py](../tools/synthesis/generate.py) 中的字体加载和正文渲染逻辑。
 默认从本机以下字体中选择，未安装的默认字体不加入候选：
 
 | 字体 | 字重 | 默认字体文件位置 |
@@ -64,20 +64,20 @@
 | AR PL UMing CN（文鼎宋体） | 常规 | `/usr/share/fonts/truetype/arphic/uming.ttc` |
 
 正文使用 `text_renderer` 的 `FontText` / `draw_text_on_bg` 接口。依赖版本由
-[requirements.txt](../utils/synthesis/requirements.txt) 锁定，首次使用时安装：
+[requirements.txt](../tools/synthesis/requirements.txt) 锁定，首次使用时安装：
 
 ```bash
-.venv/bin/python -m pip install --no-deps -r recognition/utils/synthesis/requirements.txt
+.venv/bin/python -m pip install --no-deps -r recognition/tools/synthesis/requirements.txt
 ```
 
 三个入口的日期均在启动时自动取系统本地日期，序号从 `00001` 开始，在整批内连续递增。
-报告统一放在 `recognition/utils/synthesis/synthesis_report/` 下，按批次建立子目录：
+报告统一放在 `recognition/tools/synthesis/synthesis_report/` 下，按批次建立子目录：
 `synthesisN_YYYYMMDD/`、`synthesis_balanced_YYYYMMDD/`、`synthesis_red_YYYYMMDD/`。
 各子目录分别保存 `summary.json`、`samples.jsonl`、`preview.png` 等，互不覆盖。
 显式传入 `--report-dir` 时直接使用指定目录；三个入口仍支持自定义图片目录和标注文件路径。
 
 ## 1、全新或者占比少的字符
-对应脚本：[recognition/utils/synthesis/generate.py](../utils/synthesis/generate.py)。
+对应脚本：[recognition/tools/synthesis/generate.py](../tools/synthesis/generate.py)。
 适用于已整理好目标字清单，希望给每个字新增固定数量样本的情况。
 
 ### 字符来源说明
@@ -92,7 +92,7 @@
 | 图片目录 | `recognition/data/synthesis1_images/` |
 | 图片文件 | `synthesis1_YYYYMMDD_00001.png`、`synthesis1_YYYYMMDD_00002.png`……  |
 | 标注文件 | `recognition/data/synthesis1_annotation.txt` |
-| 报告目录 | `recognition/utils/synthesis/synthesis_report/` |
+| 报告目录 | `recognition/tools/synthesis/synthesis_report/` |
 
 默认从 `synthesis1` 开始选择未占用编号。如果对应图片目录、标注、`.partial` 标注或当天报告批次存在，
 自动尝试 `synthesis2`、`synthesis3`，以此类推；图片文件名前缀与选中的编号一致。
@@ -109,11 +109,11 @@
 ### 使用命令
 ```bash
 # 默认每个目标字新增 100 张
-.venv/bin/python recognition/utils/synthesis/generate.py
+.venv/bin/python recognition/tools/synthesis/generate.py
 ```
 
 ## 2、根据统计字符占比文件，生成字符来平衡字符占比
-对应脚本：[recognition/utils/synthesis/generate_balanced.py](../utils/synthesis/generate_balanced.py)。
+对应脚本：[recognition/tools/synthesis/generate_balanced.py](../tools/synthesis/generate_balanced.py)。
 用于根据统计结果补齐低频字，当前默认生成 **50000 张**。
 实际约束是补齐字符出现次数到指定范围，不是让所有字符的占比百分数相等。
 读取 CSV 第一列字符、最后一列次数，默认补至 110 次，可设 100～120；新增次数为目标减基线。
@@ -131,7 +131,7 @@
 | 图片目录 | `recognition/data/synthesis_balanced_YYYYMMDD_images/` |
 | 图片文件 | `synthesis_balanced_YYYYMMDD_00001.png`、`synthesis_balanced_YYYYMMDD_00002.png`…… |
 | 标注文件 | `recognition/data/synthesis_balanced_YYYYMMDD_annotation.txt` |
-| 报告目录 | `recognition/utils/synthesis/synthesis_report/` |
+| 报告目录 | `recognition/tools/synthesis/synthesis_report/` |
 
 
 ### 风格要求
@@ -141,13 +141,13 @@
 ### 使用命令
 ```bash
 # 校验 CSV、字体、参考图和完整配额计划，不生成图片或报告文件
-.venv/bin/python recognition/utils/synthesis/generate_balanced.py --dry-run
+.venv/bin/python recognition/tools/synthesis/generate_balanced.py --dry-run
 # 当前默认：生成 50000 张，低频目标字最终补到 110 次
-.venv/bin/python recognition/utils/synthesis/generate_balanced.py
+.venv/bin/python recognition/tools/synthesis/generate_balanced.py
 ```
 
 ## 3、特殊样本：生成受红章干扰的字符样本
-对应脚本：[recognition/utils/synthesis/generate_red_stamp.py](../utils/synthesis/generate_red_stamp.py)。
+对应脚本：[recognition/tools/synthesis/generate_red_stamp.py](../tools/synthesis/generate_red_stamp.py)。
 默认生成 **1000 张**，用于增强红章遮挡、叠印情况下的正文识别能力，不设置逐字补齐配额。
 
 ### 字符来源说明
@@ -161,10 +161,10 @@
 | 图片目录 | `recognition/data/synthesis_red_YYYYMMDD_images/` |
 | 图片文件 | `synthesis_red_YYYYMMDD_00001.png` 至默认批次的 `synthesis_red_YYYYMMDD_01000.png` |
 | 标注文件 | `recognition/data/synthesis_red_YYYYMMDD_annotation.txt` |
-| 报告目录 | `recognition/utils/synthesis/synthesis_report/` |
+| 报告目录 | `recognition/tools/synthesis/synthesis_report/` |
 
 ### 风格要求
-参考清单为 [red_stamp_references.txt](../utils/synthesis/red_stamp_references.txt)，
+参考清单为 [red_stamp_references.txt](../tools/synthesis/red_stamp_references.txt)，
 包含 **161 张图：train 33 张、val 128 张**。保留原 43 张，追加
 [2026-09-09 错误复核](analysisdata/errdata20260909.md) 中确认有章的 118 张，覆盖全部红章主类及其他分类中的叠印样本；
 混合错标样本也只提取数值风格，不读取 val 标注或复制参考像素。条目路径相对于 `recognition/data/`；
@@ -179,17 +179,17 @@
 ### 使用命令
 ```bash
 # 默认生成 1000 张红章干扰样本，每种场景 100 张
-.venv/bin/python recognition/utils/synthesis/generate_red_stamp.py
+.venv/bin/python recognition/tools/synthesis/generate_red_stamp.py
 
 # 只生成淡章、磨损和行尾残章，仍需使用空的输出目录
-.venv/bin/python recognition/utils/synthesis/generate_red_stamp.py --scenes faded worn right_edge
+.venv/bin/python recognition/tools/synthesis/generate_red_stamp.py --scenes faded worn right_edge
 ```
 
 ## 4、特殊样本：四个方向的表格边线
 
-脚本：[generate_lines.py](../utils/synthesis/generate_lines.py)，默认生成 **1000 张**。
+脚本：[generate_lines.py](../tools/synthesis/generate_lines.py)，默认生成 **1000 张**。
 上横线、下横线、左竖线、右竖线、四边框各 **200 张**。其他数量也按五种类型均分，差值不超过 1。
-参考清单 [line_references.txt](../utils/synthesis/line_references.txt) 包含指定的 15 张 val 图片。
+参考清单 [line_references.txt](../tools/synthesis/line_references.txt) 包含指定的 15 张 val 图片。
 仅提取纸面颜色、正文颜色、字号和长度统计；统计正文时排除长边线，不复制参考像素或标签。
 
 字符从实际字典 `recognition/keys.txt` 随机采样（仓库没有 `keys.py`），排除空白及不可打印字符，
@@ -198,7 +198,7 @@
 线条不属于正文标注，不承诺 1000 张覆盖全部字典或逐字配额。
 
 ```bash
-.venv/bin/python recognition/utils/synthesis/generate_lines.py --images 1000
+.venv/bin/python recognition/tools/synthesis/generate_lines.py --images 1000
 ```
 
 默认产物（日期为运行当天）：
@@ -208,7 +208,7 @@
 | RGB PNG | `recognition/data/synthesis_lines_YYYYMMDD_images/synthesis_lines_YYYYMMDD_00001.png` 起 |
 | 逗号加引号标注 | `recognition/data/synthesis_lines_YYYYMMDD_annotation.txt` |
 | 当前训练加载器使用的 Tab 标注 | `recognition/data/synthesis_lines_YYYYMMDD_annotation_training.txt` |
-| 报告及预览 | `recognition/utils/synthesis/synthesis_report/synthesis_lines_YYYYMMDD/` |
+| 报告及预览 | `recognition/tools/synthesis/synthesis_report/synthesis_lines_YYYYMMDD/` |
 
 两份标注的图片路径和文字完全一致，路径均相对于标注所在目录；正文中的双引号在逗号格式中按 CSV 规则转义。
 **加入训练时使用 `_annotation_training.txt`**，当前加载器只接受 Tab 分隔格式。
@@ -226,16 +226,16 @@
 字号沿用公共渲染器的 16～64 像素图片高度范围，不保证与每张原图逐像素一致。
 
 ```bash
-.venv/bin/python recognition/utils/synthesis/generate_edge.py
-.venv/bin/python recognition/utils/synthesis/generate_degraded.py
-.venv/bin/python recognition/utils/synthesis/generate_confusable.py
+.venv/bin/python recognition/tools/synthesis/generate_edge.py
+.venv/bin/python recognition/tools/synthesis/generate_degraded.py
+.venv/bin/python recognition/tools/synthesis/generate_confusable.py
 ```
 
 | 入口 | 合成规则 | 默认 1000 张的分配 |
 |---|---|---|
-| [generate_edge.py](../utils/synthesis/generate_edge.py) | 贴边、轻裁、相邻字一列残片 | 右贴边 400、右轻裁 200、左贴边 100、左轻裁 100、上下轻裁 100、残片 100 |
-| [generate_degraded.py](../utils/synthesis/generate_degraded.py) | 缩小放大并模糊、笔画粘连、局部笔画减淡、灰色扫描带 | 四种各 250 |
-| [generate_confusable.py](../utils/synthesis/generate_confusable.py) | 从分析表替换段提取汉字目标，覆盖真实字及误识字，保留正常清晰度 | 按目标字均分指定目标图片数，余数依目标顺序分配 |
+| [generate_edge.py](../tools/synthesis/generate_edge.py) | 贴边、轻裁、相邻字一列残片 | 右贴边 400、右轻裁 200、左贴边 100、左轻裁 100、上下轻裁 100、残片 100 |
+| [generate_degraded.py](../tools/synthesis/generate_degraded.py) | 缩小放大并模糊、笔画粘连、局部笔画减淡、灰色扫描带 | 四种各 250 |
+| [generate_confusable.py](../tools/synthesis/generate_confusable.py) | 从分析表替换段提取汉字目标，覆盖真实字及误识字，保留正常清晰度 | 按目标字均分指定目标图片数，余数依目标顺序分配 |
 
 ### 正文和标注边界
 
@@ -269,7 +269,7 @@
 |---|---|
 | 图片 | `recognition/data/synthesis_类别_YYYYMMDD_images/synthesis_类别_YYYYMMDD_00001.png` 起 |
 | **训练用 Tab 标注** | `recognition/data/synthesis_类别_YYYYMMDD_annotation.txt` |
-| 报告和预览 | `recognition/utils/synthesis/synthesis_report/synthesis_类别_YYYYMMDD/` |
+| 报告和预览 | `recognition/tools/synthesis/synthesis_report/synthesis_类别_YYYYMMDD/` |
 
 每类只生成 **`_annotation.txt`**，格式为 `relative/path.png<TAB>文字`，可直接用于训练。
 不额外生成 `_annotation_training.txt`。图片路径相对于标注文件所在目录，现有训练清单不自动修改。

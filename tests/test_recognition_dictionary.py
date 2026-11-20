@@ -2,13 +2,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from recognition.utils.dictionary import extract_chars_to_dict
+from recognition.tools.dictionary import extract_chars_to_dict
 
 
 SCRIPT = (
     Path(__file__).resolve().parents[1]
     / "recognition"
-    / "utils"
+    / "tools"
     / "dictionary.py"
 )
 

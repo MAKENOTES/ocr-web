@@ -5,8 +5,8 @@ import random
 from PIL import Image
 import pytest
 
-from recognition.utils.synthesis.restore import generate, parse_args, read_plan, render_record
-from recognition.utils.synthesis.generate import load_fonts
+from recognition.tools.synthesis.restore import generate, parse_args, read_plan, render_record
+from recognition.tools.synthesis.generate import load_fonts
 
 
 def inputs(tmp_path, effect=None):

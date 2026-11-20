@@ -4,7 +4,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import pytest
 
-from recognition.utils.synthesis.regenerate import generate, load_texts, parse_args
+from recognition.tools.synthesis.regenerate import generate, load_texts, parse_args
 
 
 @pytest.mark.parametrize("content", ["a.png\t\n", "a.png\tZ\n", "a.png A\n", ""])
@@ -57,7 +57,7 @@ def test_regeneration_preserves_text_and_publishes_only_complete_output(tmp_path
     args.report_dir = tmp_path / "failed_report"
     def fail(*args, **kwargs):
         raise RuntimeError("render failed")
-    monkeypatch.setattr("recognition.utils.synthesis.regenerate.render_image", fail)
+    monkeypatch.setattr("recognition.tools.synthesis.regenerate.render_image", fail)
     with pytest.raises(RuntimeError, match="render failed"):
         generate(args)
     assert not args.annotation.exists()

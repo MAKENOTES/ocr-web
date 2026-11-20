@@ -2,13 +2,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from recognition.utils.extract_error_keys import extract_error_keys
+from recognition.tools.extract_error_keys import extract_error_keys
 
 
 SCRIPT = (
     Path(__file__).resolve().parents[1]
     / "recognition"
-    / "utils"
+    / "tools"
     / "extract_error_keys.py"
 )
 

@@ -84,4 +84,4 @@ TODO
     效果不错 具体调整看git调整记录。
 
 20260702
-    字典有问题 ，recognition/utils/compare_keys.py   可以优化 majorbio-ocr 项目
+    字典有问题 ，recognition/tools/compare_keys.py   可以优化 majorbio-ocr 项目

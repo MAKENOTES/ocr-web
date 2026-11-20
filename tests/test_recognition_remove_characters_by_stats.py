@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from recognition.utils.character_stats import DEFAULT_ANNOTATIONS, build_statistics, write_statistics
-from recognition.utils.remove_characters_by_stats import (
+from recognition.tools.character_stats import DEFAULT_ANNOTATIONS, build_statistics, write_statistics
+from recognition.tools.remove_characters_by_stats import (
     DATASETS,
     build_plan,
     load_statistics,
@@ -191,7 +191,7 @@ def test_backup_failure_leaves_sources_untouched(tmp_path, monkeypatch):
     def fail_copy(*args, **kwargs):
         raise OSError("backup failed")
 
-    monkeypatch.setattr("recognition.utils.remove_characters_by_stats.shutil.copy2", fail_copy)
+    monkeypatch.setattr("recognition.tools.remove_characters_by_stats.shutil.copy2", fail_copy)
     assert main([*cli_args(tmp_path, keys, csv_path), "--apply"]) == 1
     for path, content in before.items():
         assert path.read_bytes() == content
