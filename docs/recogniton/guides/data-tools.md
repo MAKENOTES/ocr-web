@@ -25,18 +25,19 @@
 `train_images/`、`val_images/`、`train_annotation.txt`、`val_annotation.txt` 必须为空；
 缺图、重复标注、未标注 PNG 或目标文件冲突也会让脚本在写入前停止。
 
-## 四份标注校对
+## 训练集字典覆盖核对
 
-手工调整 train/val 或隔离字典外字符样本后，运行下列只读脚本校对四份标注：
+`recognition/training_data.py` 的 `TRAIN_ANNOTATION` 定义 `train.py` 实际读取的全部训练标注。
+修改数据或字典后运行下列只读脚本，核对训练文字是否覆盖 `keys.txt`：
 
 ```bash
-.venv/bin/python recognition/tools/check_dataset_annotations.py
+.venv/bin/python recognition/tools/check_train_keys_coverage.py
 ```
 
-脚本仅按不含目录的图片文件名判断，例如 `du20260902-002391.png`。它要求
-`all = train + val + val_unknown`、三个子集两两没有同名图片，并逐项比较 all 与所属
-split 中同名图片后面的识别文字。校对通过返回 0；缺失、多余、跨 split 重复或文字不同
-会列出具体文件名并返回 1。每类默认最多显示 20 条详情，传入 `--max-details 0` 可显示全部。
+脚本按训练的 Tab 解析和首尾空白处理规则读取这些标注，空标签跳过，不检查图片。
+它报告训练记录数、文字总字符数、已覆盖与未覆盖的字典字符，并按次数列出训练文字中
+`keys.txt` 未收录的字符（训练时会编码为 `[UNK]`）。全部覆盖且无字典外字符时返回 0；
+存在未覆盖字符或字典外字符时列出字符、字典序号和码点并返回 1；文件或格式错误返回 2。
 
 ## 字符频次与数据集覆盖率
 
@@ -144,6 +145,6 @@ CSV 备份到 `outputs/recognition_character_removal/removal-*/`；`manifest.jso
 多文件操作不是事务，异常中断可按 manifest 从备份恢复。执行后重新运行 `character_stats.py`。
 支持 `--csv`、`--data-dir`、`--backup-dir` 和 `--max-details`；默认不执行真实数据删除。
 
-默认统计和清理范围仅为这四份文件，不自动读取 `train.py` 的九份训练输入。
+默认统计和清理范围仅为这四份文件，不自动读取 `train.py` 的全部训练输入。
 删除字典字符前必须额外核对 synthesis3 及各专项标注的字符与图片引用；否则可能留下训练字典外标签。
-`check_dataset_annotations.py` 要求 all/train/val/val_unknown 四份清单仍存在；它不是当前九份训练输入的通用校验器。
+训练输入对字典的覆盖情况用 `check_train_keys_coverage.py` 核对；上述统计和清理工具不能代替这项检查。

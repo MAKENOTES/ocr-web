@@ -57,8 +57,8 @@ train/val 零出现、合成合计不足 10 次或仅在一份合成数据出现
 
 `recognition/split_dataset.py` 默认预览，`--apply` 才从完整 all 数据复制出独立 train/val，
 输出非空时拒绝执行。已有人工调整的数据不能直接重跑初始划分。
-`check_dataset_annotations.py` 专门核对 all=train+val+val_unknown；只有这些来源清单齐备才可使用，
-不能用于代替当前九份训练清单的全量一致性检查。
+`recognition/tools/check_train_keys_coverage.py` 只读核对 `train.py` 的训练标注是否覆盖
+`keys.txt` 的全部字符，并列出训练文字中的字典外字符；它不检查图片，也不替代跨清单的一致性检查。
 
 `convert_annotation_delimiter.py --check` 只预览首逗号到 Tab 的转换，去掉 `--check` 会覆盖输入。
 该工具不负责去正文外层引号；只适用于已确认格式的旧数据，不能对当前 Tab 文件做 CSV 猜测。

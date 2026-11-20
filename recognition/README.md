@@ -40,7 +40,7 @@ recognition/
 │   └── openvino.py           # 长度感知 GRU 的 OpenVINO 图适配
 ├── tools/                    # 数据校对、统计、清理与合成工具，不参与训练/推理/导出
 │   ├── character_stats.py    # 字符频次统计与覆盖率报告
-│   ├── check_dataset_annotations.py   # all/train/val/val_unknown 四份清单校对
+│   ├── check_train_keys_coverage.py   # 训练集对 keys.txt 的字符覆盖核对
 │   ├── check_val_annotation_keys.py   # 验证集字典外字符核对
 │   ├── compare_keys.py       # 标注包含的字典外字符比较
 │   ├── compare_key_files.py  # 新旧字典的差集提取
