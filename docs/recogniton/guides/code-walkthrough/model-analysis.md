@@ -11,7 +11,7 @@
 ## 1. 输入输出：先把四种维度分清
 
 ```python
-model = CRNN(img_height=32, nc=3, n_class=converter.num_classes)
+model = CRNN(img_height=48, nc=3, n_class=converter.num_classes)
 log_probs = model(images, img_widths=img_widths)
 texts = converter.decode(log_probs, layout="TBC")
 ```
@@ -25,7 +25,7 @@ texts = converter.decode(log_probs, layout="TBC")
 | `K` / `n_class` | 字符类别数，含 blank 和 UNK | `converter.num_classes` |
 | `nh` | GRU 每个方向的隐藏维度 | 默认 `256` |
 
-输入图片为 `[B, C_img, 32, W_batch]`，`img_widths` 为 `[B]`；输出是 **`[T, B, K]`，即 TBC**，值为 `log_softmax` 后的对数概率。
+输入图片为 `[B, C_img, 48, W_batch]`，`img_widths` 为 `[B]`；输出是 **`[T, B, K]`，即 TBC**，值为 `log_softmax` 后的对数概率。
 
 图像通道数和字符类别数是不同的维度，本文分别用 `C_img`、`K` 表示，避免都缩写成 `C`。`T` 包括被屏蔽的无效尾部位置，未必等于任意一张图的有效长度。
 
@@ -34,7 +34,7 @@ texts = converter.decode(log_probs, layout="TBC")
 | 类 / 方法 | 职责 |
 | --- | --- |
 | `DepthwiseSeparableConv` | 深度卷积、逐点卷积、BatchNorm、ReLU6 的组合 |
-| `MobileFeatureExtractor` | 将高度 32 的图片压成高度 1 的特征图 |
+| `MobileFeatureExtractor` | 将高度 48 的图片压成高度 1 的特征图 |
 | `CRNN.__init__` | 连接 CNN、Dropout、多层 BiGRU（`num_layers`，默认 2）和分类头 |
 | `_calc_cnn_output_width` | 从一个真实像素宽度算有效时间步 |
 | `_calc_cnn_output_widths` | 同一公式的批量张量版本 |
@@ -44,7 +44,7 @@ texts = converter.decode(log_probs, layout="TBC")
 
 ```mermaid
 flowchart TD
-    I["images：B × C_img × 32 × W_batch"] --> CNN["MobileFeatureExtractor"]
+    I["images：B × C_img × 48 × W_batch"] --> CNN["MobileFeatureExtractor"]
     CNN --> F["特征图：B × 256 × 1 × T"]
     F --> S["squeeze 与 permute：T × B × 256"]
     S --> D1["CNN Dropout：p=0.1"]
@@ -84,22 +84,23 @@ flowchart TD
 
 ### 3.2 用两张图走一遍真实形状
 
-沿用 dataset 文档的例子：两张图真实宽度分别为 `64`、`100`，经共享 collate 得到 `[2, 3, 32, 136]`。
+沿用 dataset 文档的例子：两张图真实宽度分别为 `64`、`100`，经共享 collate 得到 `[2, 3, 48, 144]`（100 + 40 px 保护区后按 8 取整）。
 
 下表按当前代码逐层核对，其中每个 block 都包含两个深度可分离卷积：
 
 | 阶段 | 关键设置 | 输出形状 |
 | --- | --- | --- |
-| 输入 | RGB；高度 `32`；batch 宽 `136` | `[2, 3, 32, 136]` |
-| `stem` | 普通 `3 × 3` 卷积，stride `2`、padding `1`；BN + ReLU6 | `[2, 32, 16, 68]` |
-| `pool` | `2 × 2` MaxPool，stride `2` | `[2, 32, 8, 34]` |
-| `block1` | `32→64→64`；第一层 stride `(2, 1)`，第二层 stride `1` | `[2, 64, 4, 34]` |
-| `block2` | `64→128→128`；同样只继续缩小高度 | `[2, 128, 2, 34]` |
-| `block3` | `128→256→256`；同样只继续缩小高度 | `[2, 256, 1, 34]` |
+| 输入 | RGB；高度 `48`；batch 宽 `144` | `[2, 3, 48, 144]` |
+| `stem` | 普通 `3 × 3` 卷积，stride `2`、padding `1`；BN + ReLU6 | `[2, 32, 24, 72]` |
+| `pool` | `2 × 2` MaxPool，stride `2` | `[2, 32, 12, 36]` |
+| `block1` | `32→64→64`；第一层 stride `(2, 1)`，第二层 stride `1` | `[2, 64, 6, 36]` |
+| `block2` | `64→128→128`；同样只继续缩小高度 | `[2, 128, 3, 36]` |
+| `block3` | `128→256→256`；同样只继续缩小高度 | `[2, 256, 2, 36]` |
+| `block4` | `256→256→256`；48 高输入的最后一轮纵向下采样 | `[2, 256, 1, 36]` |
 
-高度逐步从 `32` 变成 `1`；宽度只在 `stem` 和 `pool` 缩小，后续保持不变。因此沿宽度的每一列，都成为一个含 256 个特征的时间步。
+高度逐步从 `48` 变成 `1`；宽度只在 `stem` 和 `pool` 缩小，后续保持不变。因此沿宽度的每一列，都成为一个含 256 个特征的时间步。
 
-下采样对应 `self.stem`、`self.pool`、`self.block1～3`；修改结构时需同步更新宽度计算方法。
+下采样对应 `self.stem`、`self.pool`、`self.block1～4`；修改结构时需同步更新宽度计算方法。
 
 ### 3.3 从特征图改成 GRU 接受的维度顺序
 
@@ -111,7 +112,7 @@ flowchart TD
 
 `squeeze(2)` 只删除高度为 1 的那一维；`permute()` 交换维度含义，不会把图片或时间顺序打乱。这里不是把整张图片展平为一个超长向量，而是保留横向位置顺序。
 
-构造函数要求 `img_height == 32`，forward 还会检查 CNN 输出高度为 `1`。新模型的 `nc=3` 由调用方传入；特征提取器自身的默认 `input_channel=1` 和文件末尾的单通道示例，不代表当前训练入口使用灰度。
+构造函数要求 `img_height == 48`，forward 还会检查 CNN 输出高度为 `1`。新模型的 `nc=3` 由调用方传入；特征提取器自身的默认 `input_channel=1` 和文件末尾的单通道示例，不代表当前训练入口使用灰度。
 
 ## 4. 宽度怎样精确变成时间步
 
@@ -251,14 +252,14 @@ CTC 允许一段图片时间序列对应较短的文字标签，因此不要求�
 
 初始化时，CNN 卷积使用 Kaiming normal；BatchNorm 的缩放参数为 `1`、偏置为 `0`；GRU 输入权重用 Xavier uniform、循环权重用 orthogonal、偏置为 `0`；Linear 使用 Xavier uniform 和零偏置。加载 checkpoint 后，这些初始值会被已训练参数覆盖。
 
-对当前代码实例化 `CRNN(img_height=32, nc=3, n_class=6000, nh=256)`，逐模块统计 `sum(p.numel() for p in module.parameters())` 得到：
+对当前代码实例化 `CRNN(img_height=48, nc=3, n_class=6000, nh=256, num_layers=2)`，逐模块统计 `sum(p.numel() for p in module.parameters())` 得到：
 
 | 部分 | 参数数 |
 | --- | ---: |
-| CNN | 137,792 |
-| BiGRU | 789,504 |
+| CNN | 274,496 |
+| BiGRU（2 层） | 1,972,224 |
 | Linear | 3,078,000 |
-| 合计 | 4,005,296 |
+| 合计 | 5,324,720 |
 
 这里 `6000` 是演示用**总类别数**，不是对当前 `keys.txt` 大小的声明。参数量不包括 BatchNorm 的运行统计等 buffer。这个配置下分类头占据多数参数，类别数量会直接影响模型大小。
 
@@ -291,7 +292,7 @@ with TemporaryDirectory() as temp_dir:
         (torch.zeros(3, 32, 64), "你好"),
         (torch.zeros(3, 32, 100), "你 A"),
     ])
-    model = CRNN(img_height=32, nc=3, n_class=converter.num_classes).eval()
+    model = CRNN(img_height=48, nc=3, n_class=converter.num_classes).eval()
     targets, target_lengths = converter.encode(list(labels))
     input_lengths = model._calc_cnn_output_widths(img_widths)
 

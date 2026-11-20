@@ -26,7 +26,7 @@ from recognition.utils.openvino import make_gru_length_safe
 class CRNNCalibrationDataset:
     """与部署完全相同的完整文字框预处理；默认不限宽，不压缩长文本。"""
 
-    def __init__(self, image_dir, img_height=32, max_width=None, num_channels=3,
+    def __init__(self, image_dir, img_height=48, max_width=None, num_channels=3,
                  subset_size=300, seed=20260908):
         extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
         paths = sorted(str(path) for path in Path(image_dir).rglob('*')
@@ -42,12 +42,12 @@ class CRNNCalibrationDataset:
         return len(self.dataset)
 
     def __getitem__(self, index):
-        # 在添加 batch 维之前复用真实推理 collate，保留每图 32px 右侧保护区。
+        # 在添加 batch 维之前复用真实推理 collate，保留每图 40px 右侧保护区。
         images, _, widths = dynamic_padding_collate_fn([self.dataset[index]])
         return images[0].numpy(), np.int64(widths[0])
 
 
-def create_calibration_dataloader(image_dir, img_height=32, max_width=None,
+def create_calibration_dataloader(image_dir, img_height=48, max_width=None,
                                   subset_size=300, num_channels=3, seed=20260908):
     dataset = CRNNCalibrationDataset(image_dir, img_height, max_width, num_channels,
                                      subset_size, seed)
@@ -124,7 +124,7 @@ def make_validation_fn(converter):
 
 
 def quantize_via_openvino_ir(onnx_model_path, calibration_dir, output_dir,
-                             img_height=32, max_width=None, subset_size=300,
+                             img_height=48, max_width=None, subset_size=300,
                              accuracy_control=False, validation_dir=None,
                              max_drop=0.001, keys_path='recognition/keys.txt',
                              validation_annotation=None, validation_size=1000,
@@ -200,7 +200,7 @@ def quantize_via_openvino_ir(onnx_model_path, calibration_dir, output_dir,
 
 
 def quantize_onnx_directly(onnx_model_path, calibration_dir, output_dir,
-                           img_height=32, max_width=None, subset_size=300,
+                           img_height=48, max_width=None, subset_size=300,
                            seed=20260908, quantize_head=False):
     """可选 NNCF ONNX 路径，共享与 OpenVINO 相同的校准输入和排除策略。"""
     import nncf
@@ -240,7 +240,7 @@ def quantize_onnx_directly(onnx_model_path, calibration_dir, output_dir,
 
 
 def validate_and_benchmark(fp32_model_path, int8_model_path, calibration_dir,
-                            keys_path, img_height=32, max_width=None,
+                            keys_path, img_height=48, max_width=None,
                             validation_annotation=None, limit=1000, num_threads=4,
                             output_path=None):
     if not validation_annotation:

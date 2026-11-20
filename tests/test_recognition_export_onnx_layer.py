@@ -12,7 +12,7 @@ from recognition.models.model import CRNN
 from recognition.runtime.backends import OpenVINOBackend
 from recognition_export_onnx_layer import export_onnx
 
-EXPORT_WIDTH = 96  # 导出样例张量宽度，必须不小于 MIN_IMAGE_WIDTH + CNN_RIGHT_CONTEXT
+EXPORT_WIDTH = 128  # 导出样例张量宽度，必须不小于 MIN_IMAGE_WIDTH + CNN_RIGHT_CONTEXT
 
 
 def _write_keys(path, chars: str = "甲乙丙丁戊") -> int:
@@ -27,7 +27,7 @@ def _write_checkpoint(tmp_path, num_layers: int, n_class: int):
     使用 CRNN 的默认隐藏维度，与导出入口按默认值构建的模型保持一致。
     """
     torch.manual_seed(20260908)
-    model = CRNN(32, 3, n_class, num_layers=num_layers).eval()
+    model = CRNN(48, 3, n_class, num_layers=num_layers).eval()
     with torch.no_grad():
         for name, parameter in model.rnn.named_parameters():
             if "bias" in name:
@@ -66,7 +66,7 @@ def test_export_is_layer_split_and_matches_pytorch(tmp_path, num_layers):
     # 覆盖张量宽度除以 4 的全部余数，防止池化按导出样例的奇偶性固化。
     for tensor_width, widths in [(96, [64]), (97, [65]), (98, [66]), (99, [67]),
                                  (129, [48, 64, 97])]:
-        images = torch.randn(len(widths), 3, 32, tensor_width)
+        images = torch.randn(len(widths), 3, 48, tensor_width)
         img_widths = torch.tensor(widths)
         with torch.inference_mode():
             expected = model(images, img_widths).numpy()
@@ -95,8 +95,8 @@ def test_openvino_backend_keeps_batch_consistency(tmp_path, num_layers):
 
     # 混合宽度 batch 在同一画布上补边；前两张的有效宽度是 48，第三张是 97。
     # padding 区域填入随机内容，任一方向泄漏 padding 都会改变输出。
-    single = torch.randn(1, 3, 32, 129)
-    mixed = torch.randn(3, 3, 32, 129)
+    single = torch.randn(1, 3, 48, 129)
+    mixed = torch.randn(3, 3, 48, 129)
     mixed[2] = single[0]
     img_widths = torch.tensor([48, 48, 97])
     with torch.inference_mode():

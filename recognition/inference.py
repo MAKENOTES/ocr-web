@@ -24,13 +24,13 @@ from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 # 配置区域 (常量)
 # 1. 核心路径
-MODEL_PATH = os.path.join(project_root, "recognition/checkpoints/ocr_exp_1792742584371121917/best_cer_0.003165_epoch_460.pth")  # 训练好的模型路径
+MODEL_PATH = os.path.join(project_root, "recognition/checkpoints/ocr_exp_1795008141553649655/best_cer_0.002528_epoch_584.pth")  # 训练好的模型路径
 KEYS_PATH = os.path.join(project_root, "recognition/keys.txt")  # 字典路径 (必须与训练一致)
 INPUT_PATH = os.path.join(project_root, "recognition/data/test_images")  # 待推理的图片文件夹 (或单张图片路径)
 OUTPUT_FILE = None  # 结果保存路径 (设为 None 则只打印)
 
 # 2. 模型参数
-IMG_HEIGHT = 32  # 固定高度
+IMG_HEIGHT = 48  # 固定高度，单位 px；必须与权重训练时的模型高度一致。
 DEFAULT_NUM_CHANNELS = 3  # 新训练使用 RGB；旧 checkpoint 会自动识别为 1 通道
 
 # 3. 推理参数
@@ -126,7 +126,7 @@ def main():
             preds = model(images, img_widths=img_widths)
 
             # 解码 -> List[str]
-            # converter.decode 直接取 argmax，再合并连续重复和移除 blank。
+            # converter.decode 取逐帧最大类别，低置信度帧按 blank 处理，再合并连续重复并移除 blank。
             pred_texts = converter.decode(preds.cpu(), layout="TBC")
 
             # 收集结果

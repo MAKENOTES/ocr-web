@@ -21,7 +21,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from recognition.components.converter import LabelConverter
 from recognition.components.dataset import CNN_RIGHT_CONTEXT, dynamic_padding_collate_fn
 from recognition.components.preprocessing import MIN_IMAGE_WIDTH
-from recognition.models.model import CRNN
+from recognition.models.model import CRNN, IMG_HEIGHT
 from recognition.utils.checkpoint import extract_state_dict, infer_num_channels
 
 MAX_EXPORT_BATCH = 256
@@ -70,7 +70,7 @@ class DynamoExportWrapper(torch.nn.Module):
                 shape=(conv.shape[0], conv.shape[1], conv.shape[2] // 2, conv.shape[3] // 2),
                 version=12,
             )
-            conv = cnn.block3(cnn.block2(cnn.block1(conv)))
+            conv = cnn.block4(cnn.block3(cnn.block2(cnn.block1(conv))))
         else:
             conv = self.model.cnn(images)
         conv = conv.squeeze(2).permute(2, 0, 1)
@@ -126,7 +126,7 @@ def validate_outputs(model: CRNN, session: ort.InferenceSession, output_type: st
     """用原始 CRNN 校验真实 collate 路径、混合长度及跨 batch 一致性。"""
     generator = torch.Generator().manual_seed(20260909)
     short_width = max(MIN_IMAGE_WIDTH, 17)
-    short = torch.rand(num_channels, 32, short_width, generator=generator)
+    short = torch.rand(num_channels, IMG_HEIGHT, short_width, generator=generator)
     longest = min(img_width + 81, MAX_EXPORT_WIDTH - CNN_RIGHT_CONTEXT)
     cases = ([short_width], [short_width, longest],
              [97, short_width, 53], [longest, short_width, 64, short_width])
@@ -135,7 +135,7 @@ def validate_outputs(model: CRNN, session: ort.InferenceSession, output_type: st
     for widths in cases:
         samples = [
             (short.clone() if width == short_width else
-             torch.rand(num_channels, 32, width, generator=generator), str(index))
+             torch.rand(num_channels, IMG_HEIGHT, width, generator=generator), str(index))
             for index, width in enumerate(widths)
         ]
         images, _, img_widths = dynamic_padding_collate_fn(samples)
@@ -178,7 +178,7 @@ def export_model(model: CRNN, output_path: str | Path, keys_path: str | Path,
     wrapper = DynamoExportWrapper(model, output_type)
     channels = wrapper.model.cnn.stem[0].in_channels
     generator = torch.Generator().manual_seed(20260909)
-    images = torch.randn(2, channels, 32, img_width, generator=generator)
+    images = torch.randn(2, channels, IMG_HEIGHT, img_width, generator=generator)
     max_width = img_width - CNN_RIGHT_CONTEXT
     widths = torch.tensor([max(MIN_IMAGE_WIDTH, max_width // 2), max_width])
     # 为 torch.export 的卷积索引范围证明提供有限上界，避免 2.9 的无界约束错误。
@@ -227,14 +227,14 @@ def export_onnx(model_path: str, output_path: str, keys_path: str,
     print(f"[加载] {model_path}")
     converter = LabelConverter(keys_path)
     state = extract_state_dict(torch.load(model_path, map_location="cpu"))
-    model = CRNN(32, infer_num_channels(state), converter.num_classes,
+    model = CRNN(IMG_HEIGHT, infer_num_channels(state), converter.num_classes,
                  nh=state["rnn.weight_hh_l0"].shape[1])
     model.load_state_dict(state)
     model.eval()
     export_model(model, output_path, keys_path, img_width, output_type, num_threads)
 
     session = create_session(output_path, num_threads)
-    images = torch.zeros(1, model.cnn.stem[0].in_channels, 32, img_width)
+    images = torch.zeros(1, model.cnn.stem[0].in_channels, IMG_HEIGHT, img_width)
     widths = torch.tensor([img_width - CNN_RIGHT_CONTEXT])
     feeds = {"input": images.numpy(), "img_widths": widths.numpy()}
     with torch.inference_mode():

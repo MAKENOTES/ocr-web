@@ -1,6 +1,6 @@
 """识别推理后端：ONNX Runtime、OpenVINO 和 PyTorch。
 
-所有后端接收 [B,C,32,W] 图片张量与每张图片的真实宽度 img_widths，输出统一为
+所有后端接收 [B,C,48,W] 图片张量与每张图片的真实宽度 img_widths，输出统一为
 [T,B,类别数]。归一化函数兼容导出模型可能使用的 [B,T,C] 布局。
 """
 
@@ -13,10 +13,9 @@ import torch
 from .checkpoint import extract_state_dict, infer_num_channels, infer_num_layers
 from .converter import LabelConverter
 from .dataset import CNN_RIGHT_CONTEXT
-from .model import DEFAULT_NUM_LAYERS
+# 识别模型固定输入高度（像素）直接取自模型定义，避免训练、导出和推理各写一份。
+from .model import DEFAULT_NUM_LAYERS, IMG_HEIGHT
 
-# 识别模型固定输入高度（像素）；训练、导出和推理共用该约束。
-IMG_HEIGHT = 32
 # 无法从模型输入或权重推断通道数时使用的 RGB 通道数。
 DEFAULT_NUM_CHANNELS = 3
 # 预热张量宽度（像素），需覆盖一次动态宽度推理并保留右侧背景保护区。

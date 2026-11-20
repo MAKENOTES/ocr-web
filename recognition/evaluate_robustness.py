@@ -47,7 +47,7 @@ VAL_ANNOTATION = "recognition/data/val_annotation.txt"  # 本次评估的 Tab �
 SAMPLE_LIMIT = 2000  # 参与评估的样本数；0 表示使用全部样本。条件越多耗时越久，默认抽样。
 SAMPLE_SEED = 0  # 抽样种子；固定后同一份数据每次评估使用同一批样本，便于对比不同权重。
 
-IMG_HEIGHT = 32  # 输入固定高度，单位 px；评估不限制宽度。
+IMG_HEIGHT = 48  # 输入固定高度，单位 px；必须与权重训练时的模型高度一致。
 DEFAULT_NUM_CHANNELS = 3  # 无法从首层权重推断通道时默认使用 RGB 三通道。
 BATCH_SIZE = 64  # 每批评估图片数，末批保留。
 NUM_WORKERS = 4  # 数据加载子进程数；0 表示主进程加载。

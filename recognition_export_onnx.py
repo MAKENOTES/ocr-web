@@ -152,7 +152,7 @@ class OnnxExportWrapper(torch.nn.Module):
     def forward(self, input: torch.Tensor, img_widths: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            input:      [B, C, 32, W] 图像张量（含 padding）
+            input:      [B, C, 48, W] 图像张量（含 padding）
             img_widths: [B] 每张图片 padding 前的真实像素宽度 (int32/int64)
         Returns:
             output:     [SeqLen, B, NumClasses] log_probs 或 logits
@@ -207,7 +207,7 @@ class OnnxExportWrapper(torch.nn.Module):
 
 
 def export_onnx(model_path: str, output_path: str, keys_path: str,
-                img_height: int = 32, img_width: int = 256,
+                img_height: int = 48, img_width: int = 256,
                 output_type: str = "log_probs", num_threads: int = 1):
     """
     将 PyTorch CRNN 模型导出为 ONNX 格式。
@@ -444,7 +444,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_path", default="recognition/checkpoints/ocr_exp_1790169909626811297/epoch_655.pth")
     parser.add_argument("--output_path", default="best_recognition.onnx")
     parser.add_argument("--keys_path", default="recognition/keys.txt")
-    parser.add_argument("--img_height", type=int, default=32)
+    parser.add_argument("--img_height", type=int, default=48)
     parser.add_argument("--img_width", type=int, default=256, help="trace 样例宽度，不限制部署宽度")
     parser.add_argument("--output_type", choices=["log_probs", "logits"], default="log_probs",
                         help="logits 适用于 greedy 解码；需要概率/CTC loss 时保留 log_probs")

@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader, Subset
 
 from recognition.components.converter import LabelConverter
 from recognition.components.dataset import TextRecognitionDataset, dynamic_padding_collate_fn
+from recognition.models.model import IMG_HEIGHT
 from recognition_inference import load_backend
 
 
@@ -94,7 +95,7 @@ def main():
     torch.set_num_threads(1)
     converter = LabelConverter(args.keys_path)
     backend = load_backend(args.model_path, args.backend, args.keys_path, args.num_threads, args.allow_spinning)
-    dataset = TextRecognitionDataset(args.annotation, 32, None, backend.num_channels, is_train=False)
+    dataset = TextRecognitionDataset(args.annotation, IMG_HEIGHT, None, backend.num_channels, is_train=False)
     metrics, predictions = evaluate_backend(
         backend, dataset, converter, batch_size=args.batch_size, limit=args.limit,
         seed=args.seed, sort_by_width=args.sort_by_width, num_workers=args.num_workers)

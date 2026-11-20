@@ -97,7 +97,7 @@ lengths       = [2,    3,       1]
 
 每次调用 `encode()` 遇到未知字符都会打印本批次的数量与字符列表。字符串长度按 Python 逐字符遍历计算，不是按用户看到的组合字形或单词计算。
 
-## 4. decode：先选类别，再执行 CTC 合并
+## 4. decode：先取最大类别与置信度，再执行 CTC 合并
 
 ```mermaid
 flowchart TD
@@ -106,9 +106,9 @@ flowchart TD
     L -->|TBC| TR["交换前两维，变成 BTC"]
     L -->|BTC| KEEP["保持原顺序"]
     L -->|其他值| ERR["抛出 ValueError"]
-    TR --> A["沿类别维 argmax，得到 B × T 编号"]
+    TR --> A["沿类别维 softmax，得到 B × T 最大概率与编号"]
     KEEP --> A
-    A --> C["逐条扫描：保留非 blank 且不同于前一步的编号"]
+    A --> C["逐条扫描：置信度低于门槛的帧按 blank 处理，其余按 CTC 规则合并"]
     C --> S["查 idx2char 并拼接字符串"]
 ```
 
@@ -124,7 +124,7 @@ texts = converter.decode(preds.transpose(0, 1), layout="BTC")
 
 `layout` 是必须通过关键字传入的参数。不能根据“哪一维更大”猜时间维，因为短图的时间步数可能少于 batch 图片数。传错一个仍然合法的 layout，通常不会触发类别检查，却会把 batch 维当作时间维处理。
 
-模型输出的是 `log_softmax` 后的对数概率，但这里仅使用 `argmax`。对于同一组分数，logits、softmax 概率和 log_softmax 对数概率的最大类别相同，因此解码前不需要再做一次 softmax。
+模型输出的是 `log_softmax` 后的对数概率，解码内部统一做一次 `softmax` 取每帧最大概率；对 log_softmax 输入这一步等价于还原原始概率，对 logits 输入也成立。最大概率低于 `DECODE_MIN_CONFIDENCE`（默认 0.1）的帧按 blank 处理，用于丢弃稀疏小图和空白框首尾的低置信度伪字符；传 `min_confidence=0` 可恢复纯 argmax 解码。
 
 ### 第二步：理解“重复”与 blank 的先后关系
 
@@ -136,13 +136,14 @@ texts = converter.decode(preds.transpose(0, 1), layout="BTC")
 合并结果：  "你你好 A"
 ```
 
-代码比较的是**当前编号与原始路径的前一个编号**。因此：
+代码比较的是**当前编号与上一个被接受的编号**；置信度不足的帧先按 blank 处理，因此也会打断重复。因此：
 
 | 原始路径 | 解码结果 | 原因 |
 | --- | --- | --- |
 | `你 → 你` | `你` | 相邻重复合并 |
 | `你 → blank → 你` | `你你` | blank 隔开了两个相同字 |
 | `blank → blank` | 空字符串 | blank 不输出 |
+| `你 → 低置信度你 → 你` | `你你` | 中间帧按 blank 处理，重复被打断 |
 | `你 → 普通空格 → 好` | `你 好` | 普通空格是有效字符 |
 | `UNK → UNK` | `[UNK]` | UNK 按普通非 blank 类别处理 |
 
@@ -152,7 +153,7 @@ texts = converter.decode(preds.transpose(0, 1), layout="BTC")
 
 这个接口只接收 `preds` 和 `layout`，会扫描完整的 `T` 个时间步。主链路依靠 `CRNN.forward(..., img_widths=...)` 把无效时间步固定成 blank，所以这些位置不会生成尾部杂字。
 
-若使用其他模型或漏传 `img_widths`，不能指望 converter 自动判断哪些时间步属于 padding。它也不做 beam search、语言模型纠错、置信度计算或图片后处理。
+若使用其他模型或漏传 `img_widths`，不能指望 converter 自动判断哪些时间步属于 padding。它也不做 beam search、语言模型纠错或图片后处理；置信度只用于逐帧门槛，不改变类别分数。
 
 ## 5. 可运行的小例子
 
@@ -186,7 +187,7 @@ with TemporaryDirectory() as temp_dir:
     print(targets.tolist(), lengths.tolist(), converter.decode(scores, layout="TBC"))
 ```
 
-这里的 `scores` 是人为指定的分类分数，仅用于演示；不是某个已训练模型的识别结果。
+这里的 `scores` 是人为指定的分类分数，仅用于演示；不是某个已训练模型的识别结果。每帧最大概率接近 1，远高于默认门槛，所以结果与纯 argmax 解码一致；门槛只在最大概率低于 0.1 的帧上生效。
 
 ## 6. 接手时如何定位问题
 

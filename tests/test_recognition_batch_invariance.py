@@ -23,7 +23,7 @@ def _collate(*images: torch.Tensor):
 def _make_model(num_layers: int = 1) -> CRNN:
     """构造测试模型；默认单层以匹配 recognition_export_onnx.py 的导出包装器。"""
     torch.manual_seed(20260902)
-    model = CRNN(img_height=32, nc=3, n_class=19, num_layers=num_layers)
+    model = CRNN(img_height=48, nc=3, n_class=19, num_layers=num_layers)
 
     # 非零 bias 能稳定复现旧实现中反向 GRU 穿过 padding 后污染有效状态的问题。
     with torch.no_grad():
@@ -39,8 +39,8 @@ def test_crnn_output_is_invariant_to_mixed_width_batch_padding(num_layers):
     model = _make_model(num_layers)
     model.eval()
 
-    short = torch.rand(3, 32, 64)
-    long = torch.rand(3, 32, 256)
+    short = torch.rand(3, 48, 64)
+    long = torch.rand(3, 48, 256)
 
     single_images, _, single_widths = _collate(short)
     mixed_images, _, mixed_widths = _collate(short, long)
@@ -69,8 +69,8 @@ def test_length_aware_crnn_supports_training_backward_pass(num_layers):
     model = _make_model(num_layers)
     model.train()
 
-    short = torch.rand(3, 32, 64)
-    long = torch.rand(3, 32, 128)
+    short = torch.rand(3, 48, 64)
+    long = torch.rand(3, 48, 128)
     images, _, widths = _collate(short, long)
 
     output = model(images, img_widths=widths)
@@ -92,8 +92,8 @@ def test_exported_onnx_uses_sequence_lengths_and_is_batch_invariant(
     wrapper = OnnxExportWrapper(model, output_type=output_type).eval()
     original_state = {key: value.clone() for key, value in model.state_dict().items()}
 
-    short = torch.rand(3, 32, 64)
-    long = torch.rand(3, 32, 256)
+    short = torch.rand(3, 48, 64)
+    long = torch.rand(3, 48, 256)
     single_images, _, single_widths = _collate(short)
     mixed_images, _, mixed_widths = _collate(short, long)
 
@@ -171,7 +171,7 @@ def test_exported_onnx_uses_sequence_lengths_and_is_batch_invariant(
 
     # 改变 batch、奇数宽度、长度顺序及重复长度，检查动态 h0 和门权重转换。
     for valid_widths in ([13], [97, 13, 53], [17, 161, 64, 17]):
-        images, _, widths = _collate(*[torch.rand(3, 32, width) for width in valid_widths])
+        images, _, widths = _collate(*[torch.rand(3, 48, width) for width in valid_widths])
         actual = session.run(None, {
             "input": images.numpy(), "img_widths": widths.numpy().astype(np.int64),
         })[0]
@@ -187,8 +187,8 @@ def test_openvino_backend_finds_renamed_lengths_input_and_is_batch_invariant(tmp
     model.eval()
     wrapper = OnnxExportWrapper(model).eval()
 
-    short = torch.rand(3, 32, 64)
-    long = torch.rand(3, 32, 256)
+    short = torch.rand(3, 48, 64)
+    long = torch.rand(3, 48, 256)
     single_images, _, single_widths = _collate(short)
     mixed_images, _, mixed_widths = _collate(short, long)
 

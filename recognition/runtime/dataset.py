@@ -20,9 +20,10 @@ from .preprocessing import (
     resolve_image_path,
 )
 
-# MobileFeatureExtractor 的横向感受野为 53 px。每张图右侧至少保留 32 px
-# 背景，使有效 CNN 特征不会因 batch 中最长图片不同而看到不同的张量边界。
-CNN_RIGHT_CONTEXT = 32
+# 48 高 MobileFeatureExtractor 的横向感受野为 69 px，最后一帧向右需要约 35 px 背景。
+# 每张图右侧至少保留 40 px，使有效 CNN 特征不会因 batch 中最长图片不同而看到不同的
+# 张量边界；改块数或宽度 stride 时必须重新计算这个值并跑 batch 一致性测试。
+CNN_RIGHT_CONTEXT = 40
 
 
 def build_eval_transform(num_channels: int) -> transforms.Compose:

@@ -4,7 +4,9 @@ import torch
 from PIL import Image
 
 from recognition.components.converter import LabelConverter
-from recognition.components.dataset import InferenceDataset, dynamic_padding_collate_fn
+from recognition.components.dataset import (
+    CNN_RIGHT_CONTEXT, InferenceDataset, dynamic_padding_collate_fn,
+)
 from recognition.models.model import CRNN
 from recognition_export_onnx import OnnxExportWrapper
 from recognition_quantize_static import (
@@ -20,17 +22,17 @@ def test_calibration_matches_inference_on_transparent_long_and_dark_images(tmp_p
     Image.new('RGB', (7, 32), (15, 20, 25)).save(tmp_path / 'dark.png')
     Image.new('RGB', (700, 32), (240, 235, 230)).save(tmp_path / 'long.png')
     calibration = CRNNCalibrationDataset(tmp_path, num_channels=channels)
-    reference = InferenceDataset(calibration.image_paths, 32, channels)
+    reference = InferenceDataset(calibration.image_paths, 48, channels)
     for i in range(len(reference)):
         expected_images, _, expected_widths = dynamic_padding_collate_fn([reference[i]])
         image, width = calibration[i]
         np.testing.assert_array_equal(image, expected_images[0].numpy())
         assert width == expected_widths[0].item()
-        assert image.shape[-1] >= width + 32
-    assert calibration[2][1] == 700  # 禁止旧校准逻辑把长图压缩到 256。
+        assert image.shape[-1] >= width + CNN_RIGHT_CONTEXT
+    assert calibration[2][1] == 1050  # 禁止旧校准逻辑把长图压缩到 256。
     loader = create_calibration_dataloader(tmp_path, num_channels=channels)
     feeds = transform_calibration(next(iter(loader)))
-    assert feeds['input'].shape[:3] == (1, channels, 32)
+    assert feeds['input'].shape[:3] == (1, channels, 48)
     assert feeds['img_widths'].shape == (1,)
     assert feeds['img_widths'].dtype == np.int64
 
@@ -38,9 +40,14 @@ def test_calibration_matches_inference_on_transparent_long_and_dark_images(tmp_p
 def test_logits_export_preserves_decoding_and_padding():
     torch.manual_seed(19)
     # 该导出包装器只支持单层 BiGRU；多层模型由 recognition_export_onnx_layer.py 导出。
-    model = CRNN(32, 3, 11, num_layers=1).eval()
+    model = CRNN(48, 3, 11, num_layers=1).eval()
+    # 随机初始化下卷积特征接近 0，各类 logit 几乎相等；给 blank 以外的类别一个
+    # 固定偏置，避免 1e-9 的导出数值差异翻转 argmax，测不到真正的解码一致性。
+    with torch.no_grad():
+        model.embedding.bias.zero_()
+        model.embedding.bias[5] = 10.0
     images, _, widths = dynamic_padding_collate_fn([
-        (torch.rand(3, 32, 48), 'short'), (torch.rand(3, 32, 153), 'long')])
+        (torch.rand(3, 48, 48), 'short'), (torch.rand(3, 48, 153), 'long')])
     with torch.inference_mode():
         expected = model(images, widths)
         logits = OnnxExportWrapper(model, output_type='logits')(images, widths)
@@ -78,7 +85,7 @@ def test_accuracy_metric_uses_character_weighted_edit_distance(tmp_path):
             out = np.zeros((3, 1, 4), dtype=np.float32)
             out[:, 0, 2] = 1  # decode -> 'a'
             return [out]
-    images = torch.zeros(1, 3, 32, 80)
+    images = torch.zeros(1, 3, 48, 80)
     widths = torch.tensor([48])
     # 总共 4 个字符、2 个编辑距离；不是按整行平均的 CER。
     metric, per_item = make_validation_fn(converter)(Compiled(), [

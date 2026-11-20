@@ -1,6 +1,6 @@
-"""固定高度 32 的 CRNN：Mobile 风格 CNN、双向 GRU 和 CTC 分类头。
+"""固定高度 48 的 CRNN：Mobile 风格 CNN、双向 GRU 和 CTC 分类头。
 
-输入 [B,C,32,W]，输出 [T,B,类别数] 对数概率。GRU 层数由 num_layers 决定（默认 2），
+输入 [B,C,48,W]，输出 [T,B,类别数] 对数概率。GRU 层数由 num_layers 决定（默认 2），
 层间 dropout 只在多层时生效；训练、导出和推理必须使用与 checkpoint 相同的层数。
 传入真实 img_widths 时，BiGRU 跳过补边，输出尾部固定为 blank；
 参数结构与历史 ResNet/BiLSTM 权重不兼容。
@@ -14,6 +14,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
+
+# 模型输入高度，单位 px。CNN 纵向下采样 6 次（stem、pool、block1~4）到 1 行；
+# 改高度时必须同步 preprocessing、训练/推理/导出配置和全部权重。
+IMG_HEIGHT = 48
 
 # GRU 结构默认值：训练按此处取值建模型，导出和推理按 checkpoint 的实际层数建模型。
 DEFAULT_NUM_LAYERS = 2  # 双向 GRU 层数
@@ -47,10 +51,10 @@ class DepthwiseSeparableConv(nn.Module):
 # 2. 轻量级 CNN 特征提取器
 
 class MobileFeatureExtractor(nn.Module):
-    """将 [B,nc,32,W] 转为 [B,output_channel,1,T]，默认输出通道为 256。
+    """将 [B,nc,48,W] 转为 [B,output_channel,1,T]，默认输出通道为 256。
 
     stem 步长 2 后接步长 2 的池化，宽度 T=floor((W+1)/4)；
-    三个后续模块只继续缩小高度，依次为 4、2、1，不再缩小宽度。"""
+    四个后续模块只继续缩小高度，依次为 6、3、2、1，不再缩小宽度。"""
 
     def __init__(self, input_channel=1, output_channel=256):
         super().__init__()
@@ -76,21 +80,29 @@ class MobileFeatureExtractor(nn.Module):
             DepthwiseSeparableConv(128, 128, stride=1, padding=1),
         )
 
-        # Block 3: 128 -> 256, H/2, W不变  -> 输出 H=1
+        # Block 3: 128 -> 256, H/2, W不变
         self.block3 = nn.Sequential(
             DepthwiseSeparableConv(128, 256, stride=(2, 1), padding=1),
             DepthwiseSeparableConv(256, output_channel, stride=1, padding=1),
         )
 
+        # Block 4: 48 高输入专属的最后一轮纵向下采样，H/2 -> 1，W 和通道不变。
+        # 32 高模型没有这一层，因此 48 高权重与历史权重不兼容。
+        self.block4 = nn.Sequential(
+            DepthwiseSeparableConv(output_channel, output_channel, stride=(2, 1), padding=1),
+            DepthwiseSeparableConv(output_channel, output_channel, stride=1, padding=1),
+        )
+
         self.out_channels = output_channel
 
     def forward(self, x):
-        # x: [B, nc, 32, W]
-        x = self.stem(x)   # -> [B, 32, 16, W/2]
-        x = self.pool(x)   # -> [B, 32,  8, W/4]
-        x = self.block1(x)  # -> [B, 64,  4, W/4]
-        x = self.block2(x)  # -> [B,128,  2, W/4]
-        x = self.block3(x)  # -> [B,256,  1, W/4]
+        # x: [B, nc, 48, W]
+        x = self.stem(x)   # -> [B, 32, 24, W/2]
+        x = self.pool(x)   # -> [B, 32, 12, W/4]
+        x = self.block1(x)  # -> [B, 64,  6, W/4]
+        x = self.block2(x)  # -> [B,128,  3, W/4]
+        x = self.block3(x)  # -> [B,256,  2, W/4]
+        x = self.block4(x)  # -> [B,256,  1, W/4]
         return x
 
 
@@ -104,7 +116,7 @@ class CRNN(nn.Module):
 
     def __init__(self, img_height, nc, n_class, nh=256, num_layers=DEFAULT_NUM_LAYERS):
         super(CRNN, self).__init__()
-        assert img_height == 32, "CRNN 输入高度必须固定为 32"
+        assert img_height == IMG_HEIGHT, f"CRNN 输入高度必须固定为 {IMG_HEIGHT}"
         assert num_layers >= 1, "CRNN 的 GRU 层数至少为 1"
 
         # CNN 特征维度
@@ -143,7 +155,7 @@ class CRNN(nn.Module):
         对应 MobileFeatureExtractor 的下采样路径：
           stem (Conv k=3, s=2, p=1)  ->  floor((W + 2*1 - 3) / 2) + 1
           pool (MaxPool k=2, s=2)    ->  floor((W_stem - 2) / 2) + 1
-          block1~3 宽度 stride=1，不改变宽度
+          block1~4 宽度 stride=1，不改变宽度
         """
         # stem: Conv2d(k=3, s=2, p=1)
         w = (pixel_width + 2 * 1 - 3) // 2 + 1
@@ -162,7 +174,7 @@ class CRNN(nn.Module):
     def forward(self, input, img_widths=None):
         """
         Args:
-            input: [B, C, 32, W] 图像张量（含 padding）
+            input: [B, C, 48, W] 图像张量（含 padding）
             img_widths: [B] 每张图片 padding 前的真实像素宽度（可选）
         Returns:
             output: [SeqLen, B, NumClasses] log_softmax 后的输出
@@ -237,7 +249,7 @@ class CRNN(nn.Module):
 if __name__ == '__main__':
     import time
 
-    IMG_H = 32  # 计时样例高度，单位 px。
+    IMG_H = IMG_HEIGHT  # 计时样例高度，单位 px。
     IMG_W = 512  # 计时样例有效宽度，单位 px。
     NUM_CHANNELS = 1  # 随机灰度样例通道数，不代表训练默认 RGB。
     NUM_CLASSES = 6000  # 计时样例类别数，不从真实字典推导。

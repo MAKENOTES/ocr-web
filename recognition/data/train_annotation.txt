@@ -38271,3 +38271,4 @@ train_images/du20260923-000136-000001.png	4非多样性（基因组、宏基因�
 train_images/du20260923-000137-000001.png	5单细胞送样单模板
 train_images/du20260923-000138-000001.png	10-2子文库模板
 train_images/du20260923-000139-000001.png	1多样性送样单模板
+train_images/du20261120-000001-000001.png	Google

@@ -21,12 +21,14 @@ TRAIN_ANNOTATION = (
     "recognition/data/synthesis_confusable_annotation.txt",
     "recognition/data/synthesis_degraded_annotation.txt",
     "recognition/data/synthesis_edge_annotation.txt",
+    "recognition/data/append1_annotation.txt",
 )
 VALID_ANNOTATION = "recognition/data/val_annotation.txt"  # 独立验证标注；缺文件时当前流程仅训练，不保存最佳 CER 模型。
 
 # 2. 输入与批处理参数
-IMG_HEIGHT = 32  # 输入图片高度，单位 px；当前 CRNN 只支持 32。
-IMG_WIDTH = 1800  # 缩放宽度上限 1800 px；训练和训练期验证超过此值会横向压缩。
+IMG_HEIGHT = 48  # 输入图片高度，单位 px；CRNN 的 MobileFeatureExtractor 固定为 48。
+# 48 高输入下同一行的宽度约为 32 高时的 1.5 倍；2700 保持原来的宽高比压缩阈值 56.25。
+IMG_WIDTH = 2700  # 缩放宽度上限 2700 px；训练和训练期验证超过此值会横向压缩。
 NUM_CHANNELS = 3  # 保留白/红/黑及彩色 UI 文本的色彩对比。
 BATCH_SIZE = 64  # 每批图片数，末批不足 64 张仍保留。
 NUM_WORKERS = 4  # 数据加载子进程数；0 表示主进程加载。

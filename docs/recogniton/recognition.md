@@ -6,7 +6,7 @@
 
 Recognition 接收 detection 输出的单个文字框，输出 Unicode 文本。支持彩色/深浅背景、PNG 和动态宽度处理。
 
-当前基线为 MobileNet 风格 CNN + 2 层双向 GRU（`CRNN(num_layers=2)`，层间 dropout 0.15） + CTC head，输入高度固定为 32，宽度通常按比例缩放并在 batch 内动态 padding；超过调用方宽度上限时会横向压缩。
+当前基线为 MobileNet 风格 CNN + 2 层双向 GRU（`CRNN(num_layers=2)`，层间 dropout 0.15） + CTC head，输入高度固定为 48，宽度通常按比例缩放并在 batch 内动态 padding；超过调用方宽度上限时会横向压缩。
 操作见[包入口](../../recognition/README.md)、[运行说明](guides/running.md)和[数据工具](guides/data-tools.md)，术语见[术语表](../terminology.md)。
 
 ## 数据与预处理
@@ -27,7 +27,7 @@ flowchart TD
     AUG -->|是| TA[颜色/极性/模糊/轻噪声]
     AUG -->|否| NORM[通道适配与归一化]
     TA --> NORM
-    NORM --> CTX[右侧至少32px CNN背景保护区]
+    NORM --> CTX[右侧至少40px CNN背景保护区]
     CTX --> PAD[batch 动态 padding 到8倍数]
     PAD --> OUT[images, labels/paths, img_widths]
 ```
@@ -179,7 +179,7 @@ flowchart LR
 
 稳定契约：
 
-- 输入图像：`float32 [B, C, 32, W]`，归一化到以 0.5 为 mean/std 的空间；
+- 输入图像：`float32 [B, C, 48, W]`，归一化到以 0.5 为 mean/std 的空间；
 - `img_widths`：`int32/int64 [B]`，表示不含右侧背景保护区和 batch padding 的真实图片宽度；
 - 输出：`float32 [T, B, num_classes]`，简称 TBC；
 - 类别：0=`blank`，1=`UNK`，2 起来自 `keys.txt`；
@@ -188,7 +188,7 @@ flowchart LR
 
 `LabelConverter.decode` 已要求显式 `layout="TBC"` 或 `"BTC"`。部署入口会用已知 batch size 和类别数把后端输出规范为 TBC，不再用维度大小关系猜测。
 
-每张图片右侧固定增加 32 px 背景保护区，隔离 CNN 感受野与动态 batch 边界；BiGRU 使用 `PackedSequence`，正反向都只处理各图片的有效时间步。自动测试要求同一图片在 batch=1 和混合宽度 batch 中的有效输出一致，并验证导出 ONNX 的每个 GRU 节点都带有 `sequence_lens` 输入。多层模型在 `recognition_export_onnx_layer.py` 中按层拆成多个串联的 ONNX GRU 节点，因为 ONNX GRU 的 W 只描述单层且各层输入维度不同。
+每张图片右侧固定增加 40 px 背景保护区，隔离 CNN 感受野与动态 batch 边界；BiGRU 使用 `PackedSequence`，正反向都只处理各图片的有效时间步。自动测试要求同一图片在 batch=1 和混合宽度 batch 中的有效输出一致，并验证导出 ONNX 的每个 GRU 节点都带有 `sequence_lens` 输入。多层模型在 `recognition_export_onnx_layer.py` 中按层拆成多个串联的 ONNX GRU 节点，因为 ONNX GRU 的 W 只描述单层且各层输入维度不同。
 
 CNN 有效时间步精确为 `floor((W + 1) / 4)`，不能直接用浮点 `W/4` 代替。
 默认 CNN 特征为 256 维，BiGRU 每方向隐藏维度 256、共 2 层，分类头输入 512 维。
@@ -198,7 +198,9 @@ checkpoint 相同的层数，`infer_num_layers` 可按权重键推断该值。
 CTC 可对齐条件为时间步至少等于标签字符数加相邻重复字符对数，不是固定“每字两步”。
 
 `LabelConverter` 保留字典中的普通空格，未知字符编码为 1，解码输出 `[UNK]`。
-解码只取 argmax、合并连续重复并去 blank，不另算 Softmax，也不去空格或引号。
+解码先按类别维 softmax 取每帧最大概率和类别，最大概率低于 `DECODE_MIN_CONFIDENCE`
+（默认 0.1）的帧按 blank 处理，再合并连续重复并去 blank；该门槛用于丢弃稀疏小图和
+空白框的首尾低置信度伪字符，设为 0 恢复纯 argmax 解码，解码不去空格或引号。
 训练和评估比较文本时另做首尾空白清理。字典重复行/多字符行的严格校验由数据工具提供，
 当前 Converter 本身未完整校验，需在训练前核对字典。
 

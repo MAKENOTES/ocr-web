@@ -13,7 +13,7 @@ from PIL import Image, ImageFile, ImageOps, ImageStat
 # 允许 Pillow 加载部分截断图片；这是进程级开关，不保证损坏图片完整可用。
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-MIN_IMAGE_WIDTH = 48  # 缩放后窄图的背景画布宽度，单位 px；显式 max_width 更小时以上限为准。
+MIN_IMAGE_WIDTH = 72  # 缩放后窄图的背景画布宽度，单位 px；按 1.5 倍输入高度取整，显式 max_width 更小时以上限为准。
 
 # 去章时按平均正文列密度缩放的正文支持下限。细字和末行密度偏低，0.4 会把正常叠印
 # 误判为无正文支持，0.35 在保持"红字旁边没有黑字就不处理"的前提下放行这类样本。

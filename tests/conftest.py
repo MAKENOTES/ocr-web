@@ -11,7 +11,7 @@ KEYS_TEXT = "甲乙丙丁戊"
 # 测试模型层数；覆盖多层 GRU 的逐层导出路径。
 TEST_NUM_LAYERS = 2
 # 导出样例张量宽度（像素）；需不小于模型最小宽度与右侧保护区之和。
-EXPORT_WIDTH = 96
+EXPORT_WIDTH = 128
 
 
 @pytest.fixture(scope="session")
@@ -30,7 +30,7 @@ def tiny_recognition_model(tmp_path_factory):
     )
 
     torch.manual_seed(20261027)
-    model = CRNN(32, 3, len(KEYS_TEXT) + 2, num_layers=TEST_NUM_LAYERS).eval()
+    model = CRNN(48, 3, len(KEYS_TEXT) + 2, num_layers=TEST_NUM_LAYERS).eval()
     checkpoint_path = directory / "model.pth"
     torch.save({"state_dict": model.state_dict(), "epoch": 1}, checkpoint_path)
 

@@ -6,6 +6,14 @@
 # 请勿手改；修改源文件后重新运行同步脚本。
 import torch
 
+# CTC 贪心解码的逐帧最低置信度（概率，0~1）。低于该值的帧按 blank 处理。
+# 依据：稀疏小图或空白框的首尾帧会以约 0.03~0.08 的概率吐出伪字符
+# （如纯白图输出“蚌幕帖”），按 argmax 解码会保留它们；0.1 在 val 上修复
+# 23 条首帧多字、train 修复 73 条，未误伤任何原本正确的样本。
+# 设为 0 恢复纯 argmax 解码。
+DECODE_MIN_CONFIDENCE = 0.1
+
+
 class LabelConverter:
     """按字典原顺序编码字符并执行 CTC 贪心解码。
     空字典行被跳过，普通空格保留；调用前需用数据工具检查重复字及多字符行。"""
@@ -69,33 +77,52 @@ class LabelConverter:
 
         return torch.tensor(encoded_texts, dtype=torch.long), torch.tensor(lengths, dtype=torch.long)
 
-    def decode(self, preds: torch.Tensor, *, layout: str) -> list[str]:
-        """使用显式 layout 对三维 CTC 输出执行 greedy decode。"""
+    def decode(
+        self,
+        preds: torch.Tensor,
+        *,
+        layout: str,
+        min_confidence: float = DECODE_MIN_CONFIDENCE,
+    ) -> list[str]:
+        """使用显式 layout 对三维 CTC 输出执行带置信度门槛的 greedy decode。
+
+        preds 是 log_softmax、softmax 或原始 logits 均可：函数内部统一做一次
+        softmax 取概率。每帧最大概率低于 min_confidence 时按 blank 处理，再按
+        CTC 规则合并连续重复并移除 blank。该规则用于丢弃边界帧的低置信度伪字符，
+        并让空白框返回空串；min_confidence=0 等价于纯 argmax 解码。
+        """
         if preds.ndim != 3:
             raise ValueError(f"preds 必须是三维张量，当前 shape={tuple(preds.shape)}")
         if preds.shape[2] != self.num_classes:
             raise ValueError(
                 f"类别维不匹配: output={preds.shape[2]}, keys={self.num_classes}"
             )
+        if not 0.0 <= min_confidence <= 1.0:
+            raise ValueError(
+                f"min_confidence 必须在 [0, 1] 内，当前为 {min_confidence}"
+            )
         if layout == "TBC":
             preds = preds.transpose(0, 1)
         elif layout != "BTC":
             raise ValueError(f"layout 仅支持 'TBC' 或 'BTC'，当前为 {layout!r}")
 
-        # 取最大概率的索引
-        tokens = preds.argmax(dim=2) # (Batch, Seq)
+        # 同时取最大概率索引和该帧置信度；softmax 对 log-prob 输入也是幂等的。
+        probabilities, tokens = preds.softmax(dim=2).max(dim=2)
 
         decoded_texts = []
-        for i in range(tokens.size(0)):
-            token_seq = tokens[i]
-
+        for index in range(tokens.size(0)):
             char_list = []
-            # CTC 解码逻辑: 移除重复，移除 blank
-            for j in range(token_seq.size(0)):
-                token = token_seq[j].item()
-                # 如果不是 blank (0) 且 (是第一个字符 或 与前一个字符不同)
-                if token != 0 and (j == 0 or token != token_seq[j-1].item()):
+            previous_token = 0
+            # CTC 解码：低于门槛的帧视为 blank，blank 会打断重复字符。
+            for token, probability in zip(
+                tokens[index].tolist(), probabilities[index].tolist()
+            ):
+                if token == 0 or probability < min_confidence:
+                    previous_token = 0
+                    continue
+                if token != previous_token:
                     char_list.append(self.idx2char.get(token, ''))
+                previous_token = token
 
             decoded_texts.append("".join(char_list))
 

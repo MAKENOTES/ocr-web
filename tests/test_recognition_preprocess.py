@@ -209,7 +209,7 @@ def test_training_dataset_reads_png_and_keeps_the_full_detection_box(tmp_path):
 
     assert dataset.image_paths == [str(image_path)]
     assert label == "首页274"
-    assert image_tensor.shape == (3, 32, 72)  # 180 / 80 * 32，无二次裁剪
+    assert image_tensor.shape == (3, 32, 72)  # 本用例显式传 img_height=32，无二次裁剪
 
 
 def test_training_dataset_combines_multiple_annotation_files(tmp_path):
@@ -301,7 +301,7 @@ def test_evaluation_dataset_uses_same_no_crop_rgb_preprocess(tmp_path):
     image_tensor, returned_path = dataset[0]
 
     assert returned_path == str(image_path)
-    assert image_tensor.shape == (3, 32, 72)
+    assert image_tensor.shape == (3, 48, 108)
 
 
 def test_checkpoint_channel_detection_supports_old_grayscale_and_new_rgb_weights():

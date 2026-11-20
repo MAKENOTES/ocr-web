@@ -40,7 +40,7 @@ def _write_images(directory: Path) -> list[Path]:
 def _expected_texts(model, keys_path: Path, paths: list[Path]) -> list[str]:
     """按单图共享预处理 + PyTorch 前向计算期望文本。"""
     converter = LabelConverter(str(keys_path))
-    dataset = InferenceDataset([str(path) for path in paths], img_height=32, num_channels=3)
+    dataset = InferenceDataset([str(path) for path in paths], img_height=48, num_channels=3)
     texts = []
     for index in range(len(dataset)):
         images, _, widths = dynamic_padding_collate_fn([dataset[index]])
@@ -214,9 +214,9 @@ def test_inference_dataset_applies_explicit_source_augment(tmp_path):
     def fill_black(image):
         return Image.new("RGB", image.size, (0, 0, 0))
 
-    plain = RuntimeInferenceDataset([image_path], 32, 3)[0][0]
+    plain = RuntimeInferenceDataset([image_path], 48, 3)[0][0]
     perturbed = RuntimeInferenceDataset(
-        [image_path], 32, 3, source_augment=fill_black
+        [image_path], 48, 3, source_augment=fill_black
     )[0][0]
 
     assert not torch.equal(plain, perturbed)
