@@ -36,7 +36,7 @@ recognition/data/*
 !recognition/data/val_annotation.txt
 !recognition/data/val_unknown.txt
 recognition/runs/
-recognition/utils/synthesis/synthesis_report/
+recognition/tools/synthesis/synthesis_report/
 recognition/checkpoints/
 recognition_quantized_model_bak/
 

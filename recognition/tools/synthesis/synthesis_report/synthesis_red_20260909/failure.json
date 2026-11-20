@@ -1,8 +1,0 @@
-{
-  "requested_images": 1000,
-  "completed_images": 932,
-  "status": "failed_before_annotation_publication",
-  "error": "Could not place a visible overlapping stamp; scene=faded; train_images/000106-000014.png",
-  "replacement_batch": "synthesis_red_20260909_v2",
-  "included_in_red_seal_audit": false
-}
