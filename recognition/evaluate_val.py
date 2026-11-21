@@ -25,7 +25,9 @@ from recognition.utils.annotation import split_annotation_fields
 
 # 配置区域
 MODEL_PATH = "recognition/checkpoints/ocr_exp_1795008141553649655/best_cer_0.002528_epoch_584.pth"  # 本次评估的 CRNN 权重，需与 KEYS_PATH 配套。
-KEYS_PATH = "recognition/keys.txt"  # 权重训练时的字符字典，内容及顺序必须一致。
+# 该权重训练时字典含 µ(U+00B5)，使用 keys-legacy-3033.txt 才能加载 3,035 类分类头。
+# 用新 keys.txt 重训出 3,034 类权重后，改回 "recognition/keys.txt"。
+KEYS_PATH = "recognition/keys-legacy-3033.txt"  # 权重训练时的字符字典，内容及顺序必须一致。
 # VAL_ANNOTATION = "recognition/data/train_annotation.txt"
 VAL_ANNOTATION = "recognition/data/val_annotation.txt"  # 本次评估的 Tab 标注，图片路径相对于该文件。
 # VAL_ANNOTATION = "recognition/data/synthesis1_annotation.txt"

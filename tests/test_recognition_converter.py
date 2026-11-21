@@ -20,6 +20,18 @@ def _converter(tmp_path) -> LabelConverter:
     return LabelConverter(str(keys_path))
 
 
+def test_micro_sign_output_is_normalized_to_greek_mu(tmp_path):
+    keys_path = tmp_path / "keys.txt"
+    keys_path.write_text("甲\n\u00b5\n\u03bc\n", encoding="utf-8")
+    converter = LabelConverter(str(keys_path))
+    micro_idx = converter.char2idx["\u00b5"]
+    mu_idx = converter.char2idx["\u03bc"]
+
+    for token in (micro_idx, mu_idx):
+        preds = _log_probs([(token, 0.99)], converter.num_classes)
+        assert converter.decode(preds, layout="TBC") == ["\u03bc"]
+
+
 def _log_probs(frames: list[tuple[int, float]], num_classes: int) -> torch.Tensor:
     """把 (token, probability) 序列拼成 [T, 1, C] 张量，剩余概率均分给其它类。
 

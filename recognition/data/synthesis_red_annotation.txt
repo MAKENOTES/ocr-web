@@ -280,7 +280,7 @@ synthesis_red_images/synthesis_red_20260910_00279.png	副本【4】非多样性�
 synthesis_red_images/synthesis_red_20260910_00280.png	北京晨微生物制品有限公司
 synthesis_red_images/synthesis_red_20260910_00281.png	12.3.2.3纠正措施控制方案
 synthesis_red_images/synthesis_red_20260910_00282.png	账款账龄与整个存续期预期信用损失率
-synthesis_red_images/synthesis_red_20260910_00283.png	9）加入500µLSEWS-M，14000rpm离心1min，弃滤液，再重复洗涤一次；
+synthesis_red_images/synthesis_red_20260910_00283.png	9）加入500μLSEWS-M，14000rpm离心1min，弃滤液，再重复洗涤一次；
 synthesis_red_images/synthesis_red_20260910_00284.png	③服务过程中产生的数据的使用范围、权限及保密要求；
 synthesis_red_images/synthesis_red_20260910_00285.png	（1）设立8小时应急小组（含1名法律顺问）、针对以下场景：
 synthesis_red_images/synthesis_red_20260910_00286.png	2.2.6甲方知悉并确认，甲方作为投保人时的保险公司不得向乙方代位追偿。
@@ -1629,7 +1629,7 @@ synthesis_red_images/synthesis_red_20260910_01628.png	赔偿责任，对方均�
 synthesis_red_images/synthesis_red_20260910_01629.png	当前送样单还需要做其他组学，请选择具体的意向，勾选几个，送样单就可以转几个订单。
 synthesis_red_images/synthesis_red_20260910_01630.png	（五）乙方未能履行合同义务，产品不能达到本合同要求的质量目标，
 synthesis_red_images/synthesis_red_20260910_01631.png	的指导意见》（财库〔2016〕205号）的要求进
-synthesis_red_images/synthesis_red_20260910_01632.png	9）加入500µLSEWS-M，14000rpm离心1min，弃滤液，再重复洗涤一次；
+synthesis_red_images/synthesis_red_20260910_01632.png	9）加入500μLSEWS-M，14000rpm离心1min，弃滤液，再重复洗涤一次；
 synthesis_red_images/synthesis_red_20260910_01633.png	乙方：上海美吉生物医药科技有限公司
 synthesis_red_images/synthesis_red_20260910_01634.png	（7）如乙方在履行本合同中需要使用第三方数据库，则由甲方委托乙方下载，并由甲方负责承担所有知识产
 synthesis_red_images/synthesis_red_20260910_01635.png	以招标人相关文件或档案为准），否则，
@@ -1948,7 +1948,7 @@ synthesis_red_images/synthesis_red_20260910_01947.png	对测序结果承担责�
 synthesis_red_images/synthesis_red_20260910_01948.png	说明：转订单时，储备类型为'备份样品'的不会转为订单下的样品。
 synthesis_red_images/synthesis_red_20260910_01949.png	值圆整）/样本/次进行收费。
 synthesis_red_images/synthesis_red_20260910_01950.png	南省农业科学院农业环境资源研究所2023年第一批基因
-synthesis_red_images/synthesis_red_20260910_01951.png	9）加入500µLSEWS-M，14000rpm离心1min，弃滤液，再重复洗涤一次；
+synthesis_red_images/synthesis_red_20260910_01951.png	9）加入500μLSEWS-M，14000rpm离心1min，弃滤液，再重复洗涤一次；
 synthesis_red_images/synthesis_red_20260910_01952.png	承担样品寄送过程中所出现的任何风险（如毁损、灭失、延迟等）。
 synthesis_red_images/synthesis_red_20260910_01953.png	中国科学院西北高原生物研究所
 synthesis_red_images/synthesis_red_20260910_01954.png	个工作日；代谢组实验服务及云分析执行周期40个工作日。

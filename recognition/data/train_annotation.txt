@@ -3954,7 +3954,7 @@ train_images/000235-000004.png	为避免样本在提职、建库、测序、数�
 train_images/000235-000005.png	能造成实验或分析不能及时完成，特制定如下详细而严谨的预防和解决方案。
 train_images/000235-000006.png	1、对可能出现的突发情况进行的分析
 train_images/000235-000008.png	DNA降解：运输途中温度波动导致DNA断裂（电泳条带模糊）。
-train_images/000235-000009.png	浓度不足：提取失败或检测误差（浓度<50ng/µL）。
+train_images/000235-000009.png	浓度不足：提取失败或检测误差（浓度<50ng/μL）。
 train_images/000235-000010.png	污染：交叉污染或外源核酸混入（OD260/280异常）。
 train_images/000235-000011.png	测序失败风险
 train_images/000235-000013.png	数据量不足：测序仪故障或批次效应。
@@ -4157,7 +4157,7 @@ train_images/000249-000012.png	4）转移上清至1.5mL离心管中，加入250�
 train_images/000249-000013.png	5）室温14000rpm，离心5min。
 train_images/000249-000014.png	6）转移上清至已加入900LLBindingMatrix的2mL管中，混匀，上下颠倒3min。；
 train_images/000249-000015.png	7）瞬离5sec（即转速刚升上去便停止），小心倒弃上清
-train_images/000249-000017.png	9）加入500µLSEWS-M，14000rpm离心1min，弃滤液，再重复洗涤一次；
+train_images/000249-000017.png	9）加入500μLSEWS-M，14000rpm离心1min，弃滤液，再重复洗涤一次；
 train_images/000249-000018.png	10）弃去收集管中液体，14000rpm离心3min，去除残留溶液，晾干3min；
 train_images/000249-000019.png	11）加入100此55℃预热的DES洗脱液，静置5min；
 train_images/000249-000020.png	12）室温14000rpm离心2min，弃去SPINTMFilter，得到总DNA。
@@ -11332,7 +11332,7 @@ train_images/001072-000005.png	100mg/管，≥3管
 train_images/001072-000007.png	细胞样本
 train_images/001072-000008.png	5×10cells/管；或者100mg/管，≥3管
 train_images/001072-000009.png	血液（全血）
-train_images/001072-000010.png	250µL/管，≥3管；或者≥2mL
+train_images/001072-000010.png	250μL/管，≥3管；或者≥2mL
 train_images/001072-000012.png	合格DNA
 train_images/001072-000013.png	FFPE样本
 train_images/001072-000014.png	石蜡切片≥15片；或者石蜡块≥0.3g

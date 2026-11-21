@@ -10,6 +10,12 @@ import torch
 # 设为 0 恢复纯 argmax 解码。
 DECODE_MIN_CONFIDENCE = 0.1
 
+# 兼容等价字符统一到规范形式：U+00B5 MICRO SIGN 与 U+03BC GREEK MU 字形相同，
+# NFKC 也把前者归一为后者。新字典只收录 μ(U+03BC)；旧 ABI 权重仍可能输出 µ，
+# 解码时统一替换为 μ，避免同形字符在评估里被当成两个错误。
+MICRO_SIGN = "\u00b5"
+MU = "\u03bc"
+
 
 class LabelConverter:
     """按字典原顺序编码字符并执行 CTC 贪心解码。
@@ -87,6 +93,7 @@ class LabelConverter:
         softmax 取概率。每帧最大概率低于 min_confidence 时按 blank 处理，再按
         CTC 规则合并连续重复并移除 blank。该规则用于丢弃边界帧的低置信度伪字符，
         并让空白框返回空串；min_confidence=0 等价于纯 argmax 解码。
+        输出统一把 µ(U+00B5) 规范化为 μ(U+03BC)，两种写法的字形相同。
         """
         if preds.ndim != 3:
             raise ValueError(f"preds 必须是三维张量，当前 shape={tuple(preds.shape)}")
@@ -121,6 +128,8 @@ class LabelConverter:
                     char_list.append(self.idx2char.get(token, ''))
                 previous_token = token
 
-            decoded_texts.append("".join(char_list))
+            decoded_texts.append(
+                "".join(char_list).replace(MICRO_SIGN, MU)
+            )
 
         return decoded_texts

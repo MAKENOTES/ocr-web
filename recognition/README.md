@@ -24,7 +24,8 @@ recognition/
 │   ├── loader.py             # 图片收集与 DataLoader（手写）
 │   └── ...                   # preprocessing/dataset/model/converter/checkpoint/openvino 由同步脚本生成
 ├── split_dataset.py          # 初始训练集/验证集划分
-├── keys.txt                  # 字符字典，内容与顺序绑定模型
+├── keys.txt                  # 字符字典，内容与顺序绑定模型（3,032 字，不含 µ）
+├── keys-legacy-3033.txt      # 旧 ABI 字典：含 µ，仅供 3,035 类历史权重加载
 ├── components/
 │   ├── dataset.py            # 训练数据集、分桶与 DataLoader
 │   ├── inference_data.py     # 推理数据集、验证变换与动态补边

@@ -605,7 +605,7 @@ append1_images/du20260910-000019-00199.png	短
 append1_images/du20260910-000019-00231.png	ZX-M-260224131
 append1_images/du20260910-000019-00233.png	49
 append1_images/du20260910-000020-00001.png	空白对照
-append1_images/du20260910-000021-00002.png	浓度（ng/µL）
+append1_images/du20260910-000021-00002.png	浓度（ng/μL）
 append1_images/du20260910-000021-00016.png	活性污泥
 append1_images/du20260910-000021-00018.png	底泥
 append1_images/du20260910-000021-00021.png	JW3
@@ -629,7 +629,7 @@ append1_images/du20260910-000021-00172.png	JFP5
 append1_images/du20260910-000021-00182.png	JFP6
 append1_images/du20260910-000024-00002.png	蛋白总量（mg）
 append1_images/du20260910-000024-00003.png	冻干情况
-append1_images/du20260910-000024-00004.png	浓度（µg/µL）
+append1_images/du20260910-000024-00004.png	浓度（μg/μL）
 append1_images/du20260910-000024-00005.png	固/液态
 append1_images/du20260910-000024-00018.png	牦牛乳
 append1_images/du20260910-000024-00019.png	牦牛乳MFGM

@@ -133,7 +133,7 @@ synthesis_edge_images/synthesis_edge_20260910_00132.png	2、样品保存期限�
 synthesis_edge_images/synthesis_edge_20260910_00133.png	microbialbiomassandbacterialcommunitystructure[J].EuropeanJournalofSoilBiology，2016，74：1-8.
 synthesis_edge_images/synthesis_edge_20260910_00134.png	伊犁哈萨克自治州林业科学研究院
 synthesis_edge_images/synthesis_edge_20260910_00135.png	地址/Addr：上海市浦东新区国际医学园区康新公路3399弄3号楼
-synthesis_edge_images/synthesis_edge_20260910_00136.png	9）加入500µLSEWS-M，14000rpm离心1min，弃滤液，再重复洗涤一次；
+synthesis_edge_images/synthesis_edge_20260910_00136.png	9）加入500μLSEWS-M，14000rpm离心1min，弃滤液，再重复洗涤一次；
 synthesis_edge_images/synthesis_edge_20260910_00137.png	MJ20260123412-ZX-Q-260126007-绝对定量_陈爱-qpcr质检报告.pdf
 synthesis_edge_images/synthesis_edge_20260910_00138.png	客户沟通：定期与客户沟通项目进展、数据分析结果、潜在问题以及解决方案等，并及时解答客户
 synthesis_edge_images/synthesis_edge_20260910_00139.png	2022SR0975389
@@ -628,7 +628,7 @@ synthesis_edge_images/synthesis_edge_20260910_00627.png	1）加入离子打断�
 synthesis_edge_images/synthesis_edge_20260910_00628.png	我司参加山葵单细胞测序委托项目（以下简称“本项目”）的采购活动，根据采购要求，现承诺：
 synthesis_edge_images/synthesis_edge_20260910_00629.png	款”可约定的内容：
 synthesis_edge_images/synthesis_edge_20260910_00630.png	个位置的基因表达量强度变化。
-synthesis_edge_images/synthesis_edge_20260910_00631.png	浓度不足：提取失败或检测误差（浓度<50ng/µL）。
+synthesis_edge_images/synthesis_edge_20260910_00631.png	浓度不足：提取失败或检测误差（浓度<50ng/μL）。
 synthesis_edge_images/synthesis_edge_20260910_00632.png	实验员：仅可上传样本信息，无数据下载权限。
 synthesis_edge_images/synthesis_edge_20260910_00633.png	合同编号：MJ20260113278
 synthesis_edge_images/synthesis_edge_20260910_00634.png	安徽城市管理职业学院
