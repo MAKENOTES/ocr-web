@@ -4098,7 +4098,7 @@ train_images/000241-000008.png	1）添加0.5g样品、978μLSodiumPhosphateBuffe
 train_images/000241-000009.png	2）MP研磨仪中震荡40sec，速度6m/s；
 train_images/000241-000010.png	3）14000rpm离心10min；
 train_images/000241-000012.png	5）室温14000rpm，离心5min。
-train_images/000241-000013.png	6）转移上清至已加入900此BindingMatrix的2mL管中，混匀，上下颠倒3min。；
+train_images/000241-000013.png	6）转移上清至已加入900μLBindingMatrix的2mL管中，混匀，上下颠倒3min。；
 train_images/000241-000014.png	7）瞬离5sec（即转速刚升上去便停止），小心倒弃上清；
 train_images/000241-000015.png	8）加入500LL5.5M的异硫氰酸胍溶液，混匀，转移到SPINTMFilter中；
 train_images/000241-000017.png	10）弃去收集管中液体，14000rpm离心3min，去除残留溶液，晾干3min；
@@ -5733,7 +5733,7 @@ train_images/000464-000008.png	2.结果发送：若为交互式云分析项目�
 train_images/000464-000009.png	式发送云平台账号和交互式云分析结果给甲方；若非交互式云分析项目，则结果发送方式为：乙方在完成本
 train_images/000464-000010.png	合同约定的工作后，以电子邮件方式发送结题报告给甲方，说明项目完成情况。
 train_images/000464-000012.png	在届满期前向乙方书面提出申请继续使用云平台进行数据分析，乙方将在届满期后不再提供云平台项目的交互功
-train_images/000464-000013.png	能：如果甲方在届满期前书面提出继续使用云平台进行数据分析，则需签订补充协议并根据实际使用时间进行计
+train_images/000464-000013.png	能；如果甲方在届满期前书面提出继续使用云平台进行数据分析，则需签订补充协议并根据实际使用时间进行计
 train_images/000464-000014.png	费。
 train_images/000464-000015.png	4.非交互式云分析数据交付：自结果交付之日起，乙方将为甲方免费保存结果文件12个月，若甲方未在届满
 train_images/000464-000017.png	存结果文件，则需签订补充协议并根据实际使用时间进行计费。
@@ -5816,7 +5816,7 @@ train_images/000472-000018.png	注：各样本的rawdata不低于承诺平均数
 train_images/000472-000019.png	每个样本的细胞数目，在捕获之前，只能通过细胞计数，大致确定一个细胞数量的范围，测序后，进行数据分析，
 train_images/000472-000020.png	才能确定真实的细胞数量。可根据甲方要求先测一定数据量，初步分析评估样本的细胞数目，基于初步分析所得细胞数
 train_images/000472-000021.png	量，再调整测序数据量，比较理想的结果，是每个细胞的数据量在20kreads以上。
-train_images/000472-000023.png	1）原始样本和核酸保存周期：已完成实验的项目在分析结果发送给甲方后：原始样本和核酸保存3个月：
+train_images/000472-000023.png	1）原始样本和核酸保存周期：已完成实验的项目在分析结果发送给甲方后：原始样本和核酸保存3个月；
 train_images/000472-000024.png	2）交互分析使用周期：自云平台结果交付之日起，甲方可以使用云平台进行数据挖掘12个月；
 train_images/000472-000025.png	3）分析数据保存周期：自结果交付之口起，乙方将为甲方免费保存结果文件
 train_images/000472-000026.png	4）原始数据保存周期：乙方承诺在最终数据提供后，乙方将为甲方免费保存原始数据3个月。
@@ -9804,7 +9804,7 @@ train_images/001019-000038.png	式云分析服务，请前往美吉生物官网�
 train_images/001019-000039.png	载、打印结果报告。
 train_images/001019-000041.png	时，请在方法或者致谢部分提及美吉生物云。【“Thedatawereanalyzedthroughthefreeonlineplatform
 train_images/001019-000042.png	ofMajorbioCloudPlatform（www.majorbio.com）.”或者“XXX，XXXandXXXanalysiswereperformed
-train_images/001019-000043.png	usingthefreeonlineplatformofMajorbioCloudPlatform（www.majorbio.com）."]
+train_images/001019-000043.png	usingthefreeonlineplatformofMajorbioCloudPlatform（www.majorbio.com）."】
 train_images/001019-000044.png	二、服务周期
 train_images/001019-000046.png	而定，单细胞核测序可能会适当延后1-2个工作日）。
 train_images/001019-000048.png	地址/Addr：上海市浦东新区国际医学园区康新公路3399弄3号楼
@@ -10822,7 +10822,7 @@ train_images/001054-000016.png	承担责任。
 train_images/001054-000017.png	（6）如因非乙方原因导致合同执行中止时，甲方应按照乙方实际执行的工作量支付费用。
 train_images/001054-000018.png	（7）乙方提供的某些服务可能具备账户授权管理功能，即甲方可将甲方对服务的全部或部分操作权限授权
 train_images/001054-000020.png	过本人账户所进行的行为；甲方理解并同意，使用用户与授权管理功能是甲方自行独立审慎判断的结果，该被授
-train_images/001054-000021.png	权账户下的所有操作行为以及由此产生的结果，都将由甲方自行承担全部责任。
+train_images/001054-000021.png	权账户下的所有操作行为以及由此产生的结果，都将由甲方自行承担全部责任
 train_images/001054-000022.png	（8）甲乙双方确认，以下与服务相关的要求均属于本合同主文已约定通用服务范畴，不属于本合同“补充条
 train_images/001054-000023.png	款”可约定的内容：
 train_images/001054-000025.png	②样品的接收、处理及存储相关规范；
@@ -12202,7 +12202,7 @@ train_images/001093-000013.png	andbacteriainsoilduringtheestablishmentofbioenerg
 train_images/001093-000014.png	42.（Arch-amoA26F/Arch-amoA417R）ParkSJ，ParkBJ，RheeSK.Comparativeanalysisofarchaea
 train_images/001093-000015.png	16SrRNAandamoAgenestoestimatetheabundanceanddiversityofammonia-oxidizingarchaeain
 train_images/001093-000016.png	marinesediments.Extremophiles，2008，12（4）：605-615.DOI：10.1007/s00792-008-0165-7.
-train_images/001093-000018.png	swinefecesasthemono-substratebymcrAanalysis[J].Microbiologicalresearch，2011，166（1）：27-35.
+train_images/001093-000018.png	swinefecesasthemono-substratebymcrAanalysis[J].Microbiologicalresearch，2011，166（1）：27-35
 train_images/001093-000019.png	44.（pmoA）DengY，LiuY，DumontM，etal.SalinityAffectstheCompositionoftheAerobicMethanotrophCommunity
 train_images/001093-000020.png	inAlkalineLakeSedimentsfromtheTibetanPlateau[J].MicrobialEcology，2016，73（1）：1-10.
 train_images/001093-000021.png	45.（丛枝真菌）VanGeelM，BusschaertP，HonnayO，etal.Evaluationofsixprimerpairstargetingthe
